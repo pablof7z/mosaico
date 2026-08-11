@@ -18,14 +18,15 @@ impl Nip29Provider {
         &self,
         group: &str,
     ) -> Result<bool> {
-        let records = self
+        let read = self
             .nmp
             .fetch_group_records(group, 30, Duration::from_secs(5))
             .await
             .context("group_records_exist: relay fetch of group records failed")?;
-        Ok(records.iter().any(|event| {
+        require_proven_projection(&read, "checking whether the relay hosts the group")?;
+        Ok(read.rows.iter().any(|row| {
             matches!(
-                event.kind.as_u16(),
+                row.event.kind.as_u16(),
                 nmp_nip29::GROUP_METADATA_KIND
                     | nmp_nip29::GROUP_ADMINS_KIND
                     | nmp_nip29::GROUP_MEMBERS_KIND
@@ -47,38 +48,23 @@ impl Nip29Provider {
         })
     }
 
-    /// The `parent` group id declared in `group`'s relay-authored kind:39000 metadata.
-    pub async fn fetch_group_parent(&self, group: &str) -> Option<String> {
-        match self.try_fetch_group_parent(group).await {
-            Ok(parent) => parent,
-            Err(e) => {
-                tracing::error!(
-                    group,
-                    error = %format!("{e:#}"),
-                    "fetch_group_parent: relay fetch failed — could not determine parent"
-                );
-                None
-            }
-        }
-    }
-
     /// Fetch the declared parent without collapsing a transport failure into
     /// `None`. Readiness uses this fail-closed surface before verifying the
     /// reciprocal parent metadata.
-    pub(in crate::fabric::provider) async fn try_fetch_group_parent(
-        &self,
-        group: &str,
-    ) -> Result<Option<String>> {
+    pub(crate) async fn try_fetch_group_parent(&self, group: &str) -> Result<Option<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let evs = self
+        let read = self
             .nmp
             .fetch_group_records(group, 10, Duration::from_secs(5))
             .await
             .context("fetch_group_parent: relay fetch of kind:39000 failed")?;
-        let Some(newest) = evs
+        require_proven_projection(&read, "reading the relay-authored group parent")?;
+        let Some(newest) = read
+            .rows
             .iter()
-            .filter(|e| e.kind.as_u16() == KIND_GROUP_METADATA)
-            .max_by_key(|e| e.created_at.as_secs())
+            .map(|row| &row.event)
+            .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
+            .max_by_key(|event| event.created_at.as_secs())
         else {
             return Ok(None);
         };
@@ -93,37 +79,79 @@ impl Nip29Provider {
     }
 
     /// Fetch the relay-authored kind:39000 for ONE `group` and materialize it into
-    /// `relay_channels` via the single inbound materializer. Returns `true` once a
-    /// row for `group` exists in the cache. This is how a just-created group enters
-    /// the cache: by reading back the relay's own metadata — never by a local
-    /// optimistic write.
-    pub async fn fetch_and_materialize_channel(&self, group: &str) -> bool {
+    /// `relay_channels` via the single inbound materializer. Returns `true`
+    /// only when this NMP-proven read itself contained kind:39000. Existing
+    /// rows are usable with durable coverage, but never merely because a cache
+    /// row exists after a timeout, disconnect, or acquisition shortfall.
+    pub async fn fetch_and_materialize_channel(&self, group: &str) -> Result<bool> {
         use crate::fabric::nip29::materializer::Nip29Materializer;
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let evs = match self
+        let read = self
             .nmp
             .fetch_group_records(group, 10, Duration::from_secs(5))
             .await
-        {
-            Ok(evs) => evs,
-            Err(e) => {
-                // Relay fetch failed: surface it loudly. We fall through to the
-                // existing-cache check rather than fabricating a row.
-                tracing::error!(
-                    group,
-                    error = %format!("{e:#}"),
-                    "fetch_and_materialize_channel: relay fetch of kind:39000 failed — cannot materialize"
-                );
-                Vec::new()
-            }
-        };
-        if let Some(newest) = evs
+            .context("fetching relay-authored group metadata")?;
+        require_proven_projection(&read, "materializing relay-authored group metadata")?;
+        let Some(newest) = read
+            .rows
             .iter()
-            .filter(|e| e.kind.as_u16() == KIND_GROUP_METADATA)
-            .max_by_key(|e| e.created_at.as_secs())
-        {
-            self.with_store(|s| Nip29Materializer::materialize_channel(s, newest));
+            .map(|row| &row.event)
+            .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
+            .max_by_key(|event| event.created_at.as_secs())
+        else {
+            return Ok(false);
+        };
+        self.with_store(|s| Nip29Materializer::materialize_channel(s, newest));
+        Ok(true)
+    }
+}
+
+pub(super) fn require_proven_projection(
+    read: &crate::nmp_host::read::BoundedRead,
+    action: &str,
+) -> Result<()> {
+    if matches!(
+        read.termination,
+        crate::nmp_host::read::BoundedReadTermination::RelaySettled
+            | crate::nmp_host::read::BoundedReadTermination::CoverageProven
+    ) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "{action} ended as {:?}; acquisition evidence: {:?}",
+        read.termination,
+        read.evidence
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nmp_host::read::{BoundedRead, BoundedReadTermination};
+
+    fn read(termination: BoundedReadTermination) -> BoundedRead {
+        BoundedRead {
+            rows: Vec::new(),
+            evidence: Vec::new(),
+            termination,
         }
-        self.with_store(|s| s.get_channel(group).ok().flatten().is_some())
+    }
+
+    #[test]
+    fn durable_coverage_is_projection_evidence_but_timeout_is_not() {
+        assert!(require_proven_projection(
+            &read(BoundedReadTermination::RelaySettled),
+            "projection"
+        )
+        .is_ok());
+        assert!(require_proven_projection(
+            &read(BoundedReadTermination::CoverageProven),
+            "projection"
+        )
+        .is_ok());
+        assert!(
+            require_proven_projection(&read(BoundedReadTermination::TimedOut), "projection")
+                .is_err()
+        );
     }
 }

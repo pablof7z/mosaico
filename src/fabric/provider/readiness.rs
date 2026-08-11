@@ -206,9 +206,25 @@ fn ensure_channel_ready_inner<'a>(
         // SOOT guarantee: a ready channel must be present in `relay_channels` from
         // the relay's OWN kind:39000 — not a local optimistic write. A freshly
         // created group was already materialized above; a pre-existing group hit by
-        // a cold daemon cache is read back from the relay here (best-effort).
+        // a cold daemon cache must be read back from the relay here.
         if provider.with_store(|s| s.get_channel(ctx.channel).ok().flatten().is_none()) {
-            provider.fetch_and_materialize_channel(ctx.channel).await;
+            match provider.fetch_and_materialize_channel(ctx.channel).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    return attempt::degraded(
+                        provider,
+                        &ctx,
+                        "relay-settled group metadata read returned no kind:39000",
+                    );
+                }
+                Err(error) => {
+                    return attempt::degraded(
+                        provider,
+                        &ctx,
+                        format!("group metadata acquisition failed: {error:#}"),
+                    );
+                }
+            }
         }
 
         let invariant = verify::ensure_invariants(

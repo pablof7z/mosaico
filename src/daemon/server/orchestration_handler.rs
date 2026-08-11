@@ -69,14 +69,24 @@ pub(super) async fn handle_orchestration(
         return;
     }
 
-    if let Some(declared) = state.provider().fetch_group_parent(&op.child_h).await {
-        if declared != op.parent && op.parent != op.child_h {
+    match state.provider().try_fetch_group_parent(&op.child_h).await {
+        Ok(Some(declared)) if declared != op.parent && op.parent != op.child_h => {
             tracing::warn!(
                 event_id = %&event_id[..event_id.len().min(8)],
                 child = %op.child_h,
                 declared_parent = %declared,
                 expected_parent = %op.parent,
                 "orchestration refused: child declares a different parent"
+            );
+            return;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                event_id = %&event_id[..event_id.len().min(8)],
+                child = %op.child_h,
+                error = %format!("{error:#}"),
+                "orchestration rejected: relay parent state could not be verified"
             );
             return;
         }

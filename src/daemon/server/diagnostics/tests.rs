@@ -73,7 +73,7 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
         .nmp()
         .publish_group("project", EventBuilder::new(Kind::TextNote, "owed"), &keys)
         .expect("acceptance never depends on a relay");
-    state.nmp().script_read_events(Vec::new());
+    state.nmp().script_read_settled_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,
@@ -85,6 +85,12 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
     )
     .await;
     let json = response.ok.expect("doctor RPC response");
+    assert_eq!(json["write_probe"]["publish"]["status"], "skipped");
+    assert_eq!(json["write_probe"]["readback"]["status"], "verified");
+    assert_eq!(
+        json["write_probe"]["readback"]["acquisition"]["termination"],
+        "relay_settled"
+    );
     let queue = &json["publish_queue"];
     assert!(queue.is_object(), "{json}");
     assert!(queue["entries"].is_u64(), "{queue}");
@@ -98,6 +104,67 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
     // Nothing about it needs a person: a signer is attached and the route is
     // explicit, so it is in flight rather than stuck.
     assert!(queue["stuck"].as_array().unwrap().is_empty(), "{queue}");
+}
+
+#[tokio::test]
+async fn doctor_rpc_never_reports_cached_rows_as_current_relay_io() {
+    let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
+    state.nmp().script_read_timed_out_events(vec![event(
+        crate::fabric::nip29::wire::KIND_GROUP_METADATA,
+        vec![Tag::parse(["d", "cached-only"]).unwrap()],
+    )]);
+
+    let response = super::super::dispatch(
+        &state,
+        &Request {
+            id: 707,
+            method: "doctor".into(),
+            params: serde_json::json!({}),
+        },
+    )
+    .await;
+    let json = response.ok.expect("doctor RPC response");
+    let readback = &json["write_probe"]["readback"];
+
+    assert_eq!(json["write_probe"]["publish"]["status"], "skipped");
+    assert_eq!(readback["status"], "failed");
+    assert_eq!(readback["acquisition"]["termination"], "timed_out");
+    assert_eq!(
+        readback["acquisition"]["branches"][0]["sources"][0]["status"],
+        "Requesting"
+    );
+    assert!(readback["summary"]
+        .as_str()
+        .unwrap()
+        .contains("1 cached/current event"));
+}
+
+#[tokio::test]
+async fn doctor_rpc_reports_a_disconnected_source_after_the_engine_started() {
+    let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
+    state.nmp().script_disconnected_read();
+
+    let response = super::super::dispatch(
+        &state,
+        &Request {
+            id: 708,
+            method: "doctor".into(),
+            params: serde_json::json!({}),
+        },
+    )
+    .await;
+    let json = response.ok.expect("doctor RPC response");
+    let readback = &json["write_probe"]["readback"];
+
+    assert_eq!(readback["status"], "failed");
+    assert_eq!(
+        readback["acquisition"]["termination"],
+        "subscription_closed"
+    );
+    assert_eq!(
+        readback["acquisition"]["branches"][0]["sources"][0]["status"],
+        "Disconnected"
+    );
 }
 
 #[tokio::test]
@@ -118,11 +185,11 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
         .unwrap();
     state
         .nmp()
-        .script_read_events(group_records("project", &management));
+        .script_read_settled_events(group_records("project", &management));
     state
         .nmp()
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
-    state.nmp().script_read_events(Vec::new());
+    state.nmp().script_read_settled_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,
@@ -173,11 +240,11 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
             store.replace_channel_members("project", &[], 3)
         })
         .unwrap();
-    state.nmp().script_read_events(Vec::new());
+    state.nmp().script_read_settled_events(Vec::new());
     state
         .nmp()
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
-    state.nmp().script_read_events(Vec::new());
+    state.nmp().script_read_settled_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,

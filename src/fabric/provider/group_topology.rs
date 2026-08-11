@@ -9,12 +9,15 @@ const RELATIONSHIP_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 impl Nip29Provider {
     async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let events = self
+        let read = self
             .nmp
             .fetch_group_records(parent_h, 10, Duration::from_secs(5))
             .await?;
-        Ok(events
+        super::group_state::require_proven_projection(&read, "reading parent relationships")?;
+        Ok(read
+            .rows
             .iter()
+            .map(|row| &row.event)
             .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
             .max_by_key(|event| event.created_at.as_secs())
             .map(children_from_metadata)

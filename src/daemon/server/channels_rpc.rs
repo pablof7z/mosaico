@@ -172,6 +172,9 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         let _ = state.nmp().publish_group(&child_h, builder, &mgmt_keys);
         // Re-read the relay's now-updated kind:39000 so the `about` lands in the
         // cache from relay truth, not a local write.
+        // The channel is already provisioned by the readiness gate. This
+        // optional refresh may update `about`, but a failed acquisition must
+        // not alter the confirmed channel result.
         let _ = state
             .provider()
             .fetch_and_materialize_channel(&child_h)
