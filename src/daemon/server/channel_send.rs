@@ -204,7 +204,12 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         mentioned_pubkeys: mentioned_pubkeys.clone(),
         attachments: uploaded_attachments.clone(),
     };
-    super::managed_lifecycle::ensure_session_route_ready(state, &rec, &publish_scope).await?;
+    // Keep the exact lifecycle fence through local publish acceptance. A
+    // concurrent forget cannot delete the route/signing authority after this
+    // check and still let the retained key publish before relay cleanup.
+    let _standing_lane =
+        super::managed_lifecycle::lock_session_route_for_publish(state, &rec, &publish_scope)
+            .await?;
     let published = state
         .provider()
         .publish_chat_checked(&chat, &chat_signing_keys)

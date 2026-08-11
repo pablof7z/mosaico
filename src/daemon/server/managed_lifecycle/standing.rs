@@ -25,19 +25,12 @@ fn route_has_current_member_standing(
 /// the new process can resolve its channel immediately. A send on that exact
 /// route waits for the same serialized admission instead of racing the publish
 /// gate or implicitly joining an unrelated destination.
-pub(in crate::daemon::server) async fn ensure_session_route_ready(
-    state: &Arc<DaemonState>,
+pub(in crate::daemon::server) async fn lock_session_route_for_publish<'a>(
+    state: &'a Arc<DaemonState>,
     expected: &Session,
     channel: &str,
-) -> Result<()> {
-    if !state.with_store(|store| store.has_session_route(&expected.pubkey, channel))? {
-        return Ok(());
-    }
-    if route_has_current_member_standing(state, expected, channel)? {
-        return Ok(());
-    }
-
-    let _lane = state.standing_sync.lock().await;
+) -> Result<tokio::sync::MutexGuard<'a, ()>> {
+    let lane = state.standing_sync.lock().await;
     let session = state
         .with_store(|store| store.get_session(&expected.pubkey))?
         .context("session disappeared while awaiting channel admission")?;
@@ -47,8 +40,11 @@ pub(in crate::daemon::server) async fn ensure_session_route_ready(
             && session.is_running(),
         "session changed while awaiting channel admission"
     );
+    if !state.with_store(|store| store.has_session_route(&session.pubkey, channel))? {
+        return Ok(lane);
+    }
     if route_has_current_member_standing(state, &session, channel)? {
-        return Ok(());
+        return Ok(lane);
     }
     anyhow::ensure!(
         admission_is_current(
@@ -101,7 +97,7 @@ pub(in crate::daemon::server) async fn ensure_session_route_ready(
         .await?,
         "session channel admission became stale before send"
     );
-    Ok(())
+    Ok(lane)
 }
 
 /// Revalidate a relay-admission task while `standing_sync` is held. Existing
