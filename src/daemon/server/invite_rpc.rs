@@ -217,7 +217,6 @@ pub(super) async fn ensure_backend_admin(
         expect_member: &mgmt_hex,
         parent_hint: parent.as_deref(),
         name: None,
-        repair_whitelisted_admins: true,
     });
     let gate = tokio::time::timeout(BACKEND_ADMIN_READY_TIMEOUT, ready)
         .await

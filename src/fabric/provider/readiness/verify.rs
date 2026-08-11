@@ -1,5 +1,4 @@
-use super::{ChannelCtx, Nip29Provider};
-use crate::fabric::group_management::GroupMutationOutcome;
+use super::{admins, ChannelCtx, Nip29Provider};
 use crate::fabric::nip29::readiness::ChannelReadinessError;
 
 pub(super) struct Outcome {
@@ -21,40 +20,31 @@ pub(super) async fn ensure_invariants(
     admins_published_this_attempt: &[String],
 ) -> Outcome {
     let mut repaired = false;
-    let required_admins = required_admins(
+    let required_admins = required_admins(provider, mgmt_pubkey, parent_admins);
+    let policy =
+        if provider.with_store(|store| store.is_managed_channel(ctx.channel).unwrap_or(false)) {
+            admins::Policy::Exact
+        } else {
+            admins::Policy::Additive
+        };
+    let applied = match admins::apply(
         provider,
-        mgmt_pubkey,
-        parent_admins,
-        ctx.repair_whitelisted_admins,
-    );
-    let missing_admins = required_admins
-        .iter()
-        .filter(|pk| {
-            !admins_published_this_attempt.contains(pk)
-                && !provider.with_store(|s| s.is_channel_admin(ctx.channel, pk).unwrap_or(false))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    if !missing_admins.is_empty() {
-        match published(
-            provider
-                .grant_admins_published(ctx.channel, &missing_admins)
-                .await,
-            format!(
-                "one admin grant for {} users in {}",
-                missing_admins.len(),
-                ctx.channel
-            ),
-        ) {
-            Ok(()) => repaired = true,
-            Err(error) => {
-                return Outcome {
-                    repaired,
-                    degraded: Some(error),
-                };
-            }
+        ctx.channel,
+        &required_admins,
+        policy,
+        admins_published_this_attempt,
+    )
+    .await
+    {
+        Ok(applied) => applied,
+        Err(error) => {
+            return Outcome {
+                repaired,
+                degraded: Some(error),
+            };
         }
-    }
+    };
+    repaired |= applied.changed;
     if ctx.expect_member.is_empty() {
         return Outcome {
             repaired,
@@ -68,12 +58,14 @@ pub(super) async fn ensure_invariants(
             .iter()
             .any(|pk| pk == ctx.expect_member)
         || parent_admins.iter().any(|pk| pk == ctx.expect_member);
-    let expect_listed = provider.with_store(|s| {
-        s.is_channel_member(ctx.channel, ctx.expect_member)
-            .unwrap_or(false)
-    });
+    let expect_removed_as_admin = applied.removed.iter().any(|pk| pk == ctx.expect_member);
+    let expect_listed = !expect_removed_as_admin
+        && provider.with_store(|s| {
+            s.is_channel_member(ctx.channel, ctx.expect_member)
+                .unwrap_or(false)
+        });
     if !expect_already_admin && !expect_listed {
-        match published(
+        match admins::published(
             provider
                 .grant_member_published(ctx.channel, ctx.expect_member)
                 .await,
@@ -98,14 +90,11 @@ pub(super) fn required_admins(
     provider: &Nip29Provider,
     mgmt_pubkey: &str,
     parent_admins: &[String],
-    repair_whitelisted_admins: bool,
 ) -> Vec<String> {
     let mut required = vec![mgmt_pubkey.to_string()];
-    if repair_whitelisted_admins {
-        for pubkey in &provider.whitelisted_pubkeys {
-            if !required.contains(pubkey) {
-                required.push(pubkey.clone());
-            }
+    for pubkey in &provider.whitelisted_pubkeys {
+        if !required.contains(pubkey) {
+            required.push(pubkey.clone());
         }
     }
     for pubkey in parent_admins {
@@ -114,13 +103,4 @@ pub(super) fn required_admins(
         }
     }
     required
-}
-
-fn published(outcome: GroupMutationOutcome, action: String) -> Result<(), ChannelReadinessError> {
-    match outcome {
-        GroupMutationOutcome::Published => Ok(()),
-        GroupMutationOutcome::Failed(error) => {
-            Err(ChannelReadinessError::from(error).context(action))
-        }
-    }
 }

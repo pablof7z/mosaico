@@ -4,6 +4,7 @@ use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate, ChannelReadinessE
 use std::future::Future;
 use std::pin::Pin;
 
+mod admins;
 mod ancestry;
 mod attempt;
 mod local;
@@ -37,7 +38,6 @@ impl Nip29Provider {
             expect_member: ctx.expect_member,
             parent_hint: parent_hint.as_deref(),
             name: ctx.name,
-            repair_whitelisted_admins: ctx.repair_whitelisted_admins,
         };
         ensure_channel_ready_inner(self, normalized).await
     }
@@ -87,7 +87,7 @@ fn ensure_channel_ready_inner<'a>(
         let mgmt_pubkey = mgmt_keys.public_key().to_hex();
 
         let parent_admins: Vec<String> = if let Some(parent) = parent_hint {
-            match ancestry::ensure_parent(provider, &ctx, parent, &mgmt_pubkey).await {
+            match ancestry::ensure_parent(provider, parent, &mgmt_pubkey).await {
                 Ok(admins) => admins,
                 Err(error) => {
                     return attempt::degraded_error(provider, &ctx, error);
@@ -135,12 +135,7 @@ fn ensure_channel_ready_inner<'a>(
             s.is_channel_admin(ctx.channel, &mgmt_pubkey)
                 .unwrap_or(false)
         }) {
-            let required_admins = verify::required_admins(
-                provider,
-                &mgmt_pubkey,
-                &parent_admins,
-                ctx.repair_whitelisted_admins,
-            );
+            let required_admins = verify::required_admins(provider, &mgmt_pubkey, &parent_admins);
             let granted = provider
                 .try_grant_admins_via_user_nsec(ctx.channel, &required_admins)
                 .await;

@@ -143,3 +143,39 @@ fn channel_resolution_intent_reuses_reserved_id_for_name() {
         Some("channel")
     );
 }
+
+#[test]
+fn managed_channel_proof_excludes_unrelated_observed_groups_and_survives_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        store.upsert_channel("root", "Root", "", "", 1).unwrap();
+        store
+            .upsert_workspace("root", "/tmp/managed-root", 1)
+            .unwrap();
+        store
+            .reserve_channel_resolution_intent("root", "child", "child", 2)
+            .unwrap();
+        store
+            .upsert_channel("child", "Child", "", "root", 3)
+            .unwrap();
+        store
+            .upsert_channel("unrelated", "Elsewhere", "", "", 4)
+            .unwrap();
+    }
+
+    let reopened = Store::open(&path).unwrap();
+    assert!(reopened.is_managed_channel("root").unwrap());
+    assert!(reopened.is_managed_channel("child").unwrap());
+    assert!(!reopened.is_managed_channel("unrelated").unwrap());
+    assert_eq!(
+        reopened
+            .list_managed_channels()
+            .unwrap()
+            .into_iter()
+            .map(|channel| channel.channel_h)
+            .collect::<Vec<_>>(),
+        vec!["child", "root"]
+    );
+}

@@ -33,7 +33,6 @@ fn context<'a>(expect_member: &'a str, parent_hint: Option<&'a str>) -> ChannelC
         expect_member,
         parent_hint,
         name: None,
-        repair_whitelisted_admins: true,
     }
 }
 
@@ -62,6 +61,20 @@ fn materialized_relay_cache_does_not_prove_missing_member_ready() {
 #[test]
 fn materialized_relay_cache_does_not_prove_missing_admin_ready() {
     let (_dir, store) = ready_store("", &["other-admin"], &["member"]);
+
+    assert!(!local::store_ready(
+        &store,
+        &context("member", None),
+        &["admin".to_string()]
+    ));
+}
+
+#[test]
+fn managed_relay_cache_is_not_ready_while_an_obsolete_admin_remains() {
+    let (_dir, store) = ready_store("", &["admin", "obsolete"], &["member"]);
+    store
+        .upsert_workspace("room", "/tmp/managed-room", 103)
+        .unwrap();
 
     assert!(!local::store_ready(
         &store,
@@ -136,4 +149,35 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
         ancestry::resolved_parent_hint_from_store(&store, "room", Some("captured-parent")).unwrap(),
         Some("relay-parent".into())
     );
+}
+
+#[tokio::test]
+async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roster_patch() {
+    let configured = nostr::Keys::generate().public_key().to_hex();
+    let removed = nostr::Keys::generate().public_key().to_hex();
+    let state =
+        crate::daemon::server::DaemonState::new_for_test_with_whitelisted(vec![configured.clone()])
+            .await;
+    let management = state.fabric_provider().management_pubkey().unwrap();
+    state
+        .with_store(|store| {
+            store.upsert_channel("room", "Room", "", "", 1)?;
+            store.upsert_workspace("room", "/tmp/managed-room", 1)?;
+            store.replace_channel_admins("room", &[management, configured, removed.clone()], 2)?;
+            store.replace_channel_members("room", &[], 2)
+        })
+        .unwrap();
+    state
+        .nmp()
+        .script_write_error("terminal receipt", "relay explicitly rejected removal");
+
+    let error = state
+        .fabric_provider()
+        .reconcile_managed_admins("room", None)
+        .await
+        .unwrap_err();
+    let rendered = format!("{:#}", anyhow::Error::new(error));
+    assert!(rendered.contains("one obsolete admin removal for 1 users"));
+    assert!(rendered.contains("relay explicitly rejected removal"));
+    assert!(state.with_store(|store| store.is_channel_admin("room", &removed).unwrap()));
 }

@@ -130,7 +130,6 @@ pub async fn rpc_channel_add_member(
         expect_member: "",
         parent_hint: parent_hint.as_deref(),
         name: None,
-        repair_whitelisted_admins: true,
     });
     let gate = tokio::time::timeout(CHANNEL_MEMBER_READY_TIMEOUT, ready)
         .await

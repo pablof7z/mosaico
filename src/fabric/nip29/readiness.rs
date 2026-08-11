@@ -27,8 +27,6 @@ pub struct ChannelCtx<'a> {
     /// locally: that cache is materialized solely from observed relay events. A
     /// root group always names itself after its slug, so `None` is correct there.
     pub name: Option<&'a str>,
-    /// Whether this check should also repair whitelisted human admin grants.
-    pub repair_whitelisted_admins: bool,
 }
 
 /// Outcome of a readiness check.

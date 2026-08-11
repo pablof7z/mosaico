@@ -120,7 +120,6 @@ async fn ensure_existing_channel_ready(
             expect_member: agent_pubkey,
             parent_hint: readiness_parent,
             name,
-            repair_whitelisted_admins: true,
         };
         state.provider().ensure_channel_ready(ctx).await
     };

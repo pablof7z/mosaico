@@ -4,6 +4,12 @@ use super::*;
 use anyhow::{Context, Result};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
+#[path = "config_reload/admin_reconciliation.rs"]
+mod admin_reconciliation;
+pub(super) use admin_reconciliation::reconcile_managed_admins;
+#[cfg(test)]
+use admin_reconciliation::{managed_admin_targets, ManagedAdminTarget};
+
 const SETTLE: Duration = Duration::from_millis(75);
 
 pub(super) struct ConfigWatcher {
@@ -80,6 +86,7 @@ fn reload(
     }
     super::lifecycle::auth_restore::restore(state)
         .context("restoring identities after config reload")?;
+    reconcile_managed_admins(state);
     Ok(true)
 }
 

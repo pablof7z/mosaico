@@ -37,7 +37,7 @@ impl DaemonState {
                 harnesses
             });
         let cfg = Config {
-            whitelisted_pubkeys,
+            whitelisted_pubkeys: whitelisted_pubkeys.clone(),
             relays: relays.clone(),
             indexer_relay: String::new(),
             host: "test-host".into(),
@@ -57,7 +57,7 @@ impl DaemonState {
             store.clone(),
             Some(backend_key),
             None,
-            Vec::new(),
+            whitelisted_pubkeys,
         ));
         let provider = Arc::new(std::sync::RwLock::new(provider));
         let nmp = Arc::new(std::sync::RwLock::new(nmp));
