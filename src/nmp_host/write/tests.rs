@@ -126,6 +126,28 @@ async fn an_offline_relay_does_not_delay_acceptance() {
     );
 }
 
+#[tokio::test]
+async fn a_bounded_result_wait_does_not_turn_disconnection_into_an_unbounded_doctor() {
+    let host = Arc::new(one_host());
+    let started = std::time::Instant::now();
+    let error = host
+        .publish_group_result_within(
+            "room-a",
+            EventBuilder::new(Kind::TextNote, "bounded doctor"),
+            &Keys::generate(),
+            Duration::from_millis(20),
+        )
+        .await
+        .expect_err("an unreachable relay cannot produce a terminal result immediately");
+
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert!(
+        format!("{error:#}").contains("remains in NMP's durable queue"),
+        "{error:#}"
+    );
+    assert_eq!(host.publish_queue_snapshot().outstanding, 1);
+}
+
 /// A group write with no configured host cannot resolve, and says so at the
 /// door rather than taking custody of something that can never go anywhere.
 #[tokio::test]

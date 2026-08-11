@@ -194,11 +194,11 @@ mod tests {
     async fn session_start_readiness_keeps_exact_checked_publish_failure() {
         let state =
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
-        state.nmp().script_read_events(Vec::new());
+        state.nmp().script_read_settled_events(Vec::new());
         state
             .nmp()
             .script_write_error("scripted NMP publish refusal", FAILURE);
-        state.nmp().script_read_events(Vec::new());
+        state.nmp().script_read_settled_events(Vec::new());
 
         let error = verify_start_channel_ready(
             &state,

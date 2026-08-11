@@ -123,6 +123,31 @@ fn a_sibling_branch_never_completes_another() {
 }
 
 #[test]
+fn bounded_read_termination_distinguishes_settled_coverage_and_timeout() {
+    assert_eq!(
+        termination_for(
+            &branch(vec![source(SourceStatus::FinishedStoredEvents, None)]),
+            BoundedReadTermination::TimedOut,
+        ),
+        BoundedReadTermination::RelaySettled
+    );
+    assert_eq!(
+        termination_for(
+            &branch(vec![source(SourceStatus::CoverageSatisfied, Some(10))]),
+            BoundedReadTermination::TimedOut,
+        ),
+        BoundedReadTermination::CoverageProven
+    );
+    assert_eq!(
+        termination_for(
+            &branch(vec![source(SourceStatus::Requesting, None)]),
+            BoundedReadTermination::TimedOut,
+        ),
+        BoundedReadTermination::TimedOut
+    );
+}
+
+#[test]
 fn filter_preserves_multiple_indexed_constraints() {
     let filter = filter(
         &[1],

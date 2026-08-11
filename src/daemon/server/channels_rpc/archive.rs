@@ -41,6 +41,8 @@ pub(in crate::daemon::server) async fn archive_channel(
             .publish_group(channel, builder, &mgmt_keys)?
             .to_hex()
     };
+    // Best-effort refresh only: `metadata_confirmed` below stays false when
+    // current relay acquisition fails, so cached state cannot claim success.
     let _ = state
         .provider()
         .fetch_and_materialize_channel(channel)

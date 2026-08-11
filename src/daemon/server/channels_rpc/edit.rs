@@ -45,7 +45,10 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
 
 async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about: &str) -> bool {
     for _ in 0..20 {
-        state
+        // Each acquisition must settle before it can materialize anything.
+        // A failed attempt simply consumes one bounded retry; the final
+        // `confirmed` result remains false rather than trusting stale cache.
+        let _ = state
             .provider()
             .fetch_and_materialize_channel(channel_h)
             .await;

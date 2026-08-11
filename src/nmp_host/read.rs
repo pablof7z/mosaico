@@ -5,10 +5,32 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use nmp::{AccessContext, AcquisitionEvidence, Binding, IndexedTagName, SourceStatus, Window};
-use nostr::Event;
+use nmp::{AccessContext, AcquisitionEvidence, Binding, IndexedTagName, Row, SourceStatus, Window};
 
 use super::NmpHost;
+
+/// One bounded NMP observation snapshot without erasing where its rows came
+/// from, what each query branch proved, or why observation stopped.
+#[derive(Debug, Clone)]
+pub(crate) struct BoundedRead {
+    pub(crate) rows: Vec<Row>,
+    pub(crate) evidence: Vec<AcquisitionEvidence>,
+    pub(crate) termination: BoundedReadTermination,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BoundedReadTermination {
+    /// Every planned source reached end-of-stored-events for every branch.
+    RelaySettled,
+    /// Durable coverage already answered every branch without current relay
+    /// settlement. Useful cache evidence, but not proof of current relay I/O.
+    CoverageProven,
+    /// The caller's failure bound elapsed before either NMP fact above.
+    TimedOut,
+    /// The engine closed the observation before either NMP fact above.
+    SubscriptionClosed,
+}
 
 impl NmpHost {
     /// Read the relay-signed records describing ONE group — kinds
@@ -20,7 +42,7 @@ impl NmpHost {
         group: &str,
         max_rows: usize,
         timeout: Duration,
-    ) -> Result<Vec<Event>> {
+    ) -> Result<BoundedRead> {
         self.fetch_query(self.group_records_query(group)?, max_rows, timeout)
             .await
     }
@@ -30,7 +52,7 @@ impl NmpHost {
         &self,
         max_rows: usize,
         timeout: Duration,
-    ) -> Result<Vec<Event>> {
+    ) -> Result<BoundedRead> {
         self.fetch_query(self.all_group_metadata_query()?, max_rows, timeout)
             .await
     }
@@ -42,7 +64,7 @@ impl NmpHost {
         filter: nmp::Filter,
         max_rows: usize,
         timeout: Duration,
-    ) -> Result<Vec<Event>> {
+    ) -> Result<BoundedRead> {
         self.fetch_query(
             self.group_contents_query(group, strip_limit(filter))?,
             max_rows,
@@ -61,7 +83,7 @@ impl NmpHost {
         filter: nmp::Filter,
         max_rows: usize,
         timeout: Duration,
-    ) -> Result<Vec<Event>> {
+    ) -> Result<BoundedRead> {
         let query = self.host_pinned_query(
             &self.profile_relays,
             strip_limit(filter),
@@ -76,7 +98,7 @@ impl NmpHost {
         query: nmp::LiveQuery,
         max_rows: usize,
         timeout: Duration,
-    ) -> Result<Vec<Event>> {
+    ) -> Result<BoundedRead> {
         #[cfg(test)]
         if let Some(result) = self.test_io.take_read() {
             return result;
@@ -105,47 +127,61 @@ fn strip_limit(mut filter: nmp::Filter) -> nmp::Filter {
 }
 
 /// `timeout` is the caller's FAILURE bound and nothing else: it caps how long
-/// a read may hang, and a read that hits it yields a snapshot only if the
-/// evidence independently justifies one. It is never the thing that decides a
-/// read is finished — that is `acquisition_settled`, a fact the relays report.
-fn receive_bounded(subscription: nmp::Subscription, timeout: Duration) -> Result<Vec<Event>> {
+/// a read may hang, then returns the latest rows and evidence explicitly marked
+/// `TimedOut`. It is never the thing that decides a read is finished — that is
+/// `acquisition_settled`, a fact the relays report.
+fn receive_bounded(subscription: nmp::Subscription, timeout: Duration) -> Result<BoundedRead> {
     let deadline = Instant::now() + timeout;
     let mut latest = None;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return finish_latest(latest);
+            return finish_latest(latest, BoundedReadTermination::TimedOut);
         }
         match subscription.recv_timeout(remaining) {
             Ok(frame) => {
                 let done = read_complete(&frame.evidence);
                 latest = Some(frame);
                 if done {
-                    return finish_latest(latest);
+                    return finish_latest(latest, BoundedReadTermination::TimedOut);
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return finish_latest(latest),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return finish_latest(latest, BoundedReadTermination::TimedOut);
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return finish_latest(latest).context("NMP read disconnected")
+                return finish_latest(latest, BoundedReadTermination::SubscriptionClosed)
+                    .context("NMP read disconnected");
             }
         }
     }
 }
 
-fn finish_latest(frame: Option<nmp::Frame>) -> Result<Vec<Event>> {
+fn finish_latest(
+    frame: Option<nmp::Frame>,
+    fallback: BoundedReadTermination,
+) -> Result<BoundedRead> {
     let frame = frame.context("NMP read produced no snapshot")?;
     let window = frame.window.context("NMP bounded read had no window")?;
-    // An empty row set is evidence of nothing on its own. It becomes an answer
-    // only once the sources reported one — either they finished answering or
-    // they proved the window. A read that merely ran out of time reports a
-    // failure, so no clock can manufacture an authoritative empty.
-    if window.rows.is_empty() && !read_complete(&frame.evidence) {
-        anyhow::bail!(
-            "NMP read ended without a usable relay acquisition attempt: {:?}",
-            frame.evidence
-        );
+    let termination = termination_for(&frame.evidence, fallback);
+    Ok(BoundedRead {
+        rows: window.rows,
+        evidence: frame.evidence,
+        termination,
+    })
+}
+
+fn termination_for(
+    evidence: &[AcquisitionEvidence],
+    fallback: BoundedReadTermination,
+) -> BoundedReadTermination {
+    if acquisition_settled(evidence) {
+        BoundedReadTermination::RelaySettled
+    } else if acquisition_ready(evidence) {
+        BoundedReadTermination::CoverageProven
+    } else {
+        fallback
     }
-    Ok(window.rows.into_iter().map(|row| row.event).collect())
 }
 
 /// Per-branch acquisition evidence is positionally indexed against

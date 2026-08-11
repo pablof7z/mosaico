@@ -1,9 +1,11 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use anyhow::Result;
+use nmp::{AccessContext, AcquisitionEvidence, Row, SourceEvidence, SourceStatus};
 use nostr::Event;
 
+use super::read::{BoundedRead, BoundedReadTermination};
 use super::NmpHost;
 
 struct ScriptedError {
@@ -12,7 +14,7 @@ struct ScriptedError {
 }
 
 enum ReadResult {
-    Events(Vec<Event>),
+    Snapshot(BoundedRead),
 }
 
 #[derive(Default)]
@@ -36,10 +38,10 @@ impl TestIo {
         ))
     }
 
-    pub(super) fn take_read(&self) -> Option<Result<Vec<Event>>> {
+    pub(super) fn take_read(&self) -> Option<Result<BoundedRead>> {
         let scripted = self.reads.lock().unwrap().pop_front()?;
         Some(match scripted {
-            ReadResult::Events(events) => Ok(events),
+            ReadResult::Snapshot(snapshot) => Ok(snapshot),
         })
     }
 }
@@ -56,11 +58,62 @@ impl NmpHost {
             });
     }
 
-    pub(crate) fn script_read_events(&self, events: Vec<Event>) {
+    pub(crate) fn script_read_settled_events(&self, events: Vec<Event>) {
+        self.script_read(
+            events,
+            SourceStatus::FinishedStoredEvents,
+            BoundedReadTermination::RelaySettled,
+        );
+    }
+
+    pub(crate) fn script_read_timed_out_events(&self, events: Vec<Event>) {
+        self.script_read(
+            events,
+            SourceStatus::Requesting,
+            BoundedReadTermination::TimedOut,
+        );
+    }
+
+    pub(crate) fn script_disconnected_read(&self) {
+        self.script_read(
+            Vec::new(),
+            SourceStatus::Disconnected,
+            BoundedReadTermination::SubscriptionClosed,
+        );
+    }
+
+    fn script_read(
+        &self,
+        events: Vec<Event>,
+        status: SourceStatus,
+        termination: BoundedReadTermination,
+    ) {
+        let relay =
+            nmp::RelayUrl::parse("wss://scripted-read.example").expect("static scripted relay");
+        let rows = events
+            .into_iter()
+            .map(|event| Row {
+                event,
+                sources: BTreeSet::from([relay.clone()]),
+            })
+            .collect();
+        let evidence = vec![AcquisitionEvidence {
+            sources: vec![SourceEvidence {
+                relay,
+                access: AccessContext::Public,
+                reconciled_through: None,
+                status,
+            }],
+            shortfall: Vec::new(),
+        }];
         self.test_io
             .reads
             .lock()
             .unwrap()
-            .push_back(ReadResult::Events(events));
+            .push_back(ReadResult::Snapshot(BoundedRead {
+                rows,
+                evidence,
+                termination,
+            }));
     }
 }

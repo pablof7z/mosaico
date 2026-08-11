@@ -67,7 +67,13 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     .await
     .expect("presence publisher status receipt");
 
-    state.nmp().script_read_events(Vec::new());
+    // This test is about the durable queue/status receipt, not a live relay.
+    // Refuse the doctor's active probe at NMP's publish door so it remains
+    // bounded instead of inventing a successful relay handoff.
+    state
+        .nmp()
+        .script_write_error("doctor test probe", "relay probe deliberately unavailable");
+    state.nmp().script_read_settled_events(Vec::new());
     let response = super::super::super::dispatch(
         &state,
         &Request {

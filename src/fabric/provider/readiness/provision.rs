@@ -24,8 +24,13 @@ pub(super) async fn missing_group(
         GroupPublishOutcome::Failed(error) => Some(error),
     };
     if creation_error.is_some() {
-        if provider.fetch_and_materialize_channel(ctx.channel).await {
-            return Ok(false);
+        match provider.fetch_and_materialize_channel(ctx.channel).await {
+            Ok(true) => return Ok(false),
+            Ok(false) => {}
+            Err(read_error) => {
+                return Err(ChannelReadinessError::reason(format!("{read_error:#}"))
+                    .context("group creation failed and relay metadata could not be checked"));
+            }
         }
         return Err(creation_error
             .map(ChannelReadinessError::from)
@@ -33,7 +38,7 @@ pub(super) async fn missing_group(
             .context("relay metadata remained absent after group creation"));
     }
 
-    if !await_metadata(provider, ctx.channel).await {
+    if !await_metadata(provider, ctx.channel).await? {
         return Err(ChannelReadinessError::reason(
             "kind:39000 did not materialize after group creation",
         ));
@@ -42,14 +47,24 @@ pub(super) async fn missing_group(
     Ok(true)
 }
 
-async fn await_metadata(provider: &Nip29Provider, channel: &str) -> bool {
+async fn await_metadata(
+    provider: &Nip29Provider,
+    channel: &str,
+) -> Result<bool, ChannelReadinessError> {
+    let mut last_error = None;
     for attempt in 0..12u32 {
-        if provider.fetch_and_materialize_channel(channel).await {
-            return true;
+        match provider.fetch_and_materialize_channel(channel).await {
+            Ok(true) => return Ok(true),
+            Ok(false) => last_error = None,
+            Err(error) => last_error = Some(error),
         }
         tokio::time::sleep(backoff(attempt)).await;
     }
-    false
+    match last_error {
+        Some(error) => Err(ChannelReadinessError::reason(format!("{error:#}"))
+            .context("relay metadata acquisition did not settle after group creation")),
+        None => Ok(false),
+    }
 }
 
 /// Wait for the relay's own kind:39001 to name the management identity.
