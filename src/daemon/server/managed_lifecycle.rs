@@ -10,7 +10,7 @@ mod standing;
 #[path = "managed_lifecycle/tests.rs"]
 mod tests;
 pub(super) use standing::{
-    admission_is_current, commit_confirmed_admission, ensure_session_route_ready,
+    admission_is_current, commit_confirmed_admission, lock_session_route_for_publish,
 };
 
 pub(super) async fn reconcile_stopping(state: &Arc<DaemonState>) {
