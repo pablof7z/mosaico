@@ -246,6 +246,9 @@ fn wait_for_write(
             Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Cancelled))) => {
                 anyhow::bail!("NMP test write was cancelled")
             }
+            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::SignerRefused))) => {
+                anyhow::bail!("NMP test write was refused by the signer")
+            }
             Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Superseded))) => {
                 anyhow::bail!("NMP test write was superseded by a newer write")
             }

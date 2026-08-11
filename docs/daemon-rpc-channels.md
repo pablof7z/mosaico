@@ -80,11 +80,12 @@ Returns the current relay-confirmed membership roster.
 ```jsonc
 params: {"channel": "#root/child", "pubkey": "hex", "admin": false}
 result: {"channel": "#root/child", "pubkey": "hex", "role": "member",
-         "confirmed": true}
+         "published": true}
 ```
 
-Adds or removes one human or agent pubkey. Membership mutations are confirmed
-against relay state before success is reported.
+Adds or removes one human or agent pubkey. Success means NMP received the
+terminal publication result from every configured group relay. The observed
+NIP-29 group records remain the only source of roster state.
 
 ## `channel_create`
 
@@ -136,7 +137,7 @@ leave result: {"channel": "#root/child", "left": true|false}
 
 All three require an existing full path. Join is additive and never creates.
 Leave is explicit and may leave the joined set empty. Archive updates metadata
-and removes non-admin members after relay confirmation.
+and removes all non-admin members in one event after NMP reports publication.
 
 ## `channel_delete`
 

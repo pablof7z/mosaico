@@ -51,26 +51,16 @@ pub(in crate::daemon::server) async fn archive_channel(
     let members = state.with_store(|s| s.list_channel_members(channel))?;
     let admins = members.iter().filter(|m| m.role == "admin").count();
     let remove_targets = archive_removal_targets(&members);
-    let mut failures = Vec::new();
-    for pubkey in &remove_targets {
+    if !remove_targets.is_empty() {
         let outcome = state
             .provider()
-            .remove_member_confirmed(channel, pubkey)
+            .remove_members_published(channel, &remove_targets)
             .await;
-        if let Err(error) = outcome.require_confirmed(format!(
-            "removing {} while archiving {}",
-            crate::util::pubkey_short(pubkey),
+        outcome.require_published(format!(
+            "removing {} non-admin member(s) in one event while archiving {}",
+            remove_targets.len(),
             channel_ref
-        )) {
-            failures.push(format!("{error:#}"));
-        }
-    }
-    if !failures.is_empty() {
-        anyhow::bail!(
-            "archived metadata for {channel_ref}, but failed to confirm removal of {} non-admin member(s): {}",
-            failures.len(),
-            failures.join(", ")
-        );
+        ))?;
     }
 
     Ok(serde_json::json!({

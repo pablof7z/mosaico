@@ -20,7 +20,7 @@ pub(super) async fn missing_group(
         provider.nip29_create_root_outcome(ctx.channel).await
     };
     let creation_error = match creation {
-        GroupPublishOutcome::Applied => None,
+        GroupPublishOutcome::Published => None,
         GroupPublishOutcome::Failed(error) => Some(error),
     };
     if creation_error.is_some() {

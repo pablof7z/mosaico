@@ -28,7 +28,8 @@ pub(in crate::daemon::server) fn recorded_channels(
 }
 
 /// Explicit operator destruction has no grace window. Attempt every recorded
-/// channel even when the local membership mirror is stale, and await read-back.
+/// channel even when the observed roster is stale, and await NMP's terminal
+/// publication result.
 pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
     state: &Arc<DaemonState>,
     pubkey: &str,
@@ -44,15 +45,15 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
             .flatten();
         let outcome = state
             .provider()
-            .remove_member_confirmed(&channel, pubkey)
+            .remove_member_published(&channel, pubkey)
             .await;
         if let Err(error) =
-            outcome.require_confirmed(format!("removing revoked session from {}", public_channel))
+            outcome.require_published(format!("removing revoked session from {}", public_channel))
         {
             tracing::warn!(
                 channel = %channel,
                 error = %format!("{error:#}"),
-                "revoked-session membership removal was not confirmed"
+                "revoked-session membership removal was not published"
             );
             failures.push(format!("{error:#}"));
         } else if let Some(standing) = standing {
@@ -68,10 +69,10 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
                 tracing::warn!(
                     channel = %channel,
                     error = %format!("{error:#}"),
-                    "confirmed membership removal could not be persisted"
+                    "published membership removal could not be recorded"
                 );
                 failures.push(format!(
-                    "{public_channel}: confirmed membership removal could not be persisted"
+                    "{public_channel}: published membership removal could not be recorded"
                 ));
             }
         }

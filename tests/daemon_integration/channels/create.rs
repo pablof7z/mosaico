@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "create/admin_inheritance.rs"]
+mod admin_inheritance;
+
 fn start_creator(home: &Home, sid: &str) -> String {
     initialize_workspace_root("tmp", "/tmp");
     rt().block_on(async {

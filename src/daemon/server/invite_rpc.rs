@@ -228,10 +228,10 @@ pub(super) async fn ensure_backend_admin(
             )
         })?;
     gate.require_ready(format!("preparing channel {channel} for remote invite"))?;
-    let confirmed = provider
-        .grant_admin_confirmed(channel_h, backend_pubkey)
+    let published = provider
+        .grant_admin_published(channel_h, backend_pubkey)
         .await;
-    confirmed.require_confirmed(format!(
+    published.require_published(format!(
         "granting backend {} access to channel {}",
         crate::util::pubkey_short(backend_pubkey),
         channel

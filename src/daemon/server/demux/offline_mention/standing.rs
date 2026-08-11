@@ -49,10 +49,10 @@ pub(super) async fn confirm(state: &Arc<DaemonState>, pubkey: &str, channel: &st
         .with_context(|| format!("exact recovery target {pubkey} disappeared"))?;
     let outcome = state
         .provider()
-        .grant_member_confirmed(channel, pubkey)
+        .grant_member_published(channel, pubkey)
         .await;
-    if !outcome.is_confirmed() {
-        anyhow::bail!("relay admission was not confirmed: {outcome:?}");
+    if !outcome.is_published() {
+        anyhow::bail!("relay admission event was not published: {outcome:?}");
     }
     if !super::super::super::managed_lifecycle::commit_confirmed_admission(
         state,

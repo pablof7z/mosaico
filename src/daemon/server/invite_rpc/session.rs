@@ -148,9 +148,9 @@ async fn ensure_live_session_member(
 
     let added = state
         .provider()
-        .grant_member_confirmed(channel_h, &rec.pubkey)
+        .grant_member_published(channel_h, &rec.pubkey)
         .await;
-    added.require_confirmed(format!(
+    added.require_published(format!(
         "joining session {} to channel {}",
         rec.pubkey, channel
     ))?;

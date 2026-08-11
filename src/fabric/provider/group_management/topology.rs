@@ -17,7 +17,7 @@ impl Nip29Provider {
             "9002 edit-metadata (name)",
         )
         .await
-        .is_applied()
+        .is_published()
     }
 
     pub(in crate::fabric::provider) async fn nip29_create_root_outcome(

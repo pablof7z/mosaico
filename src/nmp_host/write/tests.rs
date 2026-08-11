@@ -1,5 +1,8 @@
+use super::group_management::require_every_group_host_published;
 use super::*;
-use nostr::{EventBuilder, Kind};
+use nmp::{ReceiptResult, RelayState, WriteOutcome};
+use nostr::{EventBuilder, Kind, RelayUrl};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -141,4 +144,48 @@ async fn a_group_write_with_no_configured_host_is_refused_at_the_door() {
             .contains("no configured NIP-29 group host"),
         "{error:#}"
     );
+}
+
+#[test]
+fn terminal_result_requires_every_group_host_to_publish() {
+    let accepted = RelayUrl::parse("wss://accepted.example").unwrap();
+    let rejected = RelayUrl::parse("wss://rejected.example").unwrap();
+    let success = ReceiptResult {
+        outcome: WriteOutcome::Settled,
+        relays: BTreeMap::from([(accepted.clone(), RelayState::Published)]),
+    };
+    require_every_group_host_published(&success).unwrap();
+
+    let mixed = ReceiptResult {
+        outcome: WriteOutcome::Settled,
+        relays: BTreeMap::from([
+            (accepted, RelayState::Published),
+            (
+                rejected,
+                RelayState::Rejected {
+                    reason: "not an administrator".into(),
+                },
+            ),
+        ]),
+    };
+    let error = require_every_group_host_published(&mixed).unwrap_err();
+    let rendered = format!("{error:#}");
+    assert!(rendered.contains("wss://rejected.example"), "{rendered}");
+    assert!(rendered.contains("not an administrator"), "{rendered}");
+}
+
+#[test]
+fn local_or_whole_write_terminal_is_never_called_relay_success() {
+    for result in [
+        ReceiptResult {
+            outcome: WriteOutcome::NoDestination,
+            relays: BTreeMap::new(),
+        },
+        ReceiptResult {
+            outcome: WriteOutcome::Settled,
+            relays: BTreeMap::new(),
+        },
+    ] {
+        assert!(require_every_group_host_published(&result).is_err());
+    }
 }

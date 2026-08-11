@@ -18,24 +18,33 @@ pub(super) async fn ensure_invariants(
     ctx: &ChannelCtx<'_>,
     mgmt_pubkey: &str,
     parent_admins: &[String],
+    admins_published_this_attempt: &[String],
 ) -> Outcome {
     let mut repaired = false;
-    let mut required_admins: Vec<String> = vec![mgmt_pubkey.to_string()];
-    if ctx.repair_whitelisted_admins {
-        required_admins.extend(provider.whitelisted_pubkeys.iter().cloned());
-    }
-    for pk in parent_admins {
-        if !required_admins.contains(pk) {
-            required_admins.push(pk.clone());
-        }
-    }
-    for pk in &required_admins {
-        if provider.with_store(|s| s.is_channel_admin(ctx.channel, pk).unwrap_or(false)) {
-            continue;
-        }
-        match confirmed(
-            provider.grant_admin_confirmed(ctx.channel, pk).await,
-            format!("admin grant for {pk} in {}", ctx.channel),
+    let required_admins = required_admins(
+        provider,
+        mgmt_pubkey,
+        parent_admins,
+        ctx.repair_whitelisted_admins,
+    );
+    let missing_admins = required_admins
+        .iter()
+        .filter(|pk| {
+            !admins_published_this_attempt.contains(pk)
+                && !provider.with_store(|s| s.is_channel_admin(ctx.channel, pk).unwrap_or(false))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !missing_admins.is_empty() {
+        match published(
+            provider
+                .grant_admins_published(ctx.channel, &missing_admins)
+                .await,
+            format!(
+                "one admin grant for {} users in {}",
+                missing_admins.len(),
+                ctx.channel
+            ),
         ) {
             Ok(()) => repaired = true,
             Err(error) => {
@@ -64,9 +73,9 @@ pub(super) async fn ensure_invariants(
             .unwrap_or(false)
     });
     if !expect_already_admin && !expect_listed {
-        match confirmed(
+        match published(
             provider
-                .grant_member_confirmed(ctx.channel, ctx.expect_member)
+                .grant_member_published(ctx.channel, ctx.expect_member)
                 .await,
             format!("member grant for {} in {}", ctx.expect_member, ctx.channel),
         ) {
@@ -78,8 +87,6 @@ pub(super) async fn ensure_invariants(
                 };
             }
         }
-    } else {
-        sync_local_member_mirror(provider, ctx);
     }
     Outcome {
         repaired,
@@ -87,61 +94,33 @@ pub(super) async fn ensure_invariants(
     }
 }
 
-fn confirmed(outcome: GroupMutationOutcome, action: String) -> Result<(), ChannelReadinessError> {
+pub(super) fn required_admins(
+    provider: &Nip29Provider,
+    mgmt_pubkey: &str,
+    parent_admins: &[String],
+    repair_whitelisted_admins: bool,
+) -> Vec<String> {
+    let mut required = vec![mgmt_pubkey.to_string()];
+    if repair_whitelisted_admins {
+        for pubkey in &provider.whitelisted_pubkeys {
+            if !required.contains(pubkey) {
+                required.push(pubkey.clone());
+            }
+        }
+    }
+    for pubkey in parent_admins {
+        if !required.contains(pubkey) {
+            required.push(pubkey.clone());
+        }
+    }
+    required
+}
+
+fn published(outcome: GroupMutationOutcome, action: String) -> Result<(), ChannelReadinessError> {
     match outcome {
-        GroupMutationOutcome::Confirmed => Ok(()),
-        GroupMutationOutcome::Unconfirmed { detail } => Err(ChannelReadinessError::reason(
-            format!("{action} was not confirmed: {detail}"),
-        )),
+        GroupMutationOutcome::Published => Ok(()),
         GroupMutationOutcome::Failed(error) => {
             Err(ChannelReadinessError::from(error).context(action))
         }
     }
-}
-
-fn sync_local_member_mirror(provider: &Nip29Provider, ctx: &ChannelCtx<'_>) {
-    let locally =
-        provider.with_store(
-            |s| match s.is_channel_member(ctx.channel, ctx.expect_member) {
-                Ok(present) => present,
-                Err(e) => {
-                    tracing::error!(
-                        channel = ctx.channel,
-                        pubkey = ctx.expect_member,
-                        error = %e,
-                        "ensure_channel_ready: is_channel_member probe failed; re-syncing"
-                    );
-                    false
-                }
-            },
-        );
-    if locally {
-        return;
-    }
-    // Which of the two relay-signed lists names the subject decides the row.
-    // A subject on kind:39001 is an admin however the relay filled — or left
-    // empty — the role position beside it.
-    let role = if provider.with_store(|s| {
-        s.is_channel_admin(ctx.channel, ctx.expect_member)
-            .unwrap_or(false)
-    }) {
-        "admin"
-    } else {
-        "member"
-    };
-    provider.with_store(|s| {
-        if let Err(e) = s.upsert_channel_member(
-            ctx.channel,
-            ctx.expect_member,
-            role,
-            crate::util::now_secs(),
-        ) {
-            tracing::error!(
-                channel = ctx.channel,
-                pubkey = ctx.expect_member,
-                error = %e,
-                "ensure_channel_ready: local member mirror sync failed"
-            );
-        }
-    });
 }
