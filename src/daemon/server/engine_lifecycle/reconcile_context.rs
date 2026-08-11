@@ -49,7 +49,6 @@ pub(super) async fn restore_routes(state: &Arc<DaemonState>, session: &Session, 
                 expect_member: &session.pubkey,
                 parent_hint: parent_hint.as_deref(),
                 name: None,
-                repair_whitelisted_admins: true,
             })
             .await;
         if let ChannelGate::Degraded(error) = gate {

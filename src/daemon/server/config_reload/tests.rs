@@ -114,3 +114,69 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
         }
     );
 }
+
+#[tokio::test]
+async fn managed_child_inherits_the_parents_desired_generation_without_roster_polling() {
+    let configured = Keys::generate().public_key().to_hex();
+    let removed = Keys::generate().public_key().to_hex();
+    let state = DaemonState::new_for_test_with_whitelisted(vec![configured.clone()]).await;
+    let management = state.provider().management_pubkey().unwrap();
+    state
+        .with_store(|store| {
+            store.upsert_channel("root", "Root", "", "", 1)?;
+            store.upsert_workspace("root", "/tmp/root", 1)?;
+            store.reserve_channel_resolution_intent("root", "child", "child", 2)?;
+            store.upsert_channel("child", "Child", "", "root", 2)?;
+            store.replace_channel_admins(
+                "root",
+                &[management.clone(), configured.clone(), removed.clone()],
+                3,
+            )?;
+            store.replace_channel_admins(
+                "child",
+                &[management.clone(), configured.clone(), removed],
+                3,
+            )
+        })
+        .unwrap();
+
+    let targets = managed_admin_targets(&state, &state.provider()).unwrap();
+    assert_eq!(
+        targets,
+        vec![
+            ManagedAdminTarget {
+                channel: "root".into(),
+                managed_parent: None,
+                inherited_admins: Vec::new(),
+            },
+            ManagedAdminTarget {
+                channel: "child".into(),
+                managed_parent: Some("root".into()),
+                inherited_admins: vec![management, configured],
+            },
+        ]
+    );
+}
+
+#[tokio::test]
+async fn managed_child_of_an_external_group_inherits_the_observed_parent_admins() {
+    let inherited = Keys::generate().public_key().to_hex();
+    let state = DaemonState::new_for_test().await;
+    state
+        .with_store(|store| {
+            store.upsert_channel("external", "External", "", "", 1)?;
+            store.replace_channel_admins("external", std::slice::from_ref(&inherited), 1)?;
+            store.reserve_channel_resolution_intent("external", "child", "child", 2)?;
+            store.upsert_channel("child", "Child", "", "external", 2)
+        })
+        .unwrap();
+
+    assert_eq!(
+        managed_admin_targets(&state, &state.provider()).unwrap(),
+        vec![ManagedAdminTarget {
+            channel: "child".into(),
+            managed_parent: None,
+            inherited_admins: vec![inherited],
+        }]
+    );
+}

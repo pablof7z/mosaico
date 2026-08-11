@@ -80,7 +80,6 @@ pub(in crate::daemon::server) async fn lock_session_route_for_publish<'a>(
                 expect_member: &session.pubkey,
                 parent_hint: parent.as_deref(),
                 name: None,
-                repair_whitelisted_admins: true,
             }),
     )
     .await
@@ -338,7 +337,6 @@ async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) 
                     expect_member: &session.pubkey,
                     parent_hint: parent.as_deref(),
                     name: None,
-                    repair_whitelisted_admins: true,
                 },
             ),
         )

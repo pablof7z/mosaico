@@ -5,6 +5,9 @@
 
 use super::*;
 
+const MAX_RETAINED_ATTEMPTS: i64 = 500;
+const RETAIN_FOR_SECS: u64 = 60 * 60;
+
 /// Durable record of a host/provider channel readiness attempt. These are not
 /// authoritative channel state; they explain local provisioning decisions that
 /// otherwise only existed in daemon logs.
@@ -70,7 +73,18 @@ impl Store {
                 row.created_at,
             ],
         )?;
-        Ok(self.conn.last_insert_rowid())
+        let inserted = self.conn.last_insert_rowid();
+        let oldest = row.created_at.saturating_sub(RETAIN_FOR_SECS);
+        self.conn.execute(
+            "DELETE FROM channel_readiness_attempts
+             WHERE created_at < ?1
+                OR id NOT IN (
+                    SELECT id FROM channel_readiness_attempts
+                    ORDER BY created_at DESC, id DESC LIMIT ?2
+                )",
+            params![oldest, MAX_RETAINED_ATTEMPTS],
+        )?;
+        Ok(inserted)
     }
 
     pub fn channel_readiness_attempts(
@@ -97,5 +111,40 @@ impl Store {
                 row_to_attempt,
             )
             .optional()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attempt(created_at: u64) -> NewChannelReadinessAttempt {
+        NewChannelReadinessAttempt {
+            channel_h: "room".into(),
+            expect_member: String::new(),
+            parent_hint: None,
+            name: None,
+            source: "test".into(),
+            outcome: "ready".into(),
+            reason: "test".into(),
+            created_at,
+        }
+    }
+
+    #[test]
+    fn readiness_history_keeps_only_one_hour_and_the_newest_five_hundred_rows() {
+        let store = Store::open_memory().unwrap();
+        store.record_channel_readiness_attempt(&attempt(1)).unwrap();
+        for created_at in 10_000..10_510 {
+            store
+                .record_channel_readiness_attempt(&attempt(created_at))
+                .unwrap();
+        }
+
+        let retained = store.channel_readiness_attempts("room", 1_000).unwrap();
+        assert_eq!(retained.len(), MAX_RETAINED_ATTEMPTS as usize);
+        assert_eq!(retained.first().unwrap().created_at, 10_509);
+        assert_eq!(retained.last().unwrap().created_at, 10_010);
+        assert!(store.channel_readiness_attempt(1).unwrap().is_none());
     }
 }

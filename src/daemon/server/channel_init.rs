@@ -39,7 +39,6 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
         expect_member: &management_pubkey,
         parent_hint: None,
         name: None,
-        repair_whitelisted_admins: true,
     });
     let ready = tokio::time::timeout(READY_TIMEOUT, readiness)
         .await

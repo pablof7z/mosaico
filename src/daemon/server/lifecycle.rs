@@ -132,7 +132,7 @@ pub async fn run() -> Result<()> {
         if let Err(e) = sync_subscriptions(&relay_state).await {
             tracing::warn!(error = %e, "initial subscription sync failed");
         }
-
+        super::config_reload::reconcile_managed_admins(&relay_state);
         // Revive sessions a previous daemon left behind and reconcile their NMP
         // observations.
         reconcile_sessions(&relay_state, startup_sessions).await;

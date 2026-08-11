@@ -80,7 +80,6 @@ pub(in crate::daemon::server) async fn resolve_channel(
             // Operator-chosen name rides on the create publish; the relay's
             // kind:39000 echo lands it in the cache.
             name: Some(name),
-            repair_whitelisted_admins: true,
         })
         .await;
     // Fail loud: the relay never confirmed the new channel (its kind:39000 did not

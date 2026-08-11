@@ -4,38 +4,9 @@ use crate::fabric::nip29::lifecycle::as_nostr;
 
 const CHANNEL_CREATE_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
-pub(in crate::daemon::server) async fn ensure_session_room(
-    state: &Arc<DaemonState>,
-    room_h: &str,
-    name: &str,
-    parent: &str,
-    member_pubkey: &str,
-) -> crate::fabric::nip29::readiness::ChannelGate {
-    // Provision the room through the SAME shared primitive every channel uses
-    // (per-session rooms, orchestration task rooms, operator-created channels):
-    // ensure the parent channel exists (recursively), create+lock the subgroup,
-    // propagate the parent's trusted admin set DOWN, and add the owning agent as a
-    // member. Best-effort and fail-open — a degraded relay leaves the session
-    // running without a relay-backed room.
-    let gate = state
-        .provider()
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: room_h,
-            expect_member: member_pubkey,
-            parent_hint: Some(parent),
-            // The intended room name rides on the create publish; the relay's
-            // kind:39000 echo is what lands it in the cache.
-            name: Some(name),
-            repair_whitelisted_admins: true,
-        })
-        .await;
-    let _ = ensure_subscription(state, room_h).await;
-
-    // The channel `name` is set ONLY at create (or explicit edit) — never from a
-    // session's agent-supplied title — so there is no room auto-rename here.
-
-    gate
-}
+#[path = "channels_rpc/session_room.rs"]
+mod session_room;
+pub(in crate::daemon::server) use session_room::ensure_session_room;
 
 pub(in crate::daemon::server) async fn rpc_channel_create(
     state: &Arc<DaemonState>,
@@ -105,7 +76,15 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
 
     // Opaque random child id; the human handle lives in the kind:39000 `name`,
     // never in the id, and the hierarchy lives in the `parent` metadata.
-    let child_h = crate::util::opaque_group_id();
+    let proposed_child_h = crate::util::opaque_group_id();
+    let child_h = state.with_store(|store| {
+        store.reserve_channel_resolution_intent(
+            &parent,
+            &name,
+            &proposed_child_h,
+            crate::util::now_secs(),
+        )
+    })?;
 
     // Resolve each backend label to the backend's pubkey. The label is the raw
     // config.json `backendName`, not a pubkey, NIP-05, or OS/DNS hostname.
@@ -151,7 +130,6 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         // Operator-chosen name rides on the create publish; the relay's
         // kind:39000 echo lands it in the cache (no local fabrication).
         name: Some(&name),
-        repair_whitelisted_admins: true,
     });
     let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
         .await

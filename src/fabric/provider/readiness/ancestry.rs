@@ -35,7 +35,6 @@ pub(super) fn resolved_parent_hint_from_store(
 
 pub(super) async fn ensure_parent(
     provider: &Nip29Provider,
-    child: &ChannelCtx<'_>,
     parent: &str,
     management_pubkey: &str,
 ) -> Result<Vec<String>, ChannelReadinessError> {
@@ -48,7 +47,6 @@ pub(super) async fn ensure_parent(
         expect_member: management_pubkey,
         parent_hint: grandparent.as_deref(),
         name: None,
-        repair_whitelisted_admins: child.repair_whitelisted_admins,
     };
     if let ChannelGate::Degraded(error) = ensure_channel_ready_inner(provider, parent_ctx).await {
         return Err(error.context(format!("parent channel {parent} readiness failed")));

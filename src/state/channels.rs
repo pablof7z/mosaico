@@ -287,5 +287,8 @@ impl Store {
     }
 }
 
+#[path = "channels/ownership.rs"]
+mod ownership;
+
 #[cfg(test)]
 mod tests;
