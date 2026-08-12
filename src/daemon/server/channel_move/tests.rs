@@ -1,5 +1,8 @@
 use super::*;
-use crate::state::{RecordMessage, RegisterSession, StopReason};
+use crate::state::{
+    Profile, RegisterSession, RelayEvent, StopReason, TestGroup, TestGroupDelivery,
+    TestRelayDelivery,
+};
 
 const A1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const A2: &str = "2222222222222222222222222222222222222222222222222222222222222222";
@@ -10,9 +13,6 @@ const HUMAN: &str = "66666666666666666666666666666666666666666666666666666666666
 const BACKEND: &str = "7777777777777777777777777777777777777777777777777777777777777777";
 
 fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str) -> u64 {
-    store
-        .upsert_profile(pubkey, slug, slug, "test-host", false, 1)
-        .unwrap();
     store
         .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pubkey.into(),
@@ -26,30 +26,41 @@ fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str) -> u64 {
         .unwrap()
 }
 
-fn record(store: &crate::state::Store, id: usize, author: &str, at: u64) {
-    store
-        .record_message(&RecordMessage {
-            message_id: format!("message-{id}"),
-            thread_id: "root".into(),
-            channel_h: "root".into(),
-            author_pubkey: author.into(),
-            body: format!("substantive coordination message {id}"),
-            created_at: at,
-            sync_state: "accepted".into(),
-            native_event_id: None,
-            error: None,
-        })
-        .unwrap();
+fn profile(pubkey: &str, slug: &str, is_backend: bool) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: slug.into(),
+        slug: slug.into(),
+        agent_slug: String::new(),
+        host: "test-host".into(),
+        is_backend,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 1,
+    }
+}
+
+fn event(id: &str, kind: u16, author: &str, body: &str, at: u64, tags: &str) -> RelayEvent {
+    RelayEvent {
+        id: id.into(),
+        kind: kind as u32,
+        pubkey: author.into(),
+        created_at: at,
+        channel_h: "root".into(),
+        d_tag: String::new(),
+        content: body.into(),
+        tags_json: tags.into(),
+    }
 }
 
 #[tokio::test]
 async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
     let state = DaemonState::new_for_test_with_whitelisted(vec![HUMAN.into()]).await;
     state.with_store(|store| {
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store
-            .upsert_channel("child", "child", "", "root", 2)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root").metadata("root", "", "", 1),
+            TestGroup::new("child").metadata("child", "", "root", 2),
+        ]));
 
         let a1_generation = seed_session(store, A1, "a1");
         let a2_generation = seed_session(store, A2, "a2");
@@ -58,9 +69,6 @@ async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
         let stopped_generation = seed_session(store, STOPPED, "stopped");
         seed_session(store, HUMAN, "human");
         seed_session(store, BACKEND, "backend");
-        store
-            .upsert_profile(BACKEND, "backend", "backend", "test-host", true, 2)
-            .unwrap();
 
         store
             .apply_session_turn_started(A1, a1_generation, 900)
@@ -77,6 +85,7 @@ async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
             )
             .unwrap();
 
+        let mut events = Vec::new();
         for (id, author, at) in [
             (1, A1, 800),
             (2, A2, 805),
@@ -88,14 +97,44 @@ async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
             (8, HUMAN, 835),
             (9, BACKEND, 840),
         ] {
-            record(store, id, author, at);
+            events.push(event(
+                &format!("message-{id}"),
+                9,
+                author,
+                &format!("substantive coordination message {id}"),
+                at,
+                "[]",
+            ));
         }
-        store
-            .upsert_reaction("reaction-silent", "message-1", "root", SILENT, "👀", 850)
-            .unwrap();
-        store
-            .upsert_reaction("reaction-human", "message-1", "root", HUMAN, "👍", 851)
-            .unwrap();
+        events.push(event(
+            "reaction-silent",
+            7,
+            SILENT,
+            "👀",
+            850,
+            r#"[["e","message-1"]]"#,
+        ));
+        events.push(event(
+            "reaction-human",
+            7,
+            HUMAN,
+            "👍",
+            851,
+            r#"[["e","message-1"]]"#,
+        ));
+        store.install_test_nmp_relay_delivery(
+            TestRelayDelivery::new()
+                .profiles([
+                    profile(A1, "a1", false),
+                    profile(A2, "a2", false),
+                    profile(A3, "a3", false),
+                    profile(SILENT, "silent", false),
+                    profile(STOPPED, "stopped", false),
+                    profile(HUMAN, "human", false),
+                    profile(BACKEND, "backend", true),
+                ])
+                .events(events),
+        );
     });
 
     let evidence = current_evidence(&state, "root", 1_000)

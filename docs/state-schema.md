@@ -1,15 +1,15 @@
 # State schema and upgrades
 
-`state.db` is daemon-owned local persistence. Installing a newer binary must
-not create an operator-visible database step: after taking the daemon startup
-lock and before serving requests, the store runs every stamped migration from
-the installed schema to the binary's current schema.
+`state.db` is daemon-owned local persistence. It is not a cache or replica of
+Nostr. NMP retained observations are the sole authority for current groups,
+profiles, statuses, events, messages, recipients, and reactions.
 
-Each migration is a one-way SQLite transaction. It preserves non-rebuildable
-local state, removes the superseded schema in the same commit, and never leaves
-a runtime dual-read, legacy key, or compatibility path behind. Rebuildable
-`relay_*` projections may be recreated from relay truth; local session,
-delivery, signing, and workspace state must be copied intentionally.
+Installing a newer binary must not create an operator-visible database step.
+After taking the daemon startup lock and before serving requests, the store runs
+every stamped migration from the installed schema to the binary's current
+schema. Each migration is a one-way SQLite transaction: it preserves current
+product-local state, removes the superseded schema in the same commit, and
+leaves no runtime dual-read, alias, or compatibility path.
 
 The migration table is compile-time-sized from `SCHEMA_VERSION`. Bumping the
 version without adding the next contiguous migration does not compile. Tests
@@ -17,126 +17,116 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 21
+## Current schema: 22
 
-Schema 21 adds `session_coaching`, a generation-scoped ledger of progressive
-agent guidance already emitted. Its `(pubkey, runtime_generation, code)` key
-makes a coaching decision durable across daemon restarts without suppressing
-the same first-use guidance for a later runtime generation.
+Schema 22 removes all relay-derived persistence:
 
-Schema 20 removes the redundant `messages.direction` field after accepted NMP
-writes became the single source of local message materialization.
+- `relay_channels`, `relay_channel_members`, and
+  `relay_channel_member_sets`;
+- `relay_profiles`, `relay_status`, and `relay_status_sets`;
+- `relay_events` and `relay_reactions`;
+- `messages` and `message_recipients`.
 
-Schema 19 adds `messages.attachment_dir`, the verified local directory for
-received attachment labels.
+The current schema validator requires those tables to be absent. Mosaico does
+not rebuild them after startup. Relay views repopulate only from active NMP
+observations and disappear when NMP removes them or their observation closes.
 
-Schema 18 replaces each session's single current-channel pointer with durable
-multi-channel membership and arrival-sequence join fences, simplifies standing
-to `member` or `absent`, and adds workspace/branch status projection.
+The migration preserves exactly two small satellites from the former event and
+message tables:
 
-Schema 17 moves host capability and workspace discovery into the management
-key's complete kind:0 profile snapshot. `relay_profiles.agents_json` stores the
-host-owned `(slug, about)` inventory and `workspaces_json` stores the roots that
-host knows. Updating a profile replaces both sets atomically. The separate
-agent-advertisement table is dropped, and cached backend profiles are cleared
-during migration so the daemon refetches complete snapshots from relay truth.
+| Table | Durable local fact | Explicitly does not store |
+|---|---|---|
+| `nmp_event_arrivals` | Event id plus host-local monotonically increasing arrival sequence | Event kind, author, tags, content, timestamp, sources, or replacement state |
+| `message_attachments` | Event id plus verified directory containing downloaded files on this host | Message content, recipients, attachment tags, URLs, or relay metadata |
 
-Schema 16 removes the transcript path and explicit-chat publication marker from
-sessions after transcript auto-publication was removed.
+The arrival sequence is a local route fence. It lets automatic ambient context
+distinguish events observed before and after a session joined without copying
+the event. The attachment directory is a local filesystem binding joined onto
+an NMP-owned message while that message is present.
 
-Schema 15 adds `sessions.busy_seconds`, the persisted cumulative working time
-used by session lifecycle projections.
+The remaining tables are product-local authority:
 
-Schema 14 adds `native_turn_attempts`, the daemon-owned operational ledger for
-RPC turn attempts. Each row correlates the public session, runtime generation,
-delivery kind, triggering inbox event when one exists, native thread, native
-turn, and one terminal outcome. It does not store presence. Open attempts are
-reconciled to `unknown_reconciled` after daemon restart; finished rows expire
-after seven days.
+| Class | Tables |
+|---|---|
+| Sessions and local identity | `sessions`, `session_coaching`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` |
+| Routes and reconciliation | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` |
+| Delivery and execution | `inbox`, `event_claims`, `native_turn_attempts` |
+| Operational evidence | `channel_readiness_attempts`, `receipts` |
 
-Schema 13 adds an exact semantic transition clock to local sessions and remote
-status rows. Lease renewal does not advance this clock.
+`session_channels` stores durable channel affinity plus signed-time and
+arrival-sequence join fences. `session_standing` stores local desired standing
+and cleanup progress. Neither table is evidence of current relay membership;
+that comes only from the current NMP group observation.
 
-Schema 12 adds stable MCP actor aliases.
+The `inbox` is exact-recipient delivery state, not ambient history. Only an
+observed message explicitly p-tagging a daemon-owned pubkey may create a pending
+row. Publish acceptance alone creates no inbox work. The row remains claimable
+when it predates registration or its route is later removed because local
+delivery belongs to the exact identity, independently of ambient membership.
 
-Schema 11 keeps schema 10's lifecycle shape and closes the one-time delivery
-state gap for sessions migrated from the pre-lifecycle daemon. Historical
-`injected` inbox rows are converted to `echo_consumed` only when their target
-session is already idle. Pending delivery and injected work owned by a Working
-session remain fenced.
+Completed offline-mention claims are compact durable tombstones keyed by event
+and exact recipient. They do not expire: NMP may redeliver an event after
+reconnection, and recovery or process launch must remain idempotent. The
+tombstone does not keep the relay event current or make it readable after NMP
+removes it.
 
-Schema 10 keeps schema 9's admitted-runtime facts and makes managed lifecycle
-ownership explicit in each `sessions` row:
-
-| Field | Meaning |
-|-------|---------|
-| `observed_harness` | Harness established from the admitted launch plan or an observed external process. Hook claims never write this field. |
-| `claimed_harness` | Last harness name claimed by a hook, retained only for mismatch diagnostics. |
-| `admitted_bundle` | Exact configured bundle selected for a hosted launch; empty for externally discovered or migrated sessions. |
-| `admitted_transport` | Hosted transport admitted for this runtime: `pty`, `acp`, `app-server`, or empty when unknown/not hosted. |
-| `endpoint_provenance` | Source of the endpoint facts: `launch`, `hook`, `migration`, or empty when unavailable. |
-| `runtime_state` | Current incarnation state: `running`, `stopping`, or `stopped`. |
-| `presentation_state` | PTY presentation: `headed`, `headless`, or `unavailable`. |
-| `work_state` | Whether the runtime is `idle` or `working`. |
-| `recovery_state` | Exact-session recovery authority: `pending`, `ready`, or irreversibly `revoked`. |
-| `lifecycle_epoch` / `attachment_epoch` | Independent fences for runtime transitions and PTY client edges. |
-| `idle_since` / `idle_deadline` | Durable headless-idle eviction clock. |
-| `stopped_at` / `stop_reason` | Durable terminal transition and its typed cause. |
-| `turn_count` | Whether this identity has ever owned a provider turn, independent of a native resume locator. |
+Runtime endpoint locators carry their owning generation. PTY supervisor
+attachment epochs and exit reports fence late callbacks, while persisted idle
+deadlines let restart reconciliation continue the same headless-idle policy.
+Only explicit forget/revoke changes recovery to `revoked` and removes the local
+signer, routes, and locators after process termination is confirmed.
 
 Launch admission facts are immutable for a runtime generation. A later hook may
 update `claimed_harness`, but cannot reclassify a launch-owned
 `observed_harness`, `admitted_bundle`, `admitted_transport`, or
 `endpoint_provenance`. Delivery resolves the exact locator keyed by the stored
-observed harness and admitted transport; ACP and app-server keep distinct,
-generation-fenced locator kinds even though they share the JSON-RPC engine. It never re-reads
-mutable agent or bundle configuration to rediscover a live runtime. A newly admitted runtime
-generation records its own fresh launch facts.
+observed harness and admitted transport; it never rereads mutable agent or
+bundle configuration to rediscover a live runtime's transport.
 
-`session_channels` stores durable channel affinity and recovery authority;
-`session_standing` separately stores whether the exact pubkey is a member or
-absent. Stopping a runtime does not change either record or remove relay
-membership. A confirmed relay admission is committed with the runtime
-generation and lifecycle epoch that requested it; stale or failed commits first
-persist immediately-due cleanup work so removal can be retried after a daemon
-or relay failure. Explicit leave or recovery revocation removes the route and
-changes standing to absent only after the corresponding relay cleanup.
+## Migration history
 
-Runtime endpoint locators carry their owning generation. PTY supervisor
-attachment epochs and exit reports fence late callbacks, while persisted idle
-deadlines let restart reconciliation continue the same ten-minute headless-idle
-policy. Only explicit forget/revoke changes recovery to `revoked` and removes
-the local signer, routes, and locators after process termination is confirmed.
+These entries describe the source shape of older deployments. They are not
+current read contracts.
 
-The `inbox` is direct-recipient state, not ambient history. A relay-accepted
-event explicitly p-tagging a daemon-owned pubkey creates one pending inbox row
-and one recipient edge atomically. Claiming that row does not consult
-`session_channels`; it remains claimable when it predates registration or when
-the route is later removed. Ambient context reads continue to apply both the
-arrival-sequence and signed-time join fences.
+- **Schema 21** added `session_coaching`, a generation-scoped ledger of
+  progressive agent guidance already emitted.
+- **Schema 20** removed the redundant historical `messages.direction` field.
+- **Schema 19** added a verified attachment directory to the historical
+  `messages` projection. Schema 22 moves only non-empty directories into
+  `message_attachments` before dropping that projection.
+- **Schema 18** replaced each session's single current-channel pointer with
+  durable multi-channel routes and arrival-sequence join fences, simplified
+  standing to `member` or `absent`, and added the then-current status
+  projection.
+- **Schema 17** moved host capability and workspace discovery into complete
+  kind:0 profile snapshots. The historical profile cache is removed by schema
+  22; current profile state is read from NMP.
+- **Schema 16** removed transcript paths and the explicit-chat publication
+  marker after transcript auto-publication was removed.
+- **Schema 15** added cumulative working time to session lifecycle state.
+- **Schema 14** added `native_turn_attempts`, the daemon-owned operational
+  ledger for generation-fenced native RPC turns. Open attempts reconcile to
+  `unknown_reconciled` after restart; uncertainty never causes turn replay.
+- **Schema 13** added exact semantic transition clocks to local sessions and
+  the then-current remote status projection. The remote projection is removed
+  by schema 22.
+- **Schema 12** added stable MCP actor aliases.
+- **Schema 11** closed a one-time delivery-state gap for sessions migrated from
+  the pre-lifecycle daemon.
+- **Schema 10** introduced explicit runtime, presentation, work, recovery,
+  lifecycle-epoch, attachment-epoch, idle-deadline, and terminal-stop state.
 
-Completed offline-mention claims are compact durable tombstones keyed by event
-and exact recipient. Unlike ordinary completed operation ledgers, they do not
-expire: relay observations can replay old Nostr events, and recovery or process
-launch must remain idempotent independently of local chat-cache retention.
+The schema-9-to-10 migration replaced the old `alive`/`working` booleans and
+session-claim cleanup model with typed lifecycle and standing tables. It
+preserved admission fields, kept ACP and app-server locator kinds distinct, and
+initialized local standing from the evidence available in that source schema.
 
-The schema-9-to-10 migration replaces the old `alive`/`working` booleans and
-session-claim cleanup model with the typed lifecycle and standing tables. It
-preserves every schema 9 admission field, keeps ACP and app-server locator
-kinds distinct, and initializes standing only from locally recorded routes plus
-confirmed relay membership.
+The schema-8-to-9 migration renamed `harness` to `observed_harness`, left
+`claimed_harness` and `admitted_bundle` empty, and marked migrated rows with
+`endpoint_provenance = 'migration'`. It inferred transport only from exact
+locators and remained explicit about facts the old schema could not preserve.
 
-The earlier schema-8-to-9 migration renames `harness` to `observed_harness`, leaves
-`claimed_harness` and `admitted_bundle` empty, and marks every migrated row with
-`endpoint_provenance = 'migration'`. It infers `admitted_transport` only from an
-exact `(pubkey, observed_harness)` locator. Codex `acp` locators from schema 8
-become `app_server`; other `acp` locators remain ACP. A PTY locator is used only
-when neither RPC locator exists. Migrated provenance is deliberately honest
-about the facts the old schema could not preserve.
-
-Cross-store ownership changes require a crash-safe handoff. Schema 7 writes
-retryable SQLite outbox rows to an fsynced sidecar before dropping the old
-tables. The new daemon imports exact group events into NMP's durable queue and
-kind:0 events through the profile publisher, deleting each journal only after
-acceptance. A crash or unavailable relay therefore causes an idempotent retry,
-not a lost write or a blocked schema upgrade.
+The older schema-7 ownership handoff used an fsynced sidecar so accepted local
+write obligations could move into NMP's durable queue before superseded tables
+were dropped. That was a migration mechanism, not a current alternate write
+path.

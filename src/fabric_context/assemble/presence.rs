@@ -33,7 +33,7 @@ fn presence_row(
     cursor: u64,
     now: u64,
 ) -> Option<PresenceRow> {
-    let presence = projected_presence(status, now);
+    let presence = projected_presence(status);
     let changed_at = if presence.state == status.state {
         status.changed_at
     } else {
@@ -83,7 +83,7 @@ fn presence_snapshot_row_with_failure(
     if status.pubkey == inputs.meta.self_pubkey {
         return None;
     }
-    let presence = projected_presence(status, now);
+    let presence = projected_presence(status);
     let text = presence.text();
     if text.is_empty() && native_failure.is_none() {
         return None;
@@ -154,15 +154,16 @@ fn presence_reference(inputs: &ViewInputs, status: &StatusCap) -> String {
 
 pub(in crate::fabric_context) fn projected_presence(
     status: &StatusCap,
-    now: u64,
 ) -> crate::session_presence::PublicPresence {
-    crate::session_presence::observed(
-        status.state,
-        status.state_since,
-        &status.title,
-        &status.activity,
-        status.observed_at,
-        status.expiration,
-        now,
-    )
+    crate::session_presence::PublicPresence {
+        state: status.state,
+        state_since: status.state_since,
+        title: status.title.clone(),
+        activity: if status.state.is_working() {
+            status.activity.clone()
+        } else {
+            String::new()
+        },
+        observed_at: status.observed_at,
+    }
 }

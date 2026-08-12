@@ -1,5 +1,7 @@
 use super::*;
-use crate::state::{RecordMessage, RegisterSession};
+use crate::state::{
+    Profile, RegisterSession, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 
 const A1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const A2: &str = "2222222222222222222222222222222222222222222222222222222222222222";
@@ -32,9 +34,6 @@ fn evidence(cohort: Vec<ParticipantSnapshot>) -> ConversationEvidence {
 
 fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str, now: u64) -> u64 {
     store
-        .upsert_profile(pubkey, slug, slug, "test-host", false, now)
-        .unwrap();
-    store
         .reserve_hook_session_for_test(&RegisterSession {
             pubkey: pubkey.into(),
             observed_harness: "codex".into(),
@@ -47,20 +46,31 @@ fn seed_session(store: &crate::state::Store, pubkey: &str, slug: &str, now: u64)
         .unwrap()
 }
 
-fn record(store: &crate::state::Store, id: usize, author: &str, body: String, at: u64) {
-    store
-        .record_message(&RecordMessage {
-            message_id: format!("message-{id}"),
-            thread_id: "root".into(),
-            channel_h: "root".into(),
-            author_pubkey: author.into(),
-            body,
-            created_at: at,
-            sync_state: "accepted".into(),
-            native_event_id: None,
-            error: None,
-        })
-        .unwrap();
+fn profile(pubkey: &str, slug: &str, at: u64) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: slug.into(),
+        slug: slug.into(),
+        agent_slug: String::new(),
+        host: "test-host".into(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: at,
+    }
+}
+
+fn record(id: usize, author: &str, body: String, at: u64) -> RelayEvent {
+    RelayEvent {
+        id: format!("message-{id}"),
+        kind: 9,
+        pubkey: author.into(),
+        created_at: at,
+        channel_h: "root".into(),
+        d_tag: String::new(),
+        content: body,
+        tags_json: "[]".into(),
+    }
 }
 
 #[test]
@@ -129,18 +139,18 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
     let state = DaemonState::new_for_test().await;
     let now = now_secs();
     state.with_store(|store| {
-        store.upsert_channel("root", "root", "", "", now).unwrap();
-        store
-            .upsert_channel("child", "focused", "", "root", now)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root").metadata("root", "", "", now),
+            TestGroup::new("child")
+                .metadata("focused", "", "root", now)
+                .members(vec![A1.into(), A2.into()]),
+        ]));
         let a1_generation = seed_session(store, A1, "a1", now.saturating_sub(60));
         seed_session(store, A2, "a2", now.saturating_sub(60));
         store
             .apply_session_turn_started(A1, a1_generation, now)
             .unwrap();
-        store
-            .replace_channel_members("child", &[A1.into(), A2.into()], now)
-            .unwrap();
+        let mut events = Vec::new();
         for (id, author, ago) in [
             (1, A1, 30),
             (2, A2, 25),
@@ -149,21 +159,27 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
             (5, A1, 10),
             (6, A2, 5),
         ] {
-            record(
-                store,
+            events.push(record(
                 id,
                 author,
                 format!("substantive coordination message {id}"),
                 now.saturating_sub(ago),
-            );
+            ));
         }
-        record(
-            store,
+        events.push(record(
             7,
             A1,
             "Continue this conversation in #root/focused; existing channel memberships are unchanged"
                 .into(),
             now,
+        ));
+        store.install_test_nmp_relay_delivery(
+            TestRelayDelivery::new()
+                .profiles([
+                    profile(A1, "a1", now.saturating_sub(60)),
+                    profile(A2, "a2", now.saturating_sub(60)),
+                ])
+                .events(events),
         );
     });
 

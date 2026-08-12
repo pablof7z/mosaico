@@ -1,16 +1,16 @@
 //! NMP-backed Nostr acquisition and durable publication.
 //!
 //! NMP owns relay planning, subscription lifecycle, canonical wire-event
-//! deduplication, and acquisition evidence. Mosaico keeps its product read model:
-//! delivered events are projected into `state.db` by the existing fabric
-//! materializer. NMP also owns every durable write intent, route, receipt, and
-//! bounded retry. Shared reads are public because Mosaico-created groups are
-//! deliberately public; writes authenticate as the exact event author. The
-//! provider supplies product policy and exact host authority.
+//! deduplication, current event state, and acquisition evidence. Mosaico keeps
+//! only process-local presentation projections and genuinely local durable
+//! facts. NMP also owns every durable write intent, route, receipt, and bounded
+//! retry. Shared reads are public because Mosaico-created groups are deliberately
+//! public; writes authenticate as the exact event author. The provider supplies
+//! product policy and exact host authority.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use nmp::{AccessContext, Engine, EngineConfig, ObservationCancel, RelayUrl};
@@ -29,55 +29,14 @@ mod stress;
 mod test_io;
 pub(crate) mod write;
 
+use crate::nmp_views::{NmpViews, RowTransition};
 use auth::IdentityRegistration;
 
-const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
+const VIEW_TRANSITION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
 
-/// One NMP frame's row transition, carried and applied as a UNIT.
-///
-/// The unit is the point. A relay republishing an addressable event — every
-/// NIP-29 roster change does this — arrives as `Removed(old_id)` and
-/// `Added(new_id)` **in the same frame**, and `Removed` carries only an id.
-/// The delivered delta order is event-id ascending, not causal
-/// (`nmp::runtime::row_channel` re-folds a frame through a `BTreeMap`), so a
-/// consumer that acts on each delta as it arrives can render a momentarily
-/// empty roster purely on hex ordering. Handing the whole frame across, and
-/// applying removals before additions, is the only shape under which the
-/// batch's final state is the batch's intent.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(crate) struct MaterializationBatch {
-    /// Rows that left the observation's row set.
-    pub(crate) removed: Vec<nostr::EventId>,
-    /// Rows that entered it, carrying the full event.
-    pub(crate) added: Vec<nostr::Event>,
-}
-
-impl MaterializationBatch {
-    fn from_deltas(deltas: &[nmp::RowDelta]) -> Self {
-        let mut batch = Self::default();
-        for delta in deltas {
-            match delta {
-                nmp::RowDelta::Added(row) => batch.added.push(row.event.clone()),
-                nmp::RowDelta::Removed(id) => batch.removed.push(*id),
-                // A relay that already held this exact event id now also
-                // serves it. Mosaico's read model is keyed by event id and
-                // coordinate and carries no provenance column, and no product
-                // surface asks "which relays hold this" — so there is nothing
-                // to project. The arm is spelled out rather than folded into a
-                // wildcard so the decision stays a decision: NMP owns
-                // provenance, and a surface that ever needs it must read
-                // `Row.sources` at the point of the question rather than
-                // mirror it into a second store here.
-                nmp::RowDelta::SourcesGrew { .. } => {}
-            }
-        }
-        batch
-    }
-
-    fn is_empty(&self) -> bool {
-        self.removed.is_empty() && self.added.is_empty()
-    }
+struct ActiveObservation {
+    cancel: ObservationCancel,
 }
 
 pub(crate) struct NmpHost {
@@ -86,9 +45,11 @@ pub(crate) struct NmpHost {
     profile_relays: BTreeSet<RelayUrl>,
     identities: Mutex<BTreeMap<nostr::PublicKey, IdentityRegistration>>,
     signing: Mutex<()>,
-    subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
-    materialization_tx: Mutex<Option<mpsc::Sender<MaterializationBatch>>>,
-    materialization_rx: Mutex<Option<mpsc::Receiver<MaterializationBatch>>>,
+    subscriptions: Mutex<BTreeMap<String, ActiveObservation>>,
+    next_observation_generation: Mutex<u64>,
+    views: Arc<NmpViews>,
+    transition_tx: Mutex<Option<mpsc::Sender<RowTransition>>>,
+    transition_rx: Mutex<Option<mpsc::Receiver<RowTransition>>>,
     #[cfg(test)]
     test_io: test_io::TestIo,
 }
@@ -136,8 +97,7 @@ impl NmpHost {
             profile_relays.insert(parsed_indexer);
         }
         let engine = Engine::new(config).map_err(store::opening_refused)?;
-        let (materialization_tx, materialization_rx) =
-            mpsc::channel(MATERIALIZATION_QUEUE_CAPACITY);
+        let (transition_tx, transition_rx) = mpsc::channel(VIEW_TRANSITION_QUEUE_CAPACITY);
         let host = Self {
             engine,
             relays: parsed,
@@ -145,8 +105,10 @@ impl NmpHost {
             identities: Mutex::new(BTreeMap::new()),
             signing: Mutex::new(()),
             subscriptions: Mutex::new(BTreeMap::new()),
-            materialization_tx: Mutex::new(Some(materialization_tx)),
-            materialization_rx: Mutex::new(Some(materialization_rx)),
+            next_observation_generation: Mutex::new(0),
+            views: Arc::new(NmpViews::default()),
+            transition_tx: Mutex::new(Some(transition_tx)),
+            transition_rx: Mutex::new(Some(transition_rx)),
             #[cfg(test)]
             test_io: test_io::TestIo::default(),
         };
@@ -155,17 +117,23 @@ impl NmpHost {
         Ok(host)
     }
 
-    /// Take the one lossless stream feeding Mosaico's canonical read-model
-    /// materializer. A bounded channel deliberately backpressures observation
-    /// drains instead of dropping canonical additions under a relay burst.
-    pub(crate) fn take_materialization_events(
-        &self,
-    ) -> Result<mpsc::Receiver<MaterializationBatch>> {
-        self.materialization_rx
+    /// Take the one lossless stream feeding Mosaico's product side effects.
+    /// A bounded channel deliberately backpressures observation drains instead
+    /// of dropping NMP transitions under a relay burst.
+    pub(crate) fn views(&self) -> &NmpViews {
+        &self.views
+    }
+
+    pub(crate) fn views_handle(&self) -> Arc<NmpViews> {
+        self.views.clone()
+    }
+
+    pub(crate) fn take_view_transitions(&self) -> Result<mpsc::Receiver<RowTransition>> {
+        self.transition_rx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take()
-            .context("NMP materialization stream is already owned")
+            .context("NMP view transition stream is already owned")
     }
 
     /// The loopback / private-network hosts the operator opted in by naming
@@ -203,10 +171,10 @@ impl NmpHost {
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner()),
         );
-        for (_, cancel) in subscriptions {
-            cancel.cancel();
+        for (_, active) in subscriptions {
+            active.cancel.cancel();
         }
-        self.materialization_tx
+        self.transition_tx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take();
@@ -230,23 +198,33 @@ impl NmpHost {
             .observe(query)
             .with_context(|| format!("opening NMP observation {id}"))?;
         let cancel = subscription.cancel_handle();
-        let materialization = self
-            .materialization_tx
+        let generation = self.allocate_observation_generation();
+        self.views.begin_observation(id, generation);
+        let transitions = self
+            .transition_tx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .clone()
             .context("NMP host is shut down")?;
+        let views = self.views.clone();
+        let observation_id = id.to_string();
         std::thread::Builder::new()
             .name(format!("nmp-{id}"))
             .spawn(move || {
                 while let Ok(frame) = subscription.recv() {
-                    let batch = MaterializationBatch::from_deltas(&frame.deltas);
-                    if batch.is_empty() {
-                        continue;
-                    }
-                    if materialization.blocking_send(batch).is_err() {
+                    let transition = views.apply_frame(
+                        &observation_id,
+                        generation,
+                        frame.deltas,
+                        frame.evidence,
+                    );
+                    if !transition.is_empty() && transitions.blocking_send(transition).is_err() {
                         return;
                     }
+                }
+                let transition = views.close_observation(&observation_id, generation);
+                if !transition.is_empty() {
+                    let _ = transitions.blocking_send(transition);
                 }
             })
             .with_context(|| format!("starting NMP observation drain {id}"))?;
@@ -254,22 +232,33 @@ impl NmpHost {
             .subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
-            .insert(id.to_string(), cancel);
+            .insert(id.to_string(), ActiveObservation { cancel });
         if let Some(previous) = previous {
-            previous.cancel();
+            previous.cancel.cancel();
         }
         Ok(())
     }
 
     fn close_subscription(&self, id: &str) {
-        if let Some(cancel) = self
+        if let Some(active) = self
             .subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
             .remove(id)
         {
-            cancel.cancel();
+            active.cancel.cancel();
         }
+    }
+
+    fn allocate_observation_generation(&self) -> u64 {
+        let mut next = self
+            .next_observation_generation
+            .lock()
+            .expect("NMP observation generation mutex poisoned");
+        *next = next
+            .checked_add(1)
+            .expect("NMP observation generation exhausted");
+        *next
     }
 }
 

@@ -13,10 +13,9 @@ mod render;
 mod tests;
 mod tree;
 
-pub(crate) use assemble::missing_profile_pubkeys;
 pub(crate) use capture::{capture_inputs, ViewInputs};
 pub(crate) use member_delta::{inject_member_deltas, inject_member_snapshot};
-pub(crate) use messages::{is_backend_pubkey, p_tag_pubkeys};
+pub(crate) use messages::is_backend_pubkey;
 pub(crate) use model::FabricView;
 
 use human_render::{render_human_view, render_human_views};
@@ -32,8 +31,7 @@ fn derive_view(store: &Store, input: FabricContextInput<'_>) -> anyhow::Result<F
     Ok(derive_view_with_inputs(store, input)?.0)
 }
 
-/// [`derive_view`] that also hands back the frozen capture, for callers that need
-/// to act on what the capture could not resolve (see [`missing_profile_pubkeys`]).
+/// [`derive_view`] that also hands back the frozen capture.
 fn derive_view_with_inputs(
     store: &Store,
     input: FabricContextInput<'_>,
@@ -179,8 +177,7 @@ fn root_input<'a>(
     }
 }
 
-/// The full agent-facing snapshot plus the roster pubkeys whose kind:0 handle the
-/// capture could not resolve, so the caller can schedule a debounced refetch.
+/// The full agent-facing snapshot from the current retained NMP views.
 pub(crate) fn render_full_session_state(
     store: &Store,
     session: &Session,
@@ -188,8 +185,8 @@ pub(crate) fn render_full_session_state(
     backend_pubkey: &str,
     local_host: &str,
     now: u64,
-) -> anyhow::Result<(String, Vec<String>)> {
-    let (view, inputs) = derive_view_with_inputs(
+) -> anyhow::Result<String> {
+    let (view, _) = derive_view_with_inputs(
         store,
         FabricContextInput {
             session: Some(session),
@@ -205,7 +202,7 @@ pub(crate) fn render_full_session_state(
             force: true,
         },
     )?;
-    Ok((render_view_text(&view), missing_profile_pubkeys(&inputs)))
+    Ok(render_view_text(&view))
 }
 
 pub(crate) fn inbox_seed(row: &InboxRow) -> FabricMessageSeed {

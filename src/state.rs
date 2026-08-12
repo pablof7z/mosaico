@@ -1,15 +1,13 @@
 //! Local persistence in SQLite (the persistence foundation).
-//! The store is two things and nothing else:
-//!   1. `relay_*` materialized caches — channels, membership, profiles, status,
-//!      and a verbatim event log. Every one is rebuildable from the
-//!      relay and is identical for local and remote agents.
-//!   2. local plumbing the relay can't carry — OS process handles (`sessions`),
+//! The store contains only local plumbing the relay cannot carry: OS process
+//! handles (`sessions`),
 //!      joined-channel state (`session_channels`), typed runtime locators
 //!      (`session_locators`), signer material, public handle leases, the inbound
 //!      delivery ledger (`inbox`), backend replay guards (`event_claims`), the
 //!      pending channel-name reservations,
 //!      generation-scoped progressive coaching claims,
-//!      and on-disk workspace paths (`workspace_roots`).
+//! and on-disk workspace paths (`workspace_roots`). Relay-owned state is read
+//! directly from retained NMP observations.
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
 //! The pubkey is the sole session identity. Harness-native ids and PTY endpoints
@@ -19,12 +17,24 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
+use std::sync::Arc;
 
 mod profile;
 pub use profile::Profile;
+#[cfg(test)]
+mod test_group_delivery;
+#[cfg(test)]
+pub(crate) use test_group_delivery::{TestGroup, TestGroupDelivery, TestRelayDelivery};
 
 pub struct Store {
     conn: Connection,
+    nmp_views: Arc<crate::nmp_views::NmpViews>,
+}
+
+impl Store {
+    pub(crate) fn bind_nmp_views(&mut self, views: Arc<crate::nmp_views::NmpViews>) {
+        self.nmp_views = views;
+    }
 }
 
 /// kind:39000 group metadata. A channel is the one abstraction; `parent` is the
@@ -66,13 +76,11 @@ pub struct ChannelMember {
     pub channel_h: String,
     pub pubkey: String,
     pub role: String,
-    pub updated_at: u64,
 }
 
-/// kind:30315 current activity for one agent session in one channel. A single
-/// wire status may materialize to multiple rows when it carries multiple `h`
-/// tags. Liveness is freshness: a row with `now > expiration` is NOT live
-/// (NIP-40).
+/// kind:30315 current activity for one agent session in one channel, projected
+/// from the exact NMP observation that currently owns the Row. NMP applies
+/// replacement and NIP-40 removal before this value reaches Mosaico.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub pubkey: String,
@@ -91,8 +99,7 @@ pub struct Status {
     pub expiration: u64,
 }
 
-/// A verbatim relay event (any kind other than 0 / 39xxx / 30315, which have
-/// dedicated caches). NIP-01 replacement is applied on insert.
+/// A verbatim relay event projected from NMP's current delivered Rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayEvent {
     pub id: String,
@@ -105,48 +112,26 @@ pub struct RelayEvent {
     pub tags_json: String,
 }
 
-/// Canonical chat/message read-model row. The author's pubkey is the sole
-/// durable sender identity; runtime incarnations never own message history.
+/// Current kind:9 row projected from NMP. The author's pubkey is the sole
+/// sender identity; Mosaico does not persist message history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
     pub message_id: String,
-    pub thread_id: String,
     pub channel_h: String,
     pub author_pubkey: String,
     pub body: String,
     pub created_at: u64,
-    pub sync_state: String,
-    pub native_event_id: Option<String>,
-    pub error: Option<String>,
     pub attachment_dir: String,
 }
 
-/// Input shape for recording a canonical message row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordMessage {
-    pub message_id: String,
-    pub thread_id: String,
-    pub channel_h: String,
-    pub author_pubkey: String,
-    pub body: String,
-    pub created_at: u64,
-    pub sync_state: String,
-    pub native_event_id: Option<String>,
-    pub error: Option<String>,
-}
-
-/// One recipient edge for a canonical message. The pubkey owns the durable
-/// address; any runtime selected for immediate local delivery is ephemeral.
+/// One observed `p`-tag recipient on a kind:9 message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageRecipient {
     pub message_id: String,
     pub recipient_pubkey: String,
-    pub delivered_at: Option<u64>,
 }
 
-/// One materialized NIP-25 reaction (kind:7) plus the body of the message it
-/// targets. Produced only by the materializer from a round-tripped relay event —
-/// never optimistically fabricated. Surfaced as passive turn-start awareness.
+/// One current NIP-25 reaction plus the target body projected from NMP.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactionRow {
     pub reaction_id: String,
@@ -155,8 +140,8 @@ pub struct ReactionRow {
     pub reactor_pubkey: String,
     pub emoji: String,
     pub created_at: u64,
-    /// The reacted-to message body (joined from `messages`). Empty when the
-    /// target message is not (yet) in the local read model.
+    /// The reacted-to message body from the same NMP view. Reactions whose
+    /// target is absent are excluded from `ReactionRow` queries.
     pub target_body: String,
 }
 
@@ -224,6 +209,7 @@ pub struct InboxRow {
 }
 
 mod agent_usage;
+mod arrival_cursors;
 mod locators;
 pub(crate) use locators::{
     LOCATOR_ACP, LOCATOR_APP_SERVER, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY,
@@ -239,11 +225,10 @@ mod event_claims;
 mod events;
 mod handle_leases;
 mod inbox;
-mod members;
-mod session_signers;
-pub use members::ChannelMemberSet;
 mod mcp_actors;
+mod members;
 mod message_search;
+mod session_signers;
 pub(crate) use message_search::{
     MessageSearchHit, MessageSearchPosition, MessageSearchQuery, MESSAGE_SEARCH_DEFAULT_LIMIT,
     MESSAGE_SEARCH_MAX_LIMIT,
@@ -263,9 +248,7 @@ pub(crate) mod work_start;
 pub(crate) use reader::StoreReader;
 pub mod receipts;
 mod retention;
-pub use retention::{
-    RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS, RELAY_EVENT_RETENTION_SECS,
-};
+pub use retention::{RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS};
 mod session_coaching;
 mod session_context;
 mod session_cursor;

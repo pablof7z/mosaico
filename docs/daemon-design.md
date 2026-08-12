@@ -1,10 +1,9 @@
 # mosaico: isolated daemon-instance design
 
-Status: implemented. Implements the architecture change
-from **per-session process** to
-[**one daemon per selected instance**](daemon-instances.md) that solely owns
-`state.db`, NMP acquisition and durable group publication, chat delivery, presence,
-NIP-29 membership cache, and peer pruning.
+Status: implemented. Replaces the **per-session process** with
+[**one daemon per selected instance**](daemon-instances.md), owning `state.db`,
+NMP observation lifetimes, publication, local delivery, presence, and pruning.
+NMP solely owns relay state; none of it is copied to SQLite.
 
 ## 1. Why
 
@@ -51,8 +50,8 @@ Claude channel adapter shell out to these verbs and parse their stdout).
               │                            │  • owns NMP reads + writes ──────┼──┼──▶ relays
               │                            │  • doctor probe through NMP     │  │
               │                            │  • per-session async tasks       │  │
-              │                            │  • chat / presence / pruning     │  │
-              │                            │  • NIP-29 membership cache       │  │
+              │                            │  • local delivery / lifecycle    │  │
+              │                            │  • retained NMP observations     │  │
               │                            └──────────────────────────────────┘  │
               └───────────────────────────────────────────────────────────────────┘
 ```
@@ -113,15 +112,14 @@ standing, exact recovery identity, and route affinity without a deadline. Only
 explicit leave or forget/revoke removes membership; forget/revoke also destroys
 recovery authority.
 
-Membership writes are serialized with lifecycle reconciliation. A stale or
-failed relay admission persists a member row without a route as durable
-compensation work; standing becomes absent only after the relay confirms its
-removal. An accepted p-tag to a daemon-owned pubkey is parked before execution
-selection. A stopped recoverable identity resumes the native harness when a
-native locator exists; otherwise it fresh-launches under the same session
-pubkey. A revoked or otherwise unlaunchable target stays pending for retry or
-manual action. All timers and supervisor presentation are reconciled again
-after daemon restart.
+Membership intents are serialized with lifecycle reconciliation. A stale or
+failed admission keeps only the local standing/cleanup obligation needed to
+retry through NMP; it never persists a relay member row. Membership comes only
+from the retained NMP group observation. An observed message explicitly
+p-tagging a daemon-owned pubkey is parked before execution selection; publish
+acceptance creates no inbox work. A stopped recoverable identity resumes its
+native harness or fresh-launches under the same pubkey. An unlaunchable target
+stays pending. Timers and supervisor presentation reconcile after restart.
 
 ### Daemon process lifetime
 
@@ -247,7 +245,7 @@ Walking each verb's true I/O shape:
 | `turn_end`         | one-shot             | flip turn state                                      |
 | `channel_send`       | one-shot             | daemon publishes kind:9 chat event on the relay      |
 | `channel_read`        | one-shot             | daemon returns chat history for the session/project  |
-| `channel_search`      | one-shot             | daemon searches its local materialized message cache |
+| `channel_search`      | one-shot             | daemon searches the current NMP-delivered message view |
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
 | `doctor`           | one-shot             | daemon does the relay round-trip, returns result     |
@@ -273,18 +271,18 @@ The `session_start` RPC makes the daemon spawn a tokio task running
 - It uses the daemon's **shared** `Store` through the ownership model in §8.
 - It declares per-session and per-channel live-query demand through the daemon's
   shared NMP host. NMP owns relay planning, connection repair, deduplication,
-  and observation lifetimes. Incoming canonical additions cross a bounded,
-  backpressured single-consumer channel into the materializer; relay bursts can
-  slow observation drains but cannot silently drop read-model updates. Events
-  are demuxed once, daemon-side, and routed to the right session chat queue(s).
-  Direct p-tags route through one ownership classifier shared by inbound relay
-  events and local send/reply. It covers running, stopped, configured stable,
-  and revoked daemon-owned identities; runtime state is consulted only by the
-  executor after durable parking.
+  replacement selection, source evidence, removal, and observation lifetimes.
+  Complete snapshots and row deltas update process-local views; no relay-derived
+  group, profile, status, event, message, recipient, or reaction reaches SQLite.
+  Observed additions are demuxed once into local session queues. Direct p-tags
+  use one ownership classifier across observed relay and local messages,
+  covering running, stopped, stable, and revoked identities; only the executor
+  consults runtime state after durable parking.
 - Profile publication, presence-lease renewal, and `watch_pid` death detection
   run in the per-session task. Managed lifecycle edges directly reconcile the
-  generation-owned presence projection; there is no periodic semantic-state
-  poll. One non-blocking worker keeps first-pending order across pubkeys and
+  generation-owned presence publication; there is no periodic semantic-state
+  poll. The corresponding current status is shown only after NMP observes it.
+  One non-blocking worker keeps first-pending order across pubkeys and
   only the latest queued full state per pubkey, so a stalled relay cannot delay
   lifecycle RPCs or form a renewal FIFO. Every runtime and kind:0 profile write
   is signed and accepted through the shared NMP host's durable publish queue.
@@ -311,11 +309,11 @@ construction — that is the whole point. Concurrency model inside the daemon:
   from today's code and already guarantees one writer. Revisit the actor shape
   only if lock contention shows up (unlikely at this call frequency).
 
-- The NMP engine owns live queries, relay acquisition, local account
-  capabilities, and the durable publish queue for all runtime and
-  profile writes, including pinned-host indexer delivery. It also owns bounded
-  group/profile projections and the explicit doctor probe. No other component
-  opens a relay connection.
+- The NMP engine owns live queries, relay acquisition, current relay state,
+  local account capabilities, and the durable publish queue for all runtime and
+  profile writes. Its retained observations are the only group, profile, status,
+  event, message, recipient, and reaction source. The daemon owns process-local
+  adapters and the doctor probe. No other component opens a relay connection.
 
 Because there is exactly one writer process, the
 multi-writer corruption class is eliminated regardless of WAL (WAL stays as
@@ -347,12 +345,12 @@ Inside the daemon, "me" is the **set** of daemon-owned agent pubkeys:
 
 - `is_self` = `local_pubkeys.contains(event.pubkey)` — skip our own
   profile/presence/activity/status for **any** hosted key.
-- A direct p-tag routes by exact pubkey. The daemon first parks inbox and
-  recipient-edge facts for every owned target, then selects an executor if one
-  is available (never another agent's runtime). Pending delivery remains owned
-  by the pubkey across route removal, revocation, and runtime replacement.
-- Profile/presence/status from peers (non-local pubkeys) update the directory as
-  today.
+- An observed direct p-tag routes by exact pubkey. The daemon first parks one
+  inbox fact for every owned target, then selects an executor if one is
+  available. Pending delivery remains with that pubkey across route removal,
+  revocation, and runtime replacement; recipients remain in NMP's message view.
+- Current profile/presence/status from peers (non-local pubkeys) comes directly
+  from NMP observations. Retraction removes it; there is no SQLite fallback.
 
 Test (added): a chat mention to A must land only in A's inbox, never B's; if A's
 runtime is replaced before delivery, the replacement claims the same pending row.
@@ -368,7 +366,9 @@ reconciles each running row:
 - `watch_pid` set and `pid_alive(watch_pid)` → respawn a `SessionTask` for it;
 - else → atomically stop that generation while preserving its channel memberships.
 
-Without this, `who` and routing membership would lie after every daemon restart.
+Restart restores only local session, route, join-fence, inbox/claim, and
+attachment-directory facts. Relay views repopulate only from NMP observations;
+local standing never fills that gap.
 
 ## 8d. Clientful-but-sessionless connections
 
@@ -381,8 +381,8 @@ the daemon already persists independently until an explicit stop or re-exec.
 Agents may run in different working directories or git worktrees on the same
 backend. Presence/status therefore carries `rel_cwd`, computed relative to the
 workspace root, so peers can distinguish `worktree1` from `worktree2` without
-publishing an absolute home-directory path. The materialized status row retains
-that value for the human `who` view and the agent `my session` briefing.
+publishing an absolute home-directory path. NMP's current status observation
+supplies it to `who` and `my session`; Mosaico persists no status row.
 
 - The wire tag is `["rel-cwd", <rel>]` and is omitted for an empty value.
 - Workspace-root cwd is represented as `.`.
@@ -404,9 +404,9 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
   (`fabric::nip29::wire`) remains the event-shape authority; group writes route
   through NMP.
 - **One NMP relay plane** serves standing observations, bounded
-  diagnostic/resolution projections, the doctor probe, and every runtime or
-  profile write. Writes are durably accepted into the publish queue; no
-  direct client or parallel relay pool may be reintroduced.
+  diagnostic/resolution reads, the doctor probe, and every runtime or profile
+  write. Writes are durably accepted into the publish queue; no direct client,
+  parallel relay pool, or SQLite relay cache may be reintroduced.
 - **NIP-29 membership semantics** — group creation, owner admin backfill, and
   agent member admission remain provider-owned and relay-authoritative. Local
   allow/block files are not part of the active NIP-29 path.

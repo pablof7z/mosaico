@@ -1,39 +1,26 @@
 use super::*;
 use crate::reconcile::HookContextState;
-use crate::state::RecordMessage;
 
 mod hook_cache;
 mod member_deltas;
 
-fn record(store: &Store, id: &str, channel: &str, state: &str, created_at: u64) {
-    store
-        .record_message(&RecordMessage {
-            message_id: id.to_string(),
-            thread_id: channel.to_string(),
-            channel_h: channel.to_string(),
-            author_pubkey: OTHER_PK.to_string(),
-            body: "hello".to_string(),
-            created_at,
-            sync_state: state.to_string(),
-            native_event_id: Some(id.to_string()),
-            error: None,
-        })
-        .unwrap();
-}
-
 #[test]
 fn every_channel_shows_only_last_accepted_activity() {
     let store = seed_store();
-    store
-        .upsert_channel("lounge-h", "lounge", "Lounge", "root", 1)
-        .unwrap();
-    store
-        .replace_channel_members("lounge-h", &[OTHER_PK.into()], 1)
-        .unwrap();
-    store.replace_channel_admins("lounge-h", &[], 1).unwrap();
-    record(&store, "lounge-old", "lounge-h", "accepted", 20);
-    record(&store, "lounge-failed", "lounge-h", "failed", 99);
-    record(&store, "task-accepted", TASK_H, "accepted", 30);
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group(),
+        TestGroup::new("lounge-h")
+            .metadata("lounge", "Lounge", "root", 1)
+            .admins(Vec::new())
+            .members(pubkeys(&[OTHER_PK])),
+    ]));
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles(seed_profiles()).events([
+            chat("lounge-old", "lounge-h", 20, "hello", "[]"),
+            chat("task-accepted", TASK_H, 30, "hello", "[]"),
+        ]),
+    );
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true)).unwrap();
@@ -52,9 +39,10 @@ fn every_channel_shows_only_last_accepted_activity() {
 fn full_and_delta_channels_use_identical_tags_and_nesting() {
     let store = seed_store();
     let rec = session(&store);
-    store
-        .upsert_channel(TASK_H, "task", "Updated task room", "root", 250)
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group_with_metadata("Updated task room", 250),
+    ]));
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 300, true)).unwrap();
     let full = render_view_text(&assemble::assemble_view(&captured, 0, 300));
     let delta = render_view_text(&assemble::assemble_view(&captured, 200, 300));
@@ -79,7 +67,7 @@ fn full_and_delta_channels_use_identical_tags_and_nesting() {
 fn my_session_full_state_is_byte_identical_to_a_cursor_zero_hook() {
     let store = seed_store();
     let rec = session(&store);
-    let (full, _missing) =
+    let full =
         render_full_session_state(&store, &rec, "coder", "", "laptop", 100).expect("full state");
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let mut hook = HookContextState::default();
@@ -94,16 +82,17 @@ fn my_session_full_state_is_byte_identical_to_a_cursor_zero_hook() {
 #[test]
 fn full_rosters_distinguish_humans_from_agents() {
     let store = seed_store();
-    store
-        .upsert_profile("human", "Pablo", "Pablo", "", false, 1)
-        .unwrap();
-    store
-        .upsert_channel_member("root", "human", "member", 1)
-        .unwrap();
-    store
-        .replace_channel_admins("root", &["unknown-admin".into()], 2)
-        .unwrap();
-    human_chat(&store, "human-msg", "root", 40);
+    let mut profiles = seed_profiles();
+    profiles.push(profile("human", "Pablo", "Pablo", "", "", false));
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group_with_roster(&[SELF_PK, OTHER_PK, "human"], &["unknown-admin"]),
+        task_group(),
+    ]));
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(profiles)
+            .events([human_chat("human-msg", "root", 40)]),
+    );
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
@@ -131,14 +120,18 @@ fn unhydrated_membership_omits_the_agent_count() {
 }
 
 #[test]
-fn a_partial_relay_roster_snapshot_never_claims_zero_members() {
+fn an_acquiring_group_never_claims_a_complete_agent_count() {
     let store = seed_store();
-    store
-        .upsert_channel("partial-h", "partial", "Partial roster", "root", 1)
-        .unwrap();
-    store
-        .replace_channel_members("partial-h", &[OTHER_PK.into()], 2)
-        .unwrap();
+    let partial_group = || {
+        TestGroup::new("partial-h")
+            .metadata("partial", "Partial roster", "root", 1)
+            .members(pubkeys(&[OTHER_PK]))
+    };
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group(),
+        partial_group().availability(nmp::nip29::GroupAvailability::Acquiring),
+    ]));
     assert_eq!(
         crate::channel_ref::full_channel_ref(&store, "partial-h"),
         "#root/partial"
@@ -150,7 +143,11 @@ fn a_partial_relay_roster_snapshot_never_claims_zero_members() {
     let partial_tag = opening_tag(&partial, "#root/partial");
     assert!(!partial_tag.contains(" agents="), "{partial_tag}");
 
-    store.replace_channel_admins("partial-h", &[], 2).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group(),
+        partial_group().availability(nmp::nip29::GroupAvailability::Ready),
+    ]));
     let complete = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
         opening_tag(&complete, "#root/partial").contains("agents=\"1\""),
@@ -161,10 +158,10 @@ fn a_partial_relay_roster_snapshot_never_claims_zero_members() {
 #[test]
 fn hydrated_roster_with_an_unknown_identity_omits_the_agent_count() {
     let store = seed_store();
-    store
-        .replace_channel_members("root", &[SELF_PK.into(), "unknown-pk".into()], 2)
-        .unwrap();
-    store.replace_channel_admins("root", &[], 2).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group_with_roster(&[SELF_PK, "unknown-pk"], &[]),
+        task_group(),
+    ]));
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
@@ -172,19 +169,17 @@ fn hydrated_roster_with_an_unknown_identity_omits_the_agent_count() {
     assert!(!root.contains(" agents="), "{root}");
 }
 
-fn human_chat(store: &crate::state::Store, id: &str, channel: &str, at: u64) {
-    store
-        .insert_event(&crate::state::RelayEvent {
-            id: id.into(),
-            kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
-            pubkey: "human".into(),
-            created_at: at,
-            channel_h: channel.into(),
-            d_tag: String::new(),
-            content: "shipping notes".into(),
-            tags_json: "[]".into(),
-        })
-        .unwrap();
+fn human_chat(id: &str, channel: &str, at: u64) -> crate::state::RelayEvent {
+    crate::state::RelayEvent {
+        id: id.into(),
+        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
+        pubkey: "human".into(),
+        created_at: at,
+        channel_h: channel.into(),
+        d_tag: String::new(),
+        content: "shipping notes".into(),
+        tags_json: "[]".into(),
+    }
 }
 
 fn normalized_opening_tag(xml: &str, id: &str) -> String {
@@ -206,12 +201,13 @@ fn opening_tag<'a>(xml: &'a str, id: &str) -> &'a str {
 #[test]
 fn a_channel_with_an_unarrived_parent_does_not_sink_the_whole_topology() {
     let store = seed_store();
-    store
-        .upsert_channel("orphan", "backlog", "", "never-arrived", 1)
-        .unwrap();
-    store
-        .replace_channel_members("orphan", &[SELF_PK.into()], 1)
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group(),
+        TestGroup::new("orphan")
+            .metadata("backlog", "", "never-arrived", 1)
+            .members(pubkeys(&[SELF_PK])),
+    ]));
 
     let rec = session(&store);
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true))

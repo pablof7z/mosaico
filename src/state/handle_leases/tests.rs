@@ -1,4 +1,19 @@
 use super::*;
+use crate::state::{Profile, TestRelayDelivery};
+
+fn remote_profile(name: &str) -> Profile {
+    Profile {
+        pubkey: "remote-pubkey".into(),
+        name: name.into(),
+        slug: name.into(),
+        agent_slug: "codex".into(),
+        host: "remote-backend".into(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 10,
+    }
+}
 
 fn allocate(store: &Store, pubkey: &str, now: u64) -> HandleAllocation {
     store.allocate_handle(pubkey, "codex", now).unwrap()
@@ -21,44 +36,28 @@ fn first_allocation_uses_one_word_tier_and_resume_keeps_it() {
 }
 
 #[test]
-fn relay_profile_cache_never_blocks_local_allocation() {
+fn relay_profile_projection_never_blocks_local_allocation() {
     let store = Store::open_memory().unwrap();
     let wanted_codename = candidates("local-new").next().unwrap();
     let wanted_handle = crate::idref::session_handle("codex", &wanted_codename);
-    store
-        .upsert_profile_with_agent_slug(
-            "remote-pubkey",
-            &wanted_handle,
-            &wanted_handle,
-            "codex",
-            "remote-backend",
-            false,
-            10,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles([remote_profile(&wanted_handle)]),
+    );
 
     let allocated = allocate(&store, "local-new", 20);
     assert_eq!(allocated.handle, wanted_handle);
 }
 
 #[test]
-fn relay_profile_cache_never_blocks_custom_name() {
+fn relay_profile_projection_never_blocks_custom_name() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "remote-pubkey",
-            "quill-codex",
-            "quill-codex",
-            "codex",
-            "remote-backend",
-            false,
-            10,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles([remote_profile("quill-codex")]),
+    );
 
     store
         .ensure_custom_handle_available("codex", "quill")
-        .expect("rebuildable relay cache is never handle authority");
+        .expect("the relay projection is never handle authority");
 }
 
 #[test]

@@ -140,9 +140,22 @@ async fn ensure_existing_channel_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{BTreeMap, BTreeSet};
 
     const FAILURE: &str =
         "fault=latched durability=absent reopen=required: Previous I/O error occurred";
+
+    fn absent_group_snapshot(group: &str) -> nmp::nip29::GroupSnapshot {
+        nmp::nip29::GroupSnapshot {
+            id: group.to_string(),
+            metadata: None,
+            admins: Vec::new(),
+            members: Vec::new(),
+            availability: nmp::nip29::GroupAvailability::Ready,
+            per_host: BTreeMap::new(),
+            disagreements: BTreeSet::new(),
+        }
+    }
 
     #[tokio::test]
     async fn pending_nested_channel_keeps_its_immediate_parent() {
@@ -158,9 +171,11 @@ mod tests {
             "parent"
         );
 
-        state
-            .with_store(|store| store.upsert_channel("leaf-h", "leaf", "", "", 2))
-            .unwrap();
+        state.with_store(|store| {
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("leaf-h").metadata("leaf", "", "", 2),
+            ]));
+        });
         assert_eq!(
             session_parent_hint(&state, "leaf-h", "workspace", None, None).unwrap(),
             "",
@@ -194,11 +209,14 @@ mod tests {
     async fn session_start_readiness_keeps_exact_checked_publish_failure() {
         let state =
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
-        state.nmp().script_read_settled_events(Vec::new());
+        for _ in 0..4 {
+            state
+                .nmp()
+                .script_group_snapshot(absent_group_snapshot("missing-root"));
+        }
         state
             .nmp()
             .script_write_error("scripted NMP publish refusal", FAILURE);
-        state.nmp().script_read_settled_events(Vec::new());
 
         let error = verify_start_channel_ready(
             &state,

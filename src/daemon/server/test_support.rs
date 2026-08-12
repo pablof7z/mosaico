@@ -47,11 +47,13 @@ impl DaemonState {
             cross_project_boundary: crate::config::CrossProjectBoundary::default(),
             attachment_receive_directory,
         };
-        let store = Arc::new(Mutex::new(Store::open_memory().expect("in-memory store")));
         let nmp = Arc::new(
             crate::nmp_host::NmpHost::open(&relays, None, None, &backend_keys)
                 .expect("in-memory NMP engine"),
         );
+        let mut store = Store::open_memory().expect("in-memory store");
+        store.bind_nmp_views(nmp.views_handle());
+        let store = Arc::new(Mutex::new(store));
         let provider = Arc::new(Nip29Provider::new(
             nmp.clone(),
             store.clone(),

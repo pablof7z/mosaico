@@ -1,14 +1,16 @@
 use super::*;
 
-/// Ambient channel chat is delta-gated off the relay-event log: a row newer than
+/// Ambient channel chat is delta-gated off the NMP delivery: a row newer than
 /// the cursor surfaces, an older one does not re-emit on the next tool call.
 #[test]
 fn turn_check_chat_shown_once_not_per_tool_call() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
     // A kind:9 chat event in `proj`, created at 120 (after the cursor 50).
-    store
-        .insert_event(&crate::state::RelayEvent {
+    install_relay_delivery(
+        &store,
+        [],
+        [crate::state::RelayEvent {
             id: "chat-new".to_string(),
             kind: 9,
             pubkey: "pk-chat".to_string(),
@@ -17,8 +19,8 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
             d_tag: String::new(),
             content: "ambient chatter".to_string(),
             tags_json: "[]".to_string(),
-        })
-        .unwrap();
+        }],
+    );
     let m = Mutex::new(store);
 
     let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
@@ -45,8 +47,10 @@ fn turn_check_chat_shown_once_not_per_tool_call() {
 fn turn_check_direct_mentions_surface_from_inbox() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    store
-        .insert_event(&crate::state::RelayEvent {
+    install_relay_delivery(
+        &store,
+        [],
+        [crate::state::RelayEvent {
             id: "mention-1".to_string(),
             kind: 9,
             pubkey: "pk-chat".to_string(),
@@ -55,8 +59,8 @@ fn turn_check_direct_mentions_surface_from_inbox() {
             d_tag: String::new(),
             content: "please review this now".to_string(),
             tags_json: "[[\"p\",\"pk-coder\"]]".to_string(),
-        })
-        .unwrap();
+        }],
+    );
     let newly = store
         .enqueue_inbox(
             "mention-1",

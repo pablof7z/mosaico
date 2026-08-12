@@ -3,10 +3,8 @@ use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 use std::time::Duration;
 
-/// A chat message with NO `@mention` (no p-tag) must NOT route to any session's
-/// inbox — it stays in relay_events as ambient context only, never ringing the
-/// doorbell. Guards the p-tag-gate behaviour introduced alongside the first-turn
-/// compact-notice feature.
+/// A chat message with no `@mention` (no p-tag) must remain ambient NMP
+/// context and never ring a session's inbox doorbell.
 #[test]
 fn non_mention_chat_does_not_route_to_inbox() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -50,25 +48,11 @@ fn non_mention_chat_does_not_route_to_inbox() {
         )
     });
 
-    // Publish is deliberately non-mutating: the fixture must provision the
-    // channel and wait for relay-authored membership before sending.
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("#tmp");
-            Store::open(&home.store_path())
-                .map(|store| {
-                    store
-                        .has_channel_membership_snapshot("tmp")
-                        .unwrap_or(false)
-                        && store
-                            .is_channel_member("tmp", &sender_pubkey)
-                            .unwrap_or(false)
-                        && store
-                            .is_channel_member("tmp", &receiver_pubkey)
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false)
-        }),
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&sender_pubkey, &receiver_pubkey],
+        )),
         "sender and receiver did not become relay-confirmed /tmp members"
     );
 
@@ -91,14 +75,17 @@ fn non_mention_chat_does_not_route_to_inbox() {
     );
 
     assert!(
-        wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
-            .map(|store| {
-                chat_in_channel(&store, "tmp")
-                    .iter()
-                    .any(|event| event.content == body)
-            })
-            .unwrap_or(false)),
-        "non-mention message must be stored in relay_events"
+        wait_until(Duration::from_secs(10), || super::read_messages(
+            serde_json::json!({
+                "session": &sender_pubkey,
+                "channel": "#tmp",
+                "limit": 20,
+            }),
+        )
+        .is_some_and(|messages| messages
+            .iter()
+            .any(|message| message["body"] == body))),
+        "non-mention message was not observed by the public channel reader"
     );
 
     let store = Store::open(&home.store_path()).unwrap();
@@ -121,13 +108,5 @@ fn non_mention_chat_does_not_route_to_inbox() {
             .is_empty(),
         "sender must not receive its own message"
     );
-    // The message IS stored in relay_events for ambient context.
-    let events = chat_in_channel(&store, "tmp");
-    assert!(
-        events.iter().any(|e| e.content == body),
-        "non-mention message must be stored in relay_events; got {:?}",
-        events.iter().map(|e| &e.content).collect::<Vec<_>>()
-    );
-
     stop_daemon(&home);
 }

@@ -1,32 +1,46 @@
 use super::*;
 
+fn reaction(id: &str, target: &str, channel: &str, reactor: &str, at: u64) -> RelayEvent {
+    RelayEvent {
+        id: id.into(),
+        kind: crate::fabric::nip29::wire::KIND_REACTION as u32,
+        pubkey: reactor.into(),
+        created_at: at,
+        channel_h: channel.into(),
+        d_tag: String::new(),
+        content: "👍".into(),
+        tags_json: format!(r#"[["e","{target}"]]"#),
+    }
+}
+
 #[test]
 fn automatic_context_requires_both_join_fences() {
     let store = seed_store();
-    chat(
-        &store,
+    let future = chat(
         "future-before-join",
         "root",
         500,
         "future-dated prejoin body",
         "[]",
     );
-    let rec = session(&store);
-    chat(
-        &store,
-        "backdated-after-join",
-        "root",
-        5,
-        "backdated postjoin body",
-        "[]",
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .events([future.clone()]),
     );
-    chat(
-        &store,
-        "valid-after-join",
-        "root",
-        210,
-        "valid postjoin body",
-        "[]",
+    let rec = session(&store);
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles(seed_profiles()).events([
+            future,
+            chat(
+                "backdated-after-join",
+                "root",
+                5,
+                "backdated postjoin body",
+                "[]",
+            ),
+            chat("valid-after-join", "root", 210, "valid postjoin body", "[]"),
+        ]),
     );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 600, true))
@@ -45,17 +59,12 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
         .collect::<Vec<_>>()
         .join(" ");
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    chat(&store, "mention-long", "root", 210, &body, &tags);
-    store
-        .upsert_reaction(
-            "rx-mention-long",
-            "mention-long",
-            "root",
-            SELF_PK,
-            "👍",
-            211,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles(seed_profiles()).events([
+            chat("mention-long", "root", 210, &body, &tags),
+            reaction("rx-mention-long", "mention-long", "root", SELF_PK, 211),
+        ]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
@@ -79,13 +88,16 @@ fn mention_rows_without_followup_show_compact_affordance() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    chat(
-        &store,
-        "mention-guide",
-        "root",
-        210,
-        "please review this",
-        &tags,
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .events([chat(
+                "mention-guide",
+                "root",
+                210,
+                "please review this",
+                &tags,
+            )]),
     );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
@@ -106,13 +118,16 @@ fn injected_mention_row_is_hidden_from_chatter() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    chat(
-        &store,
-        "mention-inj",
-        "root",
-        210,
-        "please pick this up",
-        &tags,
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .events([chat(
+                "mention-inj",
+                "root",
+                210,
+                "please pick this up",
+                &tags,
+            )]),
     );
 
     store
@@ -144,22 +159,34 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
 
     let store = seed_store();
     let rec = session(&store);
-    store
-        .upsert_profile(TARGET_PK, "target@laptop", "target", "laptop", false, 1)
-        .unwrap();
-    store
-        .upsert_profile(REMOTE_PK, "remote@tower", "remote", "tower", false, 1)
-        .unwrap();
+    let mut profiles = seed_profiles();
+    profiles.push(profile(
+        TARGET_PK,
+        "target@laptop",
+        "target",
+        "",
+        "laptop",
+        false,
+    ));
+    profiles.push(profile(
+        REMOTE_PK,
+        "remote@tower",
+        "remote",
+        "",
+        "tower",
+        false,
+    ));
     let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
     let tags = format!("[[\"p\",\"{TARGET_PK}\"],[\"p\",\"{REMOTE_PK}\"]]");
-    chat(
-        &store,
-        "mention-target",
-        "root",
-        210,
-        &format!("please ask nostr:{npub} for review"),
-        &tags,
-    );
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
+        chat(
+            "mention-target",
+            "root",
+            210,
+            &format!("please ask nostr:{npub} for review"),
+            &tags,
+        ),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("p-tagged ambient message should render");
@@ -179,27 +206,17 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
 fn ambient_attachment_renders_the_canonical_directory_without_child_nodes() {
     let store = seed_store();
     let rec = session(&store);
-    chat(
-        &store,
-        "attach-event",
-        "root",
-        210,
-        "Review [plan/report.md]",
-        "[]",
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .events([chat(
+                "attach-event",
+                "root",
+                210,
+                "Review [plan/report.md]",
+                "[]",
+            )]),
     );
-    store
-        .record_message(&crate::state::RecordMessage {
-            message_id: "attach-event".into(),
-            thread_id: "root".into(),
-            channel_h: "root".into(),
-            author_pubkey: OTHER_PK.into(),
-            body: "Review [plan/report.md]".into(),
-            created_at: 210,
-            sync_state: "accepted".into(),
-            native_event_id: Some("attach-event".into()),
-            error: None,
-        })
-        .unwrap();
     store
         .set_message_attachment_dir(
             "attach-event",

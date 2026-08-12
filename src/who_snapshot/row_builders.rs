@@ -54,7 +54,7 @@ pub(super) fn peer_row(
         .filter(|h| !h.is_empty())
         .unwrap_or_else(|| local_host.to_string());
     let work_root = work_root_for(aggregation, &st.channel_h)?;
-    let presence = crate::session_presence::remote(st, now);
+    let presence = crate::session_presence::remote(st);
     Ok(WhoRow {
         source: WhoSource::Peer,
         state: presence.state,
@@ -88,11 +88,14 @@ pub(super) fn peer_slug(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     #[test]
-    fn expired_peer_is_offline_without_stale_activity() {
+    fn current_peer_row_preserves_reported_working_state_and_activity() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root").metadata("root", "", "", 1)
+        ]));
         let status = Status {
             pubkey: "peer".into(),
             channel_h: "root".into(),
@@ -107,9 +110,9 @@ mod tests {
             updated_at: 90,
             expiration: 100,
         };
-        let aggregation = crate::who_aggregation::WhoAggregation::load(&store, 101).unwrap();
+        let aggregation = crate::who_aggregation::WhoAggregation::load(&store).unwrap();
         let row = peer_row(&aggregation, &status, "laptop", 101).unwrap();
-        assert_eq!(row.state, crate::session_state::SessionState::Offline);
-        assert!(row.activity.is_empty());
+        assert_eq!(row.state, crate::session_state::SessionState::Working);
+        assert_eq!(row.activity, "stale live activity");
     }
 }

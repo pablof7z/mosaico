@@ -1,6 +1,7 @@
 use super::*;
 
 pub(in crate::state::schema::tests) fn downgrade_channel_context_to_v17(conn: &Connection) {
+    super::restore_relay_derived_tables(conn);
     conn.execute_batch(
         r#"
         DROP INDEX idx_sessions_runtime;

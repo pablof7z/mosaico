@@ -16,32 +16,48 @@ pub(super) fn advertise_host(
         .iter()
         .map(|workspace| (*workspace).to_string())
         .collect::<Vec<_>>();
-    store
-        .upsert_profile_snapshot(
-            pubkey,
-            host,
-            host,
-            "",
-            host,
-            true,
-            &agents,
-            &workspaces,
-            updated_at,
-        )
-        .unwrap();
-    for workspace in workspaces {
-        store
-            .upsert_channel_member(&workspace, pubkey, "admin", updated_at)
-            .unwrap();
+    let mut profiles = seed_profiles();
+    profiles.push(Profile {
+        pubkey: pubkey.into(),
+        name: host.into(),
+        slug: host.into(),
+        agent_slug: String::new(),
+        host: host.into(),
+        is_backend: true,
+        agents: agents.clone(),
+        workspaces: workspaces.clone(),
+        updated_at,
+    });
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles));
+    let root_admins = if workspaces.iter().any(|workspace| workspace == "root") {
+        vec![pubkey.to_string()]
+    } else {
+        Vec::new()
+    };
+    let mut groups = vec![
+        TestGroup::new("root")
+            .metadata("main", "Root room", "", 1)
+            .admins(root_admins)
+            .members(pubkeys(&[SELF_PK, OTHER_PK])),
+        task_group(),
+    ];
+    for workspace in workspaces
+        .iter()
+        .filter(|workspace| workspace.as_str() != "root")
+    {
+        groups.push(
+            TestGroup::new(workspace)
+                .metadata(workspace, "Other workspace", "", 1)
+                .admins(vec![pubkey.to_string()])
+                .members(Vec::new()),
+        );
     }
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new(groups));
 }
 
 #[test]
 fn canonical_agent_context_and_human_view_preserve_capabilities() {
     let store = seed_store();
-    store
-        .upsert_channel("other", "other", "Other workspace", "", 1)
-        .unwrap();
     advertise_host(
         &store,
         "backend",

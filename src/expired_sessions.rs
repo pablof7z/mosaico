@@ -65,7 +65,7 @@ fn channel_paths(store: &Store, pubkey: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::RegisterSession;
+    use crate::state::{RegisterSession, TestGroup, TestGroupDelivery};
 
     fn register(store: &Store, ext: &str, channel: &str) -> String {
         let pubkey = format!("pk-{ext}");
@@ -95,7 +95,9 @@ mod tests {
     #[test]
     fn only_stopped_sessions_are_listed_by_permanent_pubkey() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("proj", "main", "", "", 1).unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("proj").metadata("main", "", "", 1)
+        ]));
         let running_id = register(&store, "running", "proj");
         let stopped_id = register(&store, "stopped", "proj");
         store

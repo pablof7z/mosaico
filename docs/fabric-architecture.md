@@ -1,381 +1,274 @@
 # mosaico — Fabric Architecture
 
-> High-level architecture for the swap-seam: product reads use one local contract,
-> while every shared fact retains enough provenance and evidence to say what was
-> actually observed. A **Fabric Provider** translates NMP-delivered transitions into
-> disposable product projections. NMP is the sole Nostr authority: acquisition,
-> current-event selection, retraction, signing, routing, receipts, retries, and its
-> durable publish queue. The direct `nostr` dependency supplies protocol values and builders only.
+> Mosaico owns product policy and host-local continuity. NMP owns Nostr state
+> and transport guarantees. The boundary is enforced by ownership, not by
+> module names.
 
----
+## 1. The swap seam
 
-## 1. The core problem
+The former `Codec` seam swapped NIP layouts rather than fabrics. It combined
+wire mapping, relay acquisition, admission, state selection, and lifecycle
+side effects. A real provider seam separates those concerns:
 
-The former `Codec` seam swapped *NIP layouts*, not *fabrics*. It trafficked in
-Nostr wire types and fused three unrelated concerns into one trait:
-
-- **wire mapping** (domain event ↔ envelope),
-- **subscription model** (`filters → Vec<Filter>`, relay-REQ-shaped),
-- **admission control** (NIP-29 group create / lock / put-user, bolted into the wire codec).
-
-That fusion is why "a new codec" can only ever be another nostr codec, and why
-NIP-29 — an *admission strategy* — leaks into an *event codec*. The fix is to cut the
-seam along **concerns**, not along **kinds**.
-
-Two observations drive the whole design:
-
-1. **Membership governs ambient visibility and writes.** Whether to show a
-   peer's presence or accept a channel write depends on membership, whose
-   **source** differs per fabric:
-
-   | Fabric | "member" means | hydrated from |
-   |--------|----------------|---------------|
-   | nip29  | in the NIP-29 group | NMP observation of the live `39002` members list |
-   | mls    | in the MLS group | MLS group roster after invite/accept |
-
-   The **shape** is uniform (`is_member(project, pubkey)` + a change stream); the
-   **source** is the provider's secret. Add a member from another machine → the
-   NMP observation reflects it through the nip29 materializer; nothing above
-   notices *how*.
-
-   The **enforcement locus** also differs — and this is what forces admission to be
-   a domain-side gate rather than something we delegate to the fabric:
-
-   | Fabric | membership enforced | by whom |
-   |--------|---------------------|---------|
-   | nip29  | server-side — relay rejects non-member writes (closed group) | the relay |
-   | mls    | cryptographically — non-members cannot decrypt | the crypto |
-
-   **Principle:** the fabric enforces sender/channel admission. For NIP-29, a
-   checked relay acceptance is authoritative; for MLS, successful authenticated
-   decryption is authoritative. The materializer does not repeat that decision
-   against a potentially stale local roster. Direct-recipient execution is a
-   separate locality decision: an explicit target pubkey owned by this daemon is
-   parked durably regardless of its local route or runtime state.
-
-2. **Lifecycle events have provider-specific side-effects.** "I run claude-code
-   in a never-seen directory" is one domain event — `ProjectOpened` — that each
-   provider *reacts* to differently:
-
-   | Fabric | reaction to `ProjectOpened` |
-   |--------|-----------------------------|
-   | nip29  | create group `9007` → lock closed `9002` → put agent member `9000` |
-   | mls    | create MLS group → invite agent key → await accept |
-
----
-
-## 2. Layer cake
+- the domain expresses product nouns and intents;
+- a provider maps those intents to one fabric;
+- the fabric substrate owns acquisition and shared-state semantics;
+- Mosaico owns local execution and continuity.
 
 ```mermaid
 flowchart TD
     subgraph HOST["Host adapters"]
         H1["Claude Code hooks / CLI"]
         H2["Codex"]
-        H3["opencode"]
+        H3["OpenCode"]
     end
 
-    subgraph DOMAIN["Domain — abstract verbs & nouns (no kinds, no tags)"]
-        direction LR
-        PS["ProjectState plane<br/>roster · presence · status · project-meta"]
-        CM["Communications plane<br/>chat publish · delivery"]
-        ADMIT["Admission / routing policy<br/>is_member? deliver? show?"]
+    subgraph DOMAIN["Mosaico domain"]
+        POLICY["policy<br/>show · route · execute · reconcile"]
+        LOCAL["local continuity<br/>sessions · routes · inbox · claims"]
+        VIEWS["typed current views"]
     end
 
-    SEAM{{"Fabric Provider trait — THE SWAP SEAM<br/>speaks DomainEvent + Scope only"}}
+    SEAM{{"Fabric Provider"}}
 
-    subgraph PROV["Concrete providers (each owns its own wire types)"]
-        direction LR
-        P1["Nip29Provider"]
-        P2["MlsProvider"]
+    subgraph NIP29["NIP-29 provider"]
+        NMP["NMP<br/>retained observations · signing<br/>durable writes · receipts · retries"]
+        RELAYS["Nostr relays"]
+        NMP <--> RELAYS
     end
 
-    subgraph WIRE["Wire / transport substrate"]
-        NMP["NMP Nostr engine<br/>live queries · signing · durable writes"]
-        R1["Nostr relays"]
-        R2["MLS delivery service"]
-    end
+    FUTURE["future fabric provider"]
 
-    HOST --> DOMAIN
-    PS --> SEAM
-    CM --> SEAM
-    ADMIT --> SEAM
-    SEAM --> P1 & P2
-    P1 --> NMP --> R1
-    P2 --> R2
+    HOST --> POLICY
+    LOCAL --> POLICY
+    VIEWS --> POLICY
+    POLICY -- intents --> SEAM
+    SEAM --> NMP
+    SEAM --> FUTURE
+    NMP -- current delivered state --> VIEWS
 ```
 
-**Rule of the seam:** everything *above* `SEAM` is written once and never edited
-to add a fabric. Everything *below* is a self-contained provider. The domain
-speaks `DomainEvent`; live Nostr acquisition is expressed as NMP queries while
-concrete providers decide how delivered envelopes materialize.
+Everything above the provider seam speaks product concepts. Everything below it
+owns the native protocol. A provider is not a second database or a place to
+reimplement the substrate's state machine.
 
----
+## 2. The ownership rule
 
-## 2a. State ownership is the contract (the load-bearing principle)
+**NMP retained observations are the sole authority for relay-derived state.**
+For the NIP-29 provider this includes:
 
-The daemon may keep a local read model, but SQLite is never a second Nostr authority.
-NMP acquires events, selects and retracts current rows, and owns write obligations
-and outcomes. Providers may translate transitions into query-friendly product
-shapes, but cannot select winners, infer freshness, retry writes, or install a
-candidate merely because NMP took custody.
+- group metadata, topology, admins, and members;
+- profiles and statuses;
+- events and messages, including recipients and reply relationships;
+- reactions;
+- replacement selection, source evidence, freshness, and removal.
 
-Readers need no provider wire format, but **do** need the layer of truth. Cached data, settled relay observation,
-unavailable source, local intent, and a live OS process are not interchangeable; product DTOs preserve meaningful distinctions.
+Mosaico may decode an NMP delivery into a process-local product shape. That
+shape has the observation's lifetime and authority: it is updated by delivered
+frames, removed by delivered retractions, and cleared when its observation
+closes. It cannot outlive NMP by falling back to SQLite.
 
-`~/.mosaico/state.db` therefore contains three deliberately different classes:
+Mosaico must never:
 
-| Class | Current tables | Ownership rule |
+- copy relay groups, profiles, statuses, events, messages, recipients, or
+  reactions into `state.db` as a read cache;
+- merge relay records or choose a replaceable winner;
+- turn a publish receipt, local intent, route, or prior value into observed
+  relay state;
+- retain a relay fact after NMP removes it;
+- open an independent relay client for a product read or retry a write outside
+  NMP.
+
+### 2a. What `state.db` owns
+
+`~/.mosaico/state.db` contains only facts that this daemon must preserve and
+that the relay cannot reconstruct as product-local continuity:
+
+| Local class | Current tables | Meaning |
 |---|---|---|
-| Rebuildable NMP projections | `relay_channels`, `relay_channel_members`, `relay_channel_member_sets`, `relay_profiles`, `relay_status`, `relay_status_sets`, `relay_reactions` | Written only from NMP-delivered current-row transitions; source identity and scoped evidence must be retained when retraction or honesty depends on them. |
-| Product projection plus local delivery satellite | `messages`, `message_recipients` | Accepted chat content comes only from NMP transitions. Recipient delivery timestamps and attachment paths are host-local satellites, not shared chat authority. |
-| Host-private authority and intent | `sessions`, `session_coaching`, `mcp_actor_aliases`, `session_channels`, `session_standing`, `session_locators`, `session_signers`, `handle_leases`, `inbox`, `event_claims`, `workspace_roots`, `channel_resolution_intents` | Facts only this daemon can know or intentions it must reconcile. Names and DTOs must not present them as observed fabric truth. |
-| Local operational ledgers | `channel_readiness_attempts`, `receipts`, `native_turn_attempts` | Explain bounded local work. They are not NMP receipts, relay evidence, or durable Nostr write queues and require explicit retention. |
-| Transitional duplicate authority | `relay_events` | May temporarily retain untyped delivered events and arrival order, but must not resolve replacement or answer chat once `messages` owns those concerns. Delete the duplicate paths through #743. |
+| Session and identity authority | `sessions`, `session_coaching`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` | Runtime generations, endpoints, local signers, aliases, and coaching already shown |
+| Route and reconciliation policy | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` | Local route affinity, join fences, desired standing, filesystem bindings, and unresolved local intents |
+| Delivery and execution ledgers | `inbox`, `event_claims`, `native_turn_attempts`, `receipts`, `channel_readiness_attempts` | Locally addressed work, idempotency claims, native execution outcomes, and bounded local attempt evidence |
+| Minimal relay correlation | `nmp_event_arrivals`, `message_attachments` | A durable event-id/arrival-sequence fence and the verified directory containing downloaded local files |
 
-This is stricter than a table-name convention. A projection must be disposable,
-rebuildable from NMP transitions, and useful enough to justify itself; otherwise
-callers consume NMP directly. Commands, publication success, and local intent cannot
-write a relay projection.
+`nmp_event_arrivals` stores no event payload. `message_attachments` stores no
+attachment tag, URL, relay metadata, or message body. An `inbox` or
+`event_claims` row may retain the bounded payload required to execute one
+daemon-owned delivery; it is a product-local queue/claim, not a general message
+history or relay-state replica.
 
-The schema is stamped at open, so incompatible or unstamped databases fail loudly.
-One daemon owns SQLite; sessions and CLI processes use RPC. That prevents file-level
-corruption, but does not make every row authoritative.
+The local store has one daemon writer. That prevents SQLite corruption, but it
+does not turn local rows into relay evidence. In particular:
 
-The `sessions` row also owns immutable runtime admission facts: observed
-harness, selected bundle, transport kind, and endpoint provenance. Hook host
-claims are stored separately for diagnostics. Delivery and liveness use those
-facts plus an exact harness-keyed locator; mutable agent and bundle files are
-never consulted to rediscover an alive runtime's transport.
+- `session_channels` is a local route plus signed-time and arrival-sequence
+  admission fence, not current relay membership;
+- `session_standing` is lifecycle/reconciliation policy, not a copy of the
+  NIP-29 roster;
+- `inbox` is exact-recipient delivery state, not chat history;
+- Mosaico `receipts` explain local product operations and are not NMP publish
+  receipts.
 
-```mermaid
-flowchart LR
-    subgraph FABRICS["Fabrics — write-side, adapter-facing"]
-        F1["nip29"]
-        F2["mls"]
-        F3["a2a / invented / future"]
-    end
-    MAT["Provider projection writer<br/>decode NMP transitions · derive · retract"]
-    STORE[("Local read contract — SQLite / state.db<br/>projections + host-private facts")]
-    subgraph READERS["Readers — never touch the wire"]
-        R1["CLI: who / channel read / channel list / sessions"]
-        R2["channel adapter"]
-        R3["hooks / context injection"]
-    end
-    F1 --> MAT
-    F2 --> MAT
-    F3 --> MAT
-    MAT -- write --> STORE
-    STORE -- query --> R1
-    STORE -- query --> R2
-    STORE -- query --> R3
-```
+## 3. Reads and intents are different contracts
 
-**The product entities** are provider-agnostic, but shared rows retain source
-identity and evidence for reconciliation and honest presentation:
+### Reads
 
-| Entity | Today's table(s) | Holds | Within |
-|--------|------------------|-------|--------|
-| project/channel metadata | `relay_channels` | slug/name, about text, parent channel | — |
-| agents + identity | `relay_profiles` plus local `handle_leases`, `session_signers` | signed profile identity plus explicitly local handle/signer bindings | — |
-| membership | `relay_channel_members`, `relay_channel_member_sets` | which pubkeys belong to a channel | a project/channel |
-| status | `relay_status`, `sessions` | who's online, plus per-session activity, title, and history | a project/channel |
-| messages + recipients | `messages`, `message_recipients` | chat body, author pubkey, sync state, recipient pubkeys | a project/channel |
+A product read joins sources without blurring them:
 
-The current schema stores provider-shaped projections here. Future work must
-first ask whether a projection is needed; if it is, extend the one projection
-rather than creating a parallel authority.
+| Question | Authoritative source |
+|---|---|
+| Which groups exist, and what are their names and topology? | Current NMP group observation |
+| Who is an admin or member? | Current NMP group observation |
+| What profile or status is current? | Current NMP row observation |
+| Which messages, recipients, replies, or reactions are current? | Current NMP row observation |
+| Which runtime can execute locally? | Mosaico session and locator state |
+| Which channels should that runtime receive ambiently? | Mosaico route and join-fence state, constrained by current observed fabric facts |
+| Which exact local delivery remains pending? | Mosaico inbox/claim ledgers |
+| Where are downloaded files on this host? | Mosaico attachment-directory satellite |
 
-**The message row carries the author's pubkey as its return address.** Replies,
-wait filters, and recipient edges use pubkeys; a selected local runtime is only
-an ephemeral delivery locator and never part of message history. The `inbox`
-table remains delivery state, not the message read model. A public handle comes
-only from the authoritative handle-lease projection; it is never rebuilt from a
-runtime id or inferred by parsing kind:0. When no current lease is known, the
-pubkey/npub is the honest identity.
+DTOs may combine these answers for presentation, but absence must remain
+honest. If NMP removes a group, profile, status, event, message, or reaction,
+the corresponding product view disappears. A stale local route, inbox row, or
+attachment directory cannot resurrect it.
 
-**Three consequences follow:**
+### Intents
 
-1. **Multiple providers populate one store.** Project A on nip29 and project B on
-   MLS land in the *same* tables; a reader querying `list_projects()` cannot
-   tell which fabric backed which row, and doesn't care.
-2. **Wire differences live behind the materialization seam; evidence does not
-   disappear there.** Readers need not parse kinds or tags, but must be able to
-   distinguish observed, stale, unavailable, pending intent, and host-local facts.
-3. **Threads are a read-model entity even though no fabric has native threads.**
-   *Deriving* thread structure (from reply-edges, `e`-tags, MLS message order) is
-   a write-side materializer job; readers just `SELECT * FROM messages WHERE
-   thread = ?`. This resolves the old "is Thread a wire noun?" question: no — it's
-   a store noun the provider populates by whatever means its fabric allows.
+Opening a group, changing membership, publishing chat, or publishing status is
+an intent. The active provider encodes it and gives it to NMP. NMP owns:
 
-So the swap-seam has two faces, and only one of them is ever in a reader's call
-path:
+- the exact signing capability and author;
+- relay routing and authentication;
+- durable custody and retry;
+- per-destination receipts and terminal outcomes;
+- the observations that may later expose the resulting relay state.
 
-- **Read face — typed product views.** Provider-agnostic, with provenance and
-  evidence retained where behavior depends on them.
-- **Write face — the `Provider`.** Materializes inbound, publishes intents. Swap
-  the fabric → swap the materializer; the schema and every reader are untouched.
+There are two independent milestones:
 
----
+1. **Publish acceptance or settlement:** NMP accepted responsibility or
+   reported a terminal relay result.
+2. **Observation:** an active NMP observation delivered the event or current
+   row.
 
-## 3. The verbs — reads use typed views, intents route to a provider
+The first milestone never substitutes for the second. A successful send does
+not insert a local message, recipient edge, inbox row, membership row, profile,
+status, or reaction. Product read state and inbound routing begin only from the
+observed delivery. This also prevents a locally accepted write from appearing
+when the relay never makes it observable.
 
-Verbs come in **two kinds**, and the distinction is *who owns the truth*:
-**reads** consume typed NMP observations or disposable product views; **intents**
-ask a provider to perform product work. Publication outcome and observed fabric
-state are separate facts.
+## 4. Membership, routing, and direct delivery
 
-```mermaid
-flowchart LR
-    subgraph R["READS — typed observations or product views"]
-        r0["list_projects()"]
-        r1["channel_meta(channel)"]
-        r2["list_agents(project) + agent_meta"]
-        r3["roster / is_member(project, pk)"]
-        r4["presence / status(project)"]
-    end
-    subgraph I["INTENTS — route to the active provider"]
-        i0["open_project(project)"]
-        i1["send(to, project, body)"]
-        i2["publish / renew presence lease"]
-    end
-    STORE[("unified read model")]
-    PROV["active Provider"]
-    R --> STORE
-    I --> PROV
-    PROV -- project NMP transitions --> STORE
-```
+Membership has two different meanings that must not be collapsed:
 
-- **Reads** answer which projects exist, who belongs, who is online, what they are
-  doing, and who received each message. They may use a useful disposable SQLite
-  view, but never a second Nostr selector or locally synthesized relay fact.
-- **Intents** are writes: open a project, send a message, renew a presence lease, or
-  publish a kind:0 profile. The provider encodes the intent to its wire shape and hands
-  it to NMP. Its durable receipt stream separates local custody from the terminal
-  relay outcome, including explicit rejection. Product mutations await that result;
-  they do not poll SQLite or republish. Independently, NMP's current-row observation
-  adds, replaces, or retracts the shared fact in the read model.
-- **Admission and ambient reads have distinct evidence.** The fabric's accepted
-  stream supplies sender/channel admission. Local membership rows govern ambient
-  read visibility and lifecycle reconciliation. Explicit direct recipients are
-  routed by daemon ownership, then stored as inbox and recipient edges without a
-  target-side membership predicate.
+| Fact | Owner | Used for |
+|---|---|---|
+| Current NIP-29 member/admin set | NMP group observation | Relay-visible roster, authorization-aware product reads, readiness confirmation |
+| Local session route and join fence | Mosaico | Ambient context eligibility and restart continuity |
+| Desired local standing/cleanup | Mosaico | Lifecycle reconciliation and retrying product intent through NMP |
 
-### 3a. At the projection seam — the provenance axis
+The relay enforces NIP-29 write admission. Mosaico does not repeat that decision
+from a stale roster. For another fabric, cryptographic membership or another
+native mechanism may supply the same product answer through its provider.
 
-This happens on the projection face. A typed NMP transition may fill
-`relay_channels` and membership rows. Readers need not know the wire kind, but the
-product preserves whether a value is current, stale, unavailable, pending local
-intent, or host-private. Metadata also records its **provenance / authority**:
-where the description came from and whether it is shared truth.
+Direct delivery is separate from ambient membership. When an NMP observation
+delivers a message explicitly p-tagging a daemon-owned pubkey, Mosaico may park
+one durable inbox row for that exact identity, then choose an executor from
+local runtime state. A stopped identity may resume; a revoked or unavailable
+identity remains pending. Remote p-tags cause no local delivery. Publish
+acceptance without observation causes no delivery at all.
 
-| Fabric | project *list* source | *description* source | authority / consistency |
-|--------|----------------------|----------------------|-------------------------|
-| nip29  | groups the agent belongs to (reverse of `39002`) / relay group enumeration | relay-authored `kind:39000` group metadata | **canonical & shared** — one source, every machine agrees |
-| mls    | MLS groups in local state | group-context extension / metadata message | **member-authored**, cryptographically scoped to the group |
+Automatic ambient context also applies the local route's two fences:
 
-**Acquisition mode belongs to NMP** — bounded lookup versus standing observation.
-For example, NIP-29 asks for current replaceable `39000` state; later replacements
-arrive as NMP transitions and the projection follows. Callers must not recreate
-subscription, replacement, freshness, or absence by querying raw events or timers.
+1. the event's local NMP arrival sequence must be later than the join watermark;
+2. the signed event time must be at or after the recorded join time.
 
----
+The arrival table preserves only this ordering evidence across restart. Event
+content remains in NMP.
 
-## 4. The Fabric Provider seam (SRP decomposition)
+## 5. Provider responsibilities
 
-A `Provider` is **one cohesive object per fabric** that bundles four
-single-responsibility capabilities. Splitting them keeps each concern testable
-and prevents the current "codec also does admission" fusion.
+A provider bundles four narrow capabilities:
 
-```mermaid
-flowchart TD
-    PROVIDER["FabricProvider<br/>(Nip29 · Mls)"]
-    PROVIDER --> L["① Lifecycle reactor<br/>react(ProjectOpened, AgentJoined…)<br/>→ native side-effects"]
-    NMP["NMP Nostr engine<br/>live queries → canonical events<br/>accounts · writes · receipts"] --> M
-    PROVIDER --> M["② Projection writer<br/>decode NMP transitions · derive<br/>· upsert or retract product rows"]
-    PROVIDER --> W["③ Provider codec<br/>DomainEvent ⇄ provider-native envelope"]
-    PROVIDER --> D["④ Diagnostic edge<br/>doctor probe · bounded readback"]
-    PROVIDER --> NMP
-```
+| Capability | Responsibility | Must not |
+|---|---|---|
+| Lifecycle reactor | Translate product lifecycle intents into native setup, such as NIP-29 group create/lock/member operations | Decide when a workspace opens or invent success before observation |
+| Observation adapter | Declare NMP demand and expose delivered current state as typed product views | Persist relay rows, merge sources, select winners, manufacture absence/freshness, or ignore removal |
+| Codec | Pure conversion between product intent/data and provider-native envelopes | Open subscriptions, manage retries, or own state |
+| Diagnostic edge | Ask NMP for bounded connectivity/readback evidence | Become a second relay plane or a product write path |
 
-| # | Capability | Responsibility | Must **not** |
-|---|------------|----------------|--------------|
-| ① | **Lifecycle** | Turn a domain lifecycle event into provider-native setup (create group, invite, or no-op). | Decide *when* a project opens (that's the host/daemon). |
-| ② | **Projection writer** | Consume NMP-delivered current-row transitions through one bounded, backpressured stream, decode via ③, then update or retract disposable product rows. | Re-evaluate relay admission from a stale local roster, select replaceable winners, retry publication, promote local custody to observed state, drop transitions under load, or answer reads. |
-| ③ | **Provider codec** | Pure, symmetric ser/de of the five+ `DomainEvent` nouns to the provider's native envelope. The current NIP-29 provider uses a Nostr-event codec. | Open subscriptions or manage groups. |
-| ④ | **Diagnostic edge** | Run the explicit doctor connectivity probe and bounded diagnostic/resolution reads. | Publish runtime or profile state, sign product writes, own retries, or grow into a second write plane. |
+For NIP-29, app-owned relay filters are not part of the provider seam. NMP owns
+live queries, observation lifetimes, accounts, signing, the durable publish
+queue, receipts, retries, and connection repair.
 
-The runtime only ever talks to one active provider interface. Swapping fabric =
-swap the provider constructor (or a small enum of providers until a truly
-object-safe async trait is needed). App-owned relay filters disappear from the
-provider seam: NMP owns the live-query, signing, durable publish queue
-for all runtime/profile writes, receipts, retries, and connection lifecycle.
+## 6. Representative workflows
 
----
-
-## 5. Walkthrough — "a brand-new project spins up"
-
-Same domain trigger, three provider reactions. The host adapter emits
-`ProjectOpened(dir)`; everything downstream is provider-private.
+### Group creation and readiness
 
 ```mermaid
 sequenceDiagram
-    participant CC as Claude Code (host)
-    participant DOM as Domain / daemon
-    participant P as Active Provider
-    participant NMP as NMP durable write queue
-    participant FAB as Fabric
-    participant STORE as Unified read model
+    participant D as Mosaico domain
+    participant P as NIP-29 provider
+    participant N as NMP
+    participant R as relay
 
-    CC->>DOM: ProjectOpened(new dir)
-    DOM->>P: lifecycle.react(ProjectOpened)
-
-    alt nip29 provider
-        P->>NMP: publish(create 9007, metadata 9002, member 9000)
-        NMP->>FAB: retrying group writes
-        %% NMP observes 39002 members and keeps admission live
-        P->>NMP: declare 39002 observation
-    else mls provider
-        P->>FAB: create MLS group
-        P->>FAB: invite agent key
-        FAB-->>P: agent accepts → roster updated
-    end
-
-    Note over P,NMP: thereafter the materializer just keeps the store current
-    NMP->>FAB: live queries (membership, metadata, …)
-    FAB-->>NMP: events
-    NMP-->>P: current-state transitions
-    P->>STORE: upsert rows (members, channel metadata)
+    D->>P: open group / admit member intent
+    P->>N: typed NIP-29 writes
+    N->>R: authenticated durable publication
+    R-->>N: relay result
+    N-->>P: receipt outcome
+    Note over D,P: receipt alone does not create group state
+    R-->>N: current group records
+    N-->>P: complete GroupSnapshot
+    P-->>D: readiness sees observed metadata/admin/member state
 ```
-*(`STORE` = the unified read model; the host/CLI reads it directly, never `P`.)*
 
-Then a human messages the agent — note the **send path** and the **inbound path**
-both terminate at the store, and the reader is never in the loop:
+Readiness may retry bounded product orchestration, but it reads the current NMP
+snapshot every time. It never seeds or repairs a Mosaico group cache.
+
+### Chat and local delivery
 
 ```mermaid
 sequenceDiagram
-    participant ME as Operator
-    participant P as Active Provider
-    participant NMP as NMP durable write queue
-    participant FAB as Fabric
-    participant STORE as Unified read model
-    participant RD as Reader (CLI / hook)
+    participant C as caller
+    participant D as Mosaico
+    participant N as NMP
+    participant R as relay
+    participant E as local executor
 
-    ME->>P: send(to = claude, project, body)
-    P->>NMP: publish(provider wire shape)
-    NMP->>FAB: retrying routed delivery
-    FAB-->>NMP: receipt
-    NMP-->>P: terminal receipt result
-
-    Note over FAB,P: inbound side
-    FAB-->>NMP: observed event
-    NMP-->>P: current message Added / Replaced / Removed
-    P->>STORE: upsert or retract message projection
-    P->>P: select daemon-owned p-tags
-    P->>STORE: park inbox + local recipient edges
-
-    STORE-->>RD: rows
+    C->>D: send message intent
+    D->>N: signed-write request
+    N->>R: durable publish
+    R-->>N: relay result
+    N-->>D: terminal receipt
+    D-->>C: send result
+    Note over D: no message or inbox mutation yet
+    R-->>N: observed message
+    N-->>D: added current row
+    D->>D: record arrival cursor; classify owned p-tags
+    D->>D: park exact local inbox work
+    D->>E: deliver when an executor is available
 ```
 
-When NMP delivers an updated `39002` row, the NIP-29 materializer updates
-membership and every ambient reader sees the change through the same store
-contract. It does not retroactively validate or invalidate direct inbox rows.
+A later NMP removal removes the message from read/search/reply views. It does
+not erase a delivery already parked in the local inbox or downloaded files;
+those have separate product-local lifecycles.
+
+### Restart
+
+After restart, Mosaico reopens its session, route, fence, inbox/claim, and local
+attachment-directory state. It has no persisted relay view to restore. Groups,
+profiles, statuses, events, messages, recipients, and reactions reappear only
+as NMP observations deliver them. Until then the honest shared-state answer is
+absent or unavailable, never a stale cached value.
+
+## 7. Boundary tests worth preserving
+
+- A removed NMP row immediately disappears from the corresponding public view.
+- Closing an observation cannot leave relay-derived state available from
+  `state.db`.
+- Publish acceptance without an observed event creates no inbox item and no
+  routable message.
+- Restart preserves a local route fence and attachment directory, while relay
+  views remain empty until NMP redelivers them.
+- A local standing or route row cannot make an absent pubkey appear in the
+  relay roster.
+- Every relay write, diagnostic read, and standing observation uses the shared
+  NMP host; no parallel relay client exists.

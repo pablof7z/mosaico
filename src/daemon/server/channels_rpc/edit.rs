@@ -1,4 +1,4 @@
-//! `channel_edit`: set a channel's durable `about` and read the relay back.
+//! `channel_edit`: publish a channel's durable `about` through NMP.
 
 use super::*;
 
@@ -27,43 +27,18 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         about: Some(p.about.clone()),
         ..nmp_nip29::GroupMetadataEdit::default()
     }));
-    let event_id = state.nmp().publish_group(&channel_h, builder, &mgmt_keys)?;
-    let confirmed = wait_for_channel_about(state, &channel_h, &p.about).await;
+    let event_id = state
+        .nmp()
+        .publish_group_and_wait(&channel_h, builder, &mgmt_keys)
+        .await
+        .context("publishing channel description")?;
     let channel = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
-    if !confirmed {
-        anyhow::bail!("relay did not confirm updated about for channel {channel}");
-    }
 
     Ok(serde_json::json!({
         "event_id": event_id.to_hex(),
         "channel": channel,
         "about": p.about,
-        "confirmed": confirmed,
+        "confirmed": true,
     }))
-}
-
-async fn wait_for_channel_about(state: &Arc<DaemonState>, channel_h: &str, about: &str) -> bool {
-    for _ in 0..20 {
-        // Each acquisition must settle before it can materialize anything.
-        // A failed attempt simply consumes one bounded retry; the final
-        // `confirmed` result remains false rather than trusting stale cache.
-        let _ = state
-            .provider()
-            .fetch_and_materialize_channel(channel_h)
-            .await;
-        let matches = state.with_store(|s| {
-            s.get_channel(channel_h)
-                .ok()
-                .flatten()
-                .map(|c| c.about)
-                .as_deref()
-                == Some(about)
-        });
-        if matches {
-            return true;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-    }
-    false
 }

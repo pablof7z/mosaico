@@ -14,7 +14,7 @@ pub(in crate::fabric_context) struct WorkspaceCap {
 }
 
 pub(super) fn capture(store: &Store) -> anyhow::Result<(Vec<HostCap>, Vec<WorkspaceCap>)> {
-    let latest_message_at = store.latest_accepted_message_at_by_channel()?;
+    let latest_message_at = store.latest_message_at_by_channel()?;
     let channels = store
         .list_channels()?
         .into_iter()

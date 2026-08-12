@@ -2,7 +2,11 @@ use super::*;
 #[tokio::test]
 async fn agent_context_does_not_block_explicit_who() {
     let state = DaemonState::new_for_test().await;
-    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
+    state.with_store(|store| {
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+        ]));
+    });
 
     for params in [
         serde_json::json!({ "workspace": "root", "agent": "codex" }),
@@ -17,7 +21,11 @@ async fn agent_context_does_not_block_explicit_who() {
 #[tokio::test]
 async fn stale_unresolved_process_anchor_does_not_turn_an_operator_into_an_agent() {
     let state = DaemonState::new_for_test().await;
-    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
+    state.with_store(|store| {
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+        ]));
+    });
 
     let out = rpc_who(
         &state,
@@ -35,7 +43,11 @@ async fn stale_unresolved_process_anchor_does_not_turn_an_operator_into_an_agent
 #[tokio::test]
 async fn human_who_never_returns_agent_fabric() {
     let state = DaemonState::new_for_test().await;
-    state.with_store(|s| s.upsert_channel("root", "root", "", "", 1).unwrap());
+    state.with_store(|store| {
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+        ]));
+    });
 
     let out = rpc_who(
         &state,
@@ -51,10 +63,23 @@ async fn human_who_never_returns_agent_fabric() {
 async fn raw_who_json_uses_public_channel_paths() {
     let state = DaemonState::new_for_test().await;
     state.with_store(|store| {
-        store.upsert_channel("root-h", "root", "", "", 1).unwrap();
-        store
-            .upsert_channel("child-h", "review", "", "root-h", 2)
-            .unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root-h").metadata("root", "", "", 1),
+            crate::state::TestGroup::new("child-h").metadata("review", "", "root-h", 2),
+        ]));
+        store.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
+            crate::state::Profile {
+                pubkey: "agent-pk".into(),
+                name: "reviewer".into(),
+                slug: "reviewer".into(),
+                agent_slug: "reviewer".into(),
+                host: "test-host".into(),
+                is_backend: false,
+                agents: Vec::new(),
+                workspaces: Vec::new(),
+                updated_at: 3,
+            },
+        ]));
         store
             .reserve_hook_session_for_test(&crate::state::RegisterSession {
                 pubkey: "agent-pk".into(),
@@ -65,17 +90,6 @@ async fn raw_who_json_uses_public_channel_paths() {
                 child_pid: None,
                 now: 3,
             })
-            .unwrap();
-        store
-            .upsert_profile_with_agent_slug(
-                "agent-pk",
-                "reviewer",
-                "reviewer",
-                "reviewer",
-                "test-host",
-                false,
-                3,
-            )
             .unwrap();
     });
 

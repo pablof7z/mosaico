@@ -1,12 +1,11 @@
-use crate::state::{Session, Status, Store};
+use crate::state::{
+    Profile, RelayEvent, Session, Status, Store, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 
 pub(super) const BACKEND: &str = "pk-backend";
 
-/// Publish a relay_status (kind:30315) row — the single source awareness reads
-/// for "who is doing what here", local and remote alike.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn pub_status(
-    store: &Store,
+pub(super) fn observed_status(
     pubkey: &str,
     slug: &str,
     title: &str,
@@ -14,40 +13,55 @@ pub(super) fn pub_status(
     busy: bool,
     updated_at: u64,
     now: u64,
-) {
-    store
-        .upsert_status(&Status {
-            pubkey: pubkey.to_string(),
-            channel_h: "proj".to_string(),
-            slug: slug.to_string(),
-            title: title.to_string(),
-            activity: activity.to_string(),
-            workspace: String::new(),
-            branch: String::new(),
-            state: if busy {
-                crate::session_state::SessionState::Working
-            } else {
-                crate::session_state::SessionState::Idle
-            },
-            state_since: updated_at,
-            last_seen: updated_at,
-            updated_at,
-            expiration: now + 90,
-        })
-        .unwrap();
+) -> Status {
+    Status {
+        pubkey: pubkey.to_string(),
+        channel_h: "proj".to_string(),
+        slug: slug.to_string(),
+        title: title.to_string(),
+        activity: activity.to_string(),
+        workspace: String::new(),
+        branch: String::new(),
+        state: if busy {
+            crate::session_state::SessionState::Working
+        } else {
+            crate::session_state::SessionState::Idle
+        },
+        state_since: updated_at,
+        last_seen: updated_at,
+        updated_at,
+        expiration: now + 90,
+    }
 }
 
-/// Materialize the `proj` channel + roster so awareness has fabric context.
+pub(super) fn install_relay_delivery(
+    store: &Store,
+    statuses: impl IntoIterator<Item = Status>,
+    events: impl IntoIterator<Item = RelayEvent>,
+) {
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([Profile {
+                pubkey: "pk-coder".into(),
+                name: "coder".into(),
+                slug: "coder".into(),
+                agent_slug: "coder".into(),
+                host: "laptop".into(),
+                is_backend: false,
+                agents: Vec::new(),
+                workspaces: Vec::new(),
+                updated_at: 1,
+            }])
+            .statuses(statuses)
+            .events(events),
+    );
+}
+
+/// Install the `proj` group and a complete empty NMP row delivery.
 pub(super) fn seed_channel(store: &Store) {
     // Opaque id "proj" with a distinct human name "main" (production ids are random, never the name).
-    store.upsert_channel("proj", "main", "", "", 1).unwrap();
-    store
-        .replace_channel_members("proj", &["pk-coder".to_string()], 1)
-        .unwrap();
-    store.replace_channel_admins("proj", &[], 1).unwrap();
-    store
-        .upsert_profile_with_agent_slug("pk-coder", "coder", "coder", "coder", "laptop", false, 1)
-        .unwrap();
+    install_channel_delivery(store, ["pk-coder".to_string()]);
+    install_relay_delivery(store, [], []);
     store
         .reserve_hook_session_for_test(&crate::state::RegisterSession {
             pubkey: "pk-coder".to_string(),
@@ -59,6 +73,13 @@ pub(super) fn seed_channel(store: &Store) {
             now: 1,
         })
         .unwrap();
+}
+
+pub(super) fn install_channel_delivery(store: &Store, members: impl IntoIterator<Item = String>) {
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("proj")
+        .metadata("main", "", "", 1)
+        .admins(Vec::new())
+        .members(members)]));
 }
 
 pub(super) fn test_session(_id: &str) -> Session {

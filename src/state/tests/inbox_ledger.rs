@@ -30,7 +30,7 @@ fn offline_mention_claim_survives_store_reopen_per_recipient() {
             .unwrap());
         s.complete_offline_mention("event-1", "agent-a", 101)
             .unwrap();
-        s.prune_retained_state_before(1_000, 100).unwrap();
+        s.prune_retained_state_before(100).unwrap();
     }
 
     let reopened = Store::open(&path).unwrap();

@@ -78,14 +78,15 @@ pub(crate) fn root_for_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     #[test]
     fn descendant_resolves_through_root_binding() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store
-            .upsert_channel("child", "child", "", "root", 1)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root").metadata("root", "", "", 1),
+            TestGroup::new("child").metadata("child", "", "root", 1),
+        ]));
         let resolver = WorkspacePathResolver::new(&store);
         resolver
             .bind_root_path("root", std::path::Path::new("/repo"), 2)
@@ -101,9 +102,9 @@ mod tests {
     #[test]
     fn broken_ancestry_is_an_error_instead_of_a_root_fallback() {
         let store = crate::state::Store::open_memory().unwrap();
-        store
-            .upsert_channel("child", "child", "", "missing-parent", 1)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("child").metadata("child", "", "missing-parent", 1)
+        ]));
         let resolver = WorkspacePathResolver::new(&store);
 
         let error = resolver.root_for_channel("child").unwrap_err();

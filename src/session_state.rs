@@ -36,16 +36,6 @@ impl SessionState {
         }
     }
 
-    /// Apply viewer-observed liveness to a state reported by the owning host.
-    /// A fresh published state is authoritative; expiration always means offline.
-    pub fn observed(self, live: bool) -> Self {
-        if live {
-            self
-        } else {
-            Self::Offline
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Working => "working",
@@ -80,20 +70,6 @@ impl fmt::Display for SessionState {
     }
 }
 
-/// The transition to offline occurs on the first second after expiration.
-pub(crate) fn semantic_change_at(
-    state: SessionState,
-    updated_at: u64,
-    expiration: u64,
-    now: u64,
-) -> u64 {
-    if state.is_live() && expiration < now {
-        updated_at.max(expiration.saturating_add(1))
-    } else {
-        updated_at
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,24 +91,6 @@ mod tests {
         assert_eq!(
             SessionState::classify(false, true, true),
             SessionState::Offline
-        );
-    }
-
-    #[test]
-    fn expiry_overrides_a_published_live_state() {
-        assert_eq!(
-            SessionState::Suspended.observed(false),
-            SessionState::Offline
-        );
-        assert_eq!(
-            SessionState::Suspended.observed(true),
-            SessionState::Suspended
-        );
-        assert_eq!(semantic_change_at(SessionState::Idle, 90, 120, 120), 90);
-        assert_eq!(semantic_change_at(SessionState::Idle, 90, 120, 121), 121);
-        assert_eq!(
-            semantic_change_at(SessionState::Offline, 120, 120, 121),
-            120
         );
     }
 }

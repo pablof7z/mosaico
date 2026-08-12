@@ -46,18 +46,16 @@ pub(super) async fn apply(
     policy: Policy,
     already_added: &[String],
 ) -> Result<Applied, ChannelReadinessError> {
-    let current = provider.with_store(|store| {
-        store.list_channel_members(channel).map(|members| {
-            members
-                .into_iter()
-                .filter(|member| member.role == "admin")
-                .map(|member| member.pubkey)
-                .collect::<Vec<_>>()
-        })
-    });
-    let current = current.map_err(|error| {
+    let snapshot = provider.group_snapshot(channel).await.map_err(|error| {
         ChannelReadinessError::reason(format!("reading administrators failed: {error:#}"))
     })?;
+    let snapshots = [snapshot];
+    let current = crate::nmp_views::GroupProjection::new(&snapshots)
+        .list_channel_members(channel)
+        .into_iter()
+        .filter(|member| member.role == "admin")
+        .map(|member| member.pubkey)
+        .collect::<Vec<_>>();
     let mut delta = delta(&current, required, policy);
     delta
         .additions
@@ -120,17 +118,12 @@ impl Nip29Provider {
         })? {
             return Ok(false);
         }
-        if !self.admin_list_observed(channel) {
-            return Err(ChannelReadinessError::reason(
-                "relay-signed admin list has not been observed yet",
-            ));
-        }
         let management = self
             .management_pubkey()
             .ok_or_else(|| ChannelReadinessError::reason("management signing key unavailable"))?;
         let parent_admins = match inherited_admins {
             Some(admins) => admins.to_vec(),
-            None => self.observed_parent_admins(channel)?,
+            None => self.observed_parent_admins(channel).await?,
         };
         let required = verify::required_admins(self, &management, &parent_admins);
         apply(self, channel, &required, Policy::Exact, &[])
@@ -143,34 +136,30 @@ impl Nip29Provider {
             .map(|management| verify::required_admins(self, &management, inherited_admins))
     }
 
-    fn observed_parent_admins(&self, channel: &str) -> Result<Vec<String>, ChannelReadinessError> {
-        let parent = self
-            .with_store(|store| store.channel_parent(channel))
-            .map_err(|error| {
-                ChannelReadinessError::reason(format!("reading channel parent failed: {error:#}"))
-            })?;
+    async fn observed_parent_admins(
+        &self,
+        channel: &str,
+    ) -> Result<Vec<String>, ChannelReadinessError> {
+        let snapshot = self.group_snapshot(channel).await.map_err(|error| {
+            ChannelReadinessError::reason(format!("reading channel parent failed: {error:#}"))
+        })?;
+        let snapshots = [snapshot];
+        let parent = crate::nmp_views::GroupProjection::new(&snapshots).channel_parent(channel);
         let Some(parent) = parent.filter(|parent| !parent.is_empty()) else {
             return Ok(Vec::new());
         };
-        if !self.admin_list_observed(&parent) {
-            return Err(ChannelReadinessError::reason(format!(
-                "relay-signed parent admin list for {parent} has not been observed yet"
-            )));
-        }
-        self.with_store(|store| {
-            store.list_channel_members(&parent).map(|members| {
-                members
-                    .into_iter()
-                    .filter(|member| member.role == "admin")
-                    .map(|member| member.pubkey)
-                    .collect()
-            })
-        })
-        .map_err(|error| {
+        let parent_snapshot = self.group_snapshot(&parent).await.map_err(|error| {
             ChannelReadinessError::reason(format!(
                 "reading parent administrators failed: {error:#}"
             ))
-        })
+        })?;
+        let snapshots = [parent_snapshot];
+        Ok(crate::nmp_views::GroupProjection::new(&snapshots)
+            .list_channel_members(&parent)
+            .into_iter()
+            .filter(|member| member.role == "admin")
+            .map(|member| member.pubkey)
+            .collect())
     }
 }
 

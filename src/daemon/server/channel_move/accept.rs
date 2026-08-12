@@ -165,6 +165,7 @@ pub(in crate::daemon::server) async fn rpc_accept(
                 &session.pubkey,
                 session.runtime_generation,
                 "channel_move_accepted",
+                None,
             )
             .await;
         }
@@ -279,7 +280,7 @@ fn pointer_exists(
             store.recent_chat_messages_for_channel(parent, since.saturating_sub(1), 200)
         })?
         .iter()
-        .any(|message| message.sync_state == "accepted" && message.body.trim() == pointer))
+        .any(|message| message.body.trim() == pointer))
 }
 
 fn skip(participant: &ParticipantSnapshot, reason: impl Into<String>) -> serde_json::Value {

@@ -32,7 +32,7 @@ pub async fn run() -> Result<()> {
     );
     tracing::info!(socket = %socket_path().display(), "daemon listening");
     let (cfg, backend_keys) = auth_restore::load_backend()?;
-    let store = Store::open(&store_path())?;
+    let mut store = Store::open(&store_path())?;
     let reconciled_attempts = store.reconcile_open_native_turn_attempts(now_secs())?;
     if reconciled_attempts > 0 {
         tracing::warn!(
@@ -40,8 +40,9 @@ pub async fn run() -> Result<()> {
             "reconciled native turn attempts left open by the prior daemon"
         );
     }
-    let store = Arc::new(Mutex::new(store));
     let nmp = Arc::new(nmp_open::open(&cfg, &storage, &backend_keys)?);
+    store.bind_nmp_views(nmp.views_handle());
+    let store = Arc::new(Mutex::new(store));
     let provider = Arc::new(Nip29Provider::new(
         nmp.clone(),
         store.clone(),
@@ -111,18 +112,6 @@ pub async fn run() -> Result<()> {
     tokio::spawn(async move {
         tracing::info!("opening NMP subscriptions");
         super::agent_discovery::start_monitor(relay_state.clone());
-
-        // Proactively warm the profiles we already know we care about — the human
-        // operator(s) and every persisted local session pubkey — so the first awareness
-        // renders them by name instead of raw hex. Members we learn about later are
-        // warmed as their 3900x events arrive (see `warm_profiles` in the demux).
-        {
-            let mut known = relay_state.owners();
-            known.extend(
-                relay_state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()),
-            );
-            warm_profiles(&relay_state, known);
-        }
 
         host_profile_bootstrap::publish_startup_profile(&relay_state).await;
 

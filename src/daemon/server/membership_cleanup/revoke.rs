@@ -127,10 +127,10 @@ mod tests {
     #[test]
     fn cleanup_failure_labels_never_expose_internal_channel_ids() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.upsert_channel("root", "general", "", "", 1).unwrap();
-        store
-            .upsert_channel("opaque-child", "review", "", "root", 2)
-            .unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("general", "", "", 1),
+            crate::state::TestGroup::new("opaque-child").metadata("review", "", "root", 2),
+        ]));
 
         assert_eq!(public_channel_label(&store, "opaque-child"), "#root/review");
         assert_eq!(

@@ -1,7 +1,11 @@
-use crate::state::{RegisterSession, RelayEvent, Store};
+use crate::state::{
+    Profile, RegisterSession, RelayEvent, Store, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 use std::sync::Mutex;
 
 mod advisory;
+#[path = "inbox.rs"]
+mod inbox;
 mod unscoped;
 
 // Two distinct (fake) pubkeys used throughout — long enough for SQLite but
@@ -11,7 +15,9 @@ const OTHER_PK: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
     if store.get_channel(channel).unwrap().is_none() {
-        store.upsert_channel(channel, channel, "", "", now).unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new(channel).metadata(channel, "", "", now)
+        ]));
     }
     store
         .reserve_hook_session_for_test(&RegisterSession {
@@ -28,46 +34,55 @@ fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
 }
 
 fn materialize_channel(store: &Store, channel: &str) {
-    store.upsert_channel(channel, channel, "", "", 1).unwrap();
-    store
-        .replace_channel_members(channel, &[SELF_PK.to_string()], 1)
-        .unwrap();
-    store
-        .upsert_profile(SELF_PK, "test-agent", "test-agent", "", false, 1)
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new(channel)
+        .metadata(channel, "", "", 1)
+        .members([SELF_PK.to_string()])]));
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+        pubkey: SELF_PK.into(),
+        name: "test-agent".into(),
+        slug: "test-agent".into(),
+        agent_slug: String::new(),
+        host: String::new(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 1,
+    }]));
 }
 
-fn insert_chat(store: &Store, channel: &str, pubkey: &str, created_at: u64, body: &str) {
-    store
-        .insert_event(&RelayEvent {
-            id: format!("ev-{pubkey}-{created_at}"),
-            kind: 9,
-            pubkey: pubkey.to_string(),
-            created_at,
-            channel_h: channel.to_string(),
-            d_tag: String::new(),
-            content: body.to_string(),
-            tags_json: "[]".to_string(),
-        })
-        .unwrap();
+fn chat_event(channel: &str, pubkey: &str, created_at: u64, body: &str) -> RelayEvent {
+    RelayEvent {
+        id: format!("ev-{pubkey}-{created_at}"),
+        kind: 9,
+        pubkey: pubkey.to_string(),
+        created_at,
+        channel_h: channel.to_string(),
+        d_tag: String::new(),
+        content: body.to_string(),
+        tags_json: "[]".to_string(),
+    }
 }
 
-fn insert_mention(store: &Store, id: &str, channel: &str, created_at: u64, body: &str) {
-    store
-        .insert_event(&RelayEvent {
-            id: id.to_string(),
-            kind: 9,
-            pubkey: OTHER_PK.to_string(),
-            created_at,
-            channel_h: channel.to_string(),
-            d_tag: String::new(),
-            content: body.to_string(),
-            tags_json: format!("[[\"p\",\"{SELF_PK}\"]]"),
-        })
-        .unwrap();
+fn mention_event(
+    store: &Store,
+    id: &str,
+    channel: &str,
+    created_at: u64,
+    body: &str,
+) -> RelayEvent {
     store
         .enqueue_inbox(id, SELF_PK, OTHER_PK, channel, body, created_at)
         .unwrap();
+    RelayEvent {
+        id: id.to_string(),
+        kind: 9,
+        pubkey: OTHER_PK.to_string(),
+        created_at,
+        channel_h: channel.to_string(),
+        d_tag: String::new(),
+        content: body.to_string(),
+        tags_json: format!("[[\"p\",\"{SELF_PK}\"]]"),
+    }
 }
 
 /// Pre-join history (messages before session.created_at) is announced as a
@@ -78,9 +93,11 @@ fn first_turn_pre_join_history_compact_notice() {
     let ch = "ch-notice";
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, 10, "ancient msg 1");
-        insert_chat(&s, ch, OTHER_PK, 20, "ancient msg 2");
-        insert_chat(&s, ch, OTHER_PK, 30, "ancient msg 3");
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            chat_event(ch, OTHER_PK, 10, "ancient msg 1"),
+            chat_event(ch, OTHER_PK, 20, "ancient msg 2"),
+            chat_event(ch, OTHER_PK, 30, "ancient msg 3"),
+        ]));
     }
     let rec = {
         let s = m.lock().unwrap();
@@ -114,7 +131,12 @@ fn first_turn_post_join_chat_shown_as_ambient() {
     };
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, now + 10, "post-join-message");
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+            ch,
+            OTHER_PK,
+            now + 10,
+            "post-join-message",
+        )]));
     }
     let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
     assert!(
@@ -157,7 +179,12 @@ fn first_turn_self_authored_pre_join_events_count_for_notice() {
     let ch = "ch-self-pre";
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, SELF_PK, 5, "self-earlier-message");
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+            ch,
+            SELF_PK,
+            5,
+            "self-earlier-message",
+        )]));
     }
     let rec = {
         let s = m.lock().unwrap();
@@ -186,7 +213,12 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     // Event before session start — surfaces as pre-join notice on first turn.
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, 50, "pre-join-event");
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+            ch,
+            OTHER_PK,
+            50,
+            "pre-join-event",
+        )]));
     }
     // First turn: consumes pre-join notice.
     {
@@ -203,7 +235,10 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     // Event after the cursor — should appear in the second turn.
     {
         let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, 160, "second-turn-event");
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            chat_event(ch, OTHER_PK, 50, "pre-join-event"),
+            chat_event(ch, OTHER_PK, 160, "second-turn-event"),
+        ]));
     }
     let rec2 = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
     assert_eq!(rec2.seen_cursor, 150, "cursor must be 150 for this test");
@@ -223,69 +258,5 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     assert!(
         !ctx2.contains("load the `mosaico` skill"),
         "skill reminder must not repeat after the first hook; got:\n{ctx2}"
-    );
-}
-
-/// An inbox mention (p-tagged, enqueued via enqueue_inbox) appears in the
-/// turn context as a direct-mention block.
-#[test]
-fn inbox_mention_surfaces_in_turn_context() {
-    let m = Mutex::new(Store::open_memory().unwrap());
-    let ch = "ch-mention";
-    let sid = {
-        let s = m.lock().unwrap();
-        materialize_channel(&s, ch);
-        register(&s, SELF_PK, ch, 100)
-    };
-    {
-        let s = m.lock().unwrap();
-        insert_mention(&s, "ev-mention-1", ch, 110, "hey do the thing");
-    }
-    let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
-    let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
-    assert!(
-        ctx.contains("hey do the thing"),
-        "inbox mention must appear in turn context; got:\n{ctx}"
-    );
-}
-
-/// Ambient channel chat (not in inbox) is shown alongside an inbox mention in
-/// the same structured fabric context.
-#[test]
-fn ambient_and_mention_both_in_first_turn_context() {
-    let m = Mutex::new(Store::open_memory().unwrap());
-    let ch = "ch-dual";
-    let now = crate::util::now_secs().saturating_sub(100);
-    let sid = {
-        let s = m.lock().unwrap();
-        materialize_channel(&s, ch);
-        register(&s, SELF_PK, ch, now)
-    };
-    // Ambient (non-mention) message arriving after session start.
-    {
-        let s = m.lock().unwrap();
-        insert_chat(&s, ch, OTHER_PK, now + 10, "ambient-background-chat");
-    }
-    // Direct mention in inbox.
-    {
-        let s = m.lock().unwrap();
-        insert_mention(&s, "ev-dm-1", ch, now + 15, "start working on X");
-    }
-    let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
-    let ctx = super::render_turn_start_text_for_test(&m, &rec, "", "", 0).unwrap_or_default();
-    assert!(
-        ctx.contains("start working on X"),
-        "direct mention must appear; got:\n{ctx}"
-    );
-    assert!(
-        ctx.contains("ambient-background-chat"),
-        "post-join ambient chat must also appear; got:\n{ctx}"
-    );
-    assert!(
-        ctx.contains("<chatter>")
-            && ctx.contains(
-                "Follow up on ev-dm-: reply for substantive context or react for an ACK."
-            ),
-        "ambient chat and mention must render in the fabric context; got:\n{ctx}"
     );
 }

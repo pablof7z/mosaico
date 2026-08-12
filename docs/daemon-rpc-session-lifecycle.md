@@ -99,7 +99,8 @@ remains a member without a deadline, and exact p-tag routing can resume it. A
 native resume locator restores the same provider conversation; without one,
 Mosaico launches a fresh provider conversation under the same session pubkey.
 Revocation disables automatic execution but does not discard an already
-accepted direct inbox row; that row stays pending for retry or manual action.
+observed and parked direct inbox row; that row stays pending for retry or
+manual action. NMP publish acceptance by itself never creates that row.
 
 ## `pty_resume_native`
 

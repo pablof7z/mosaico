@@ -55,7 +55,7 @@ fn retention_prune_preserves_pending_inbox() {
     s.mark_delivered("old-done", "pk-agent", 1).unwrap();
     s.mark_delivered("new-done", "pk-agent", 10).unwrap();
 
-    let report = s.prune_retained_state_before(0, 5).unwrap();
+    let report = s.prune_retained_state_before(5).unwrap();
 
     assert_eq!(report.delivered_inbox, 1);
     assert_eq!(s.peek_pending_for_pubkey("pk-agent").unwrap().len(), 1);
@@ -66,40 +66,6 @@ fn retention_prune_preserves_pending_inbox() {
         1
     );
     assert_eq!(count_rows(&s, "inbox"), 2);
-}
-
-#[test]
-fn retention_prune_only_safe_rows() {
-    let s = Store::open_memory().unwrap();
-    let mk = |id: &str, ts: u64| RelayEvent {
-        id: id.into(),
-        kind: 9,
-        pubkey: "pk".into(),
-        created_at: ts,
-        channel_h: "h1".into(),
-        d_tag: String::new(),
-        content: String::new(),
-        tags_json: "[]".into(),
-    };
-    assert!(s.insert_event(&mk("old", 1)).unwrap());
-    assert!(s.insert_event(&mk("new", 10)).unwrap());
-    s.reserve_hook_session_for_test(&reg("codex", "alive", "h1"))
-        .unwrap();
-    s.reserve_hook_session_for_test(&reg("codex", "dead", "h1"))
-        .unwrap();
-    s.mark_runtime_stopped("dead", StopReason::Unknown, 2)
-        .unwrap();
-    s.put_session_locator("codex", LOCATOR_NATIVE_RESUME, "resume-dead", "dead", 2)
-        .unwrap();
-
-    let report = s.prune_retained_state_before(5, 5).unwrap();
-
-    assert_eq!(report.relay_events, 1);
-    assert!(s.get_event("old").unwrap().is_none());
-    assert!(s.get_event("new").unwrap().is_some());
-    assert!(s.get_session("alive").unwrap().is_some());
-    assert!(s.get_session("dead").unwrap().is_some());
-    assert_eq!(count_rows(&s, "session_locators"), 1);
 }
 
 #[test]
@@ -114,7 +80,7 @@ fn retention_keeps_offline_mention_replay_tombstones() {
         .unwrap());
     s.complete_management_command("management", 2).unwrap();
 
-    let report = s.prune_retained_state_before(0, 3).unwrap();
+    let report = s.prune_retained_state_before(3).unwrap();
 
     assert_eq!(report.completed_event_claims, 1);
     assert!(!s
@@ -159,7 +125,7 @@ fn retention_prunes_finished_native_outcomes_but_keeps_open_attempts() {
     })
     .unwrap();
 
-    let report = s.prune_retained_state_before(0, 3).unwrap();
+    let report = s.prune_retained_state_before(3).unwrap();
 
     assert_eq!(report.native_turn_attempts, 1);
     assert_eq!(count_rows(&s, "native_turn_attempts"), 1);

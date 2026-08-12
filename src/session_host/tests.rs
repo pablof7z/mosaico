@@ -1,3 +1,29 @@
+use crate::state::{Profile, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery};
+
+#[path = "tests/multiple.rs"]
+mod multiple;
+
+fn relay_event(
+    id: &str,
+    kind: u32,
+    pubkey: &str,
+    channel: &str,
+    content: &str,
+    created_at: u64,
+    tags_json: &str,
+) -> RelayEvent {
+    RelayEvent {
+        id: id.into(),
+        kind,
+        pubkey: pubkey.into(),
+        created_at,
+        channel_h: channel.into(),
+        d_tag: String::new(),
+        content: content.into(),
+        tags_json: tags_json.into(),
+    }
+}
+
 fn sample_session() -> crate::state::Session {
     crate::state::Session {
         pubkey: "pk-target".into(),
@@ -51,12 +77,30 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     // No whitelist → the sender is treated as another agent. With no cached slug
     // the name falls back to the short sender pubkey ("pk-sende").
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
-    store
-        .upsert_reaction("rx-1", "abcdef123456", "proj", "pk-target", "👍", 110)
-        .unwrap();
-    let prompt =
-        crate::injection::render_terminal_mention(&store, &[row], &[], 120, false).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1)
+    ]));
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        relay_event("abcdef123456", 9, "pk-sender", "proj", &row.body, 100, "[]"),
+        relay_event(
+            "rx-1",
+            7,
+            "pk-target",
+            "proj",
+            "👍",
+            110,
+            r#"[["e","abcdef123456"]]"#,
+        ),
+    ]));
+    let prompt = crate::injection::render_terminal_mention(
+        &store,
+        &[row],
+        &Default::default(),
+        &[],
+        120,
+        false,
+    )
+    .unwrap();
 
     assert_eq!(
         prompt,
@@ -65,6 +109,38 @@ fn pending_message_prompt_contains_the_actual_message_body() {
          \u{20}\u{20}\u{20}\u{20}<message from=\"@pk-sende\" id=\"abcdef\" age=\"20s\">please review the PTY delivery path</message>\n\
          \u{20}\u{20}</channel>\n\
          </mosaico>"
+    );
+}
+
+#[test]
+fn bounded_sender_name_is_carried_into_the_same_prompt_render() {
+    let row = crate::state::InboxRow {
+        event_id: "abcdef123456".into(),
+        target_pubkey: "pk-target".into(),
+        state: "pending".into(),
+        from_pubkey: "pk-sender".into(),
+        channel_h: "proj".into(),
+        body: "please review".into(),
+        created_at: 100,
+        delivered_at: 0,
+        attachment_dir: String::new(),
+    };
+    let store = crate::state::Store::open_memory().unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1)
+    ]));
+    let resolved_names = std::collections::BTreeMap::from([(
+        "pk-sender".to_string(),
+        "willow-echo-042-codex".to_string(),
+    )]);
+
+    let prompt =
+        crate::injection::render_terminal_mention(&store, &[row], &resolved_names, &[], 120, false)
+            .unwrap();
+
+    assert!(
+        prompt.contains("<message from=\"@willow-echo-042-codex\""),
+        "{prompt}"
     );
 }
 
@@ -83,9 +159,19 @@ fn attachment_prompt_uses_one_directory_attribute_and_ordinary_bracket_labels() 
         attachment_dir: "/tmp/mosaico-files/abcdef".into(),
     };
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1)
+    ]));
 
-    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120, true).unwrap();
+    let prompt = crate::injection::render_terminal_mention(
+        &store,
+        &[row],
+        &Default::default(),
+        &[],
+        120,
+        true,
+    )
+    .unwrap();
 
     assert!(prompt.contains("attachment-dir=\"/tmp/mosaico-files/abcdef\""));
     assert!(prompt.contains("Review [plan/report.md]"));
@@ -107,26 +193,40 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
         attachment_dir: String::new(),
     };
     let store = crate::state::Store::open_memory().unwrap();
-    store
-        .upsert_channel("mosaico", "mosaico", "", "", 1)
-        .unwrap();
-    store
-        .upsert_channel("channel-writer-test", "writer-test", "", "mosaico", 100)
-        .unwrap();
-    store
-        .upsert_reaction(
-            "rx-2",
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("mosaico").metadata("mosaico", "", "", 1),
+        TestGroup::new("channel-writer-test").metadata("writer-test", "", "mosaico", 100),
+    ]));
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        relay_event(
             "ev-human",
+            9,
+            "human-pk",
             "channel-writer-test",
+            &row.body,
+            100,
+            "[]",
+        ),
+        relay_event(
+            "rx-2",
+            7,
             rec.pubkey.as_str(),
+            "channel-writer-test",
             "👍",
             110,
-        )
-        .unwrap();
+            r#"[["e","ev-human"]]"#,
+        ),
+    ]));
     // Sender is whitelisted, but the injected line still carries the source room.
-    let prompt =
-        crate::injection::render_terminal_mention(&store, &[row], &["human-pk".into()], 120, false)
-            .unwrap();
+    let prompt = crate::injection::render_terminal_mention(
+        &store,
+        &[row],
+        &Default::default(),
+        &["human-pk".into()],
+        120,
+        false,
+    )
+    .unwrap();
     assert_eq!(
         prompt,
         "<mosaico>\n\
@@ -153,8 +253,18 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
     };
 
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
-    let prompt = crate::injection::render_terminal_mention(&store, &[row], &[], 120, true).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1)
+    ]));
+    let prompt = crate::injection::render_terminal_mention(
+        &store,
+        &[row],
+        &Default::default(),
+        &[],
+        120,
+        true,
+    )
+    .unwrap();
 
     assert!(
         prompt.contains("Follow up on abcdef: reply for substantive context or react for an ACK."),
@@ -165,85 +275,6 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
             "Read Mosaico's skill resource \
              `~/.agents/skills/mosaico/references/coordination-guide.md`"
         ),
-        "{prompt}"
-    );
-}
-
-#[test]
-fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
-    let store = crate::state::Store::open_memory().unwrap();
-    store
-        .upsert_channel("workspace", "workspace", "", "", 1)
-        .unwrap();
-    let humans = [
-        ("pk-pablo", "Pablo", "PABLO-TOKEN"),
-        ("pk-alice", "Alice", "ALICE-TOKEN"),
-        ("pk-bob", "Bob", "BOB-TOKEN"),
-    ];
-    let rows = humans
-        .iter()
-        .enumerate()
-        .map(|(index, (pubkey, name, token))| {
-            store
-                .upsert_profile(pubkey, name, name, "", false, 100)
-                .unwrap();
-            crate::state::InboxRow {
-                event_id: format!("event-{index}"),
-                target_pubkey: "pk-target".into(),
-                state: "pending".into(),
-                from_pubkey: (*pubkey).into(),
-                channel_h: "workspace".into(),
-                body: (*token).into(),
-                created_at: 100,
-                delivered_at: 0,
-                attachment_dir: String::new(),
-            }
-        })
-        .collect::<Vec<_>>();
-    let whitelist = humans
-        .iter()
-        .map(|(pubkey, _, _)| (*pubkey).to_string())
-        .collect::<Vec<_>>();
-
-    let prompt = crate::injection::render_terminal_mention(&store, &rows, &whitelist, 120, false)
-        .expect("multi-human prompt");
-    for (_, name, token) in humans {
-        assert!(
-            prompt.contains(&format!("<message from=\"@{name}\"")),
-            "missing distinct sender label for {name}: {prompt}"
-        );
-        assert!(prompt.contains(token), "missing {token}: {prompt}");
-    }
-}
-
-#[test]
-fn multi_message_prompt_has_one_full_guide_and_one_compact_affordance_each() {
-    let store = crate::state::Store::open_memory().unwrap();
-    store
-        .upsert_channel("workspace", "workspace", "", "", 1)
-        .unwrap();
-    let rows = ["event-one", "event-two"]
-        .into_iter()
-        .map(|event_id| crate::state::InboxRow {
-            event_id: event_id.into(),
-            target_pubkey: "target".into(),
-            state: "pending".into(),
-            from_pubkey: "sender".into(),
-            channel_h: "workspace".into(),
-            body: "Please respond".into(),
-            created_at: 100,
-            delivered_at: 0,
-            attachment_dir: String::new(),
-        })
-        .collect::<Vec<_>>();
-
-    let prompt = crate::injection::render_terminal_mention(&store, &rows, &[], 120, true).unwrap();
-    assert_eq!(prompt.matches("Follow up on ").count(), 2, "{prompt}");
-    assert_eq!(
-        prompt
-            .matches(crate::reconcile::COORDINATION_GUIDE_REMINDER)
-            .count(),
-        1,
         "{prompt}"
     );
 }

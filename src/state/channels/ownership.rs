@@ -1,5 +1,6 @@
-use super::{row_to_channel, Channel, Store, COLS};
+use super::{Channel, Store};
 use crate::state::Result;
+use std::collections::BTreeSet;
 
 impl Store {
     /// Whether this host can prove that `channel_h` belongs to its managed
@@ -20,23 +21,25 @@ impl Store {
         Ok(managed != 0)
     }
 
-    /// Materialized relay groups whose local root binding or child-resolution
-    /// intent proves Mosaico ownership. Pending intents without relay metadata
-    /// are excluded: configuration reconciliation must never fabricate a group
+    /// NMP-observed groups whose local root binding or child-resolution intent
+    /// proves Mosaico ownership. Pending intents without NMP metadata are
+    /// excluded: configuration reconciliation must never fabricate a group
     /// merely because creation was once attempted.
     pub fn list_managed_channels(&self) -> Result<Vec<Channel>> {
-        let mut statement = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_channels AS channel
-             WHERE EXISTS (
-                 SELECT 1 FROM workspace_roots AS root
-                 WHERE root.channel_h=channel.channel_h
-             ) OR EXISTS (
-                 SELECT 1 FROM channel_resolution_intents AS intent
-                 WHERE intent.channel_h=channel.channel_h
-             )
-             ORDER BY channel.channel_h"
-        ))?;
-        let rows = statement.query_map([], row_to_channel)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut statement = self.conn.prepare(
+            "SELECT channel_h FROM workspace_roots
+             UNION
+             SELECT channel_h FROM channel_resolution_intents",
+        )?;
+        let managed = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<BTreeSet<_>>>()?;
+        Ok(self.nmp_views.with_groups(|groups| {
+            groups
+                .list_channels()
+                .into_iter()
+                .filter(|channel| managed.contains(&channel.channel_h))
+                .collect()
+        }))
     }
 }

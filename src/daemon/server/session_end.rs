@@ -256,6 +256,7 @@ async fn revoke_operator_session(
                 &keys,
                 crate::presence_publisher::DriveMeta {
                     trigger: "operator_session_revoke",
+                    confirmed_scope: None,
                 },
                 |status| status.revoke(&session.pubkey, session.runtime_generation, now),
             );

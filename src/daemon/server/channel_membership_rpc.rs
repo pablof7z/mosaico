@@ -56,7 +56,6 @@ pub(in crate::daemon::server) async fn ensure_joinable(
     let channel_ref = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, channel_h))?;
     let _lane = state.standing_sync.lock().await;
-    refresh_channel_members_cache(state, channel_h).await;
     let is_member = state.with_store(|s| match s.is_channel_member(channel_h, &rec.pubkey) {
         Ok(present) => present,
         Err(e) => {
@@ -81,7 +80,6 @@ pub(in crate::daemon::server) async fn ensure_joinable(
             "joining agent {} to channel {}",
             rec.agent_slug, channel_ref
         ))?;
-        refresh_channel_members_cache(state, channel_h).await;
     }
 
     let recorded = super::managed_lifecycle::commit_confirmed_admission(
@@ -167,6 +165,12 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
             &rec.pubkey,
             rec.runtime_generation,
             "channel_left",
+            Some(
+                crate::fabric::provider::ConfirmedGroupScope::from_nmp_removal(
+                    &channel,
+                    &rec.pubkey,
+                ),
+            ),
         )
         .await;
         subscriptions::reconcile_subs_logged(state, "channel_leave").await;
@@ -177,14 +181,16 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     #[tokio::test]
     async fn joining_a_missing_channel_never_creates_it() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
             store
-                .upsert_channel("root-h", "project", "", "", 1)
-                .unwrap()
+                .install_test_nmp_group_delivery(TestGroupDelivery::new([
+                    TestGroup::new("root-h").metadata("project", "", "", 1)
+                ]))
         });
         let before = state.with_store(|store| store.list_channels().unwrap());
 

@@ -1,103 +1,57 @@
-//! `relay_reactions` — the NIP-25 reaction projection.
-//!
-//! A reaction row is materialized ONLY from a round-tripped kind:7 relay event
-//! (see `Nip29Materializer::materialize_reaction`); it is never optimistically
-//! fabricated. Reactions are passive awareness: they are surfaced at turn-start
-//! and never routed to the inbox, so no delivery/doorbell path ever reads them.
+//! NIP-25 reaction reads derived from the active NMP row view.
 
 use super::*;
+use std::collections::BTreeMap;
 
 impl Store {
-    /// Upsert one reaction. Idempotent by `reaction_id` (the kind:7 event id), so a
-    /// relay echo of a locally seeded reaction collapses onto the same row.
-    pub fn upsert_reaction(
-        &self,
-        reaction_id: &str,
-        target_message_id: &str,
-        channel_h: &str,
-        reactor_pubkey: &str,
-        emoji: &str,
-        created_at: u64,
-    ) -> Result<bool> {
-        let changed = self.conn.execute(
-            "INSERT INTO relay_reactions
-                 (reaction_id, target_message_id, channel_h, reactor_pubkey, emoji, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(reaction_id) DO NOTHING",
-            params![
-                reaction_id,
-                target_message_id,
-                channel_h,
-                reactor_pubkey,
-                emoji,
-                created_at
-            ],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// Reactions on messages authored by `author_pubkey`, created strictly after
-    /// `since`, excluding the author's own reactions. Joined to `messages` for the
-    /// target body so awareness can render a snippet. Oldest-first, capped.
     pub fn reactions_on_authored_after(
         &self,
         author_pubkey: &str,
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT r.reaction_id, r.target_message_id, r.channel_h, r.reactor_pubkey,
-                    r.emoji, r.created_at, m.body
-             FROM relay_reactions r
-             JOIN messages m ON m.message_id = r.target_message_id
-             WHERE m.author_pubkey = ?1
-               AND r.created_at > ?2
-               AND r.reactor_pubkey <> ?1
-             ORDER BY r.created_at ASC, r.reaction_id ASC
-             LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![author_pubkey, since, limit], |row| {
-            Ok(ReactionRow {
-                reaction_id: row.get(0)?,
-                target_message_id: row.get(1)?,
-                channel_h: row.get(2)?,
-                reactor_pubkey: row.get(3)?,
-                emoji: row.get(4)?,
-                created_at: row.get(5)?,
-                target_body: row.get(6)?,
+        let messages = messages_by_id(&self.nmp_views.messages());
+        let mut reactions = self
+            .nmp_views
+            .reactions()
+            .into_iter()
+            .filter_map(|reaction| {
+                let message = messages.get(&reaction.target_message_id)?;
+                (message.author_pubkey == author_pubkey
+                    && reaction.created_at > since
+                    && reaction.reactor_pubkey != author_pubkey)
+                    .then(|| row(reaction, message.body.clone()))
             })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            .collect::<Vec<_>>();
+        reactions.sort_by(|left, right| {
+            (&left.created_at, &left.reaction_id).cmp(&(&right.created_at, &right.reaction_id))
+        });
+        reactions.truncate(limit as usize);
+        Ok(reactions)
     }
 
-    /// Newest reactions in one channel, used as a bounded engagement signal.
     pub fn recent_reactions_for_channel(
         &self,
         channel_h: &str,
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT r.reaction_id, r.target_message_id, r.channel_h, r.reactor_pubkey,
-                    r.emoji, r.created_at, m.body
-             FROM relay_reactions r
-             JOIN messages m ON m.message_id = r.target_message_id
-             WHERE r.channel_h = ?1 AND r.created_at > ?2
-             ORDER BY r.created_at DESC, r.reaction_id DESC
-             LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![channel_h, since, limit], |row| {
-            Ok(ReactionRow {
-                reaction_id: row.get(0)?,
-                target_message_id: row.get(1)?,
-                channel_h: row.get(2)?,
-                reactor_pubkey: row.get(3)?,
-                emoji: row.get(4)?,
-                created_at: row.get(5)?,
-                target_body: row.get(6)?,
+        let messages = messages_by_id(&self.nmp_views.messages());
+        let mut reactions = self
+            .nmp_views
+            .reactions()
+            .into_iter()
+            .filter(|reaction| reaction.channel_h == channel_h && reaction.created_at > since)
+            .filter_map(|reaction| {
+                let body = messages.get(&reaction.target_message_id)?.body.clone();
+                Some(row(reaction, body))
             })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            .collect::<Vec<_>>();
+        reactions.sort_by(|left, right| {
+            (&right.created_at, &right.reaction_id).cmp(&(&left.created_at, &left.reaction_id))
+        });
+        reactions.truncate(limit as usize);
+        Ok(reactions)
     }
 
     pub fn has_reaction_from_pubkey_on_message(
@@ -105,89 +59,91 @@ impl Store {
         target_message_id: &str,
         reactor_pubkey: &str,
     ) -> Result<bool> {
-        let exists: i64 = self.conn.query_row(
-            "SELECT EXISTS(
-                 SELECT 1 FROM relay_reactions
-                 WHERE target_message_id=?1 AND reactor_pubkey=?2
-             )",
-            params![target_message_id, reactor_pubkey],
-            |row| row.get(0),
-        )?;
-        Ok(exists != 0)
+        Ok(self.nmp_views.reactions().into_iter().any(|reaction| {
+            reaction.target_message_id == target_message_id
+                && reaction.reactor_pubkey == reactor_pubkey
+        }))
+    }
+}
+
+fn messages_by_id(messages: &[crate::nmp_views::MessageProjection]) -> BTreeMap<String, Message> {
+    messages
+        .iter()
+        .map(|row| (row.message.message_id.clone(), row.message.clone()))
+        .collect()
+}
+
+fn row(reaction: crate::nmp_views::ReactionProjection, target_body: String) -> ReactionRow {
+    ReactionRow {
+        reaction_id: reaction.reaction_id,
+        target_message_id: reaction.target_message_id,
+        channel_h: reaction.channel_h,
+        reactor_pubkey: reaction.reactor_pubkey,
+        emoji: reaction.emoji,
+        created_at: reaction.created_at,
+        target_body,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::state::{RecordMessage, Store};
+    use super::*;
+    use crate::state::{RelayEvent, TestRelayDelivery};
 
-    fn record_msg(store: &Store, id: &str, author: &str, body: &str, created_at: u64) {
-        store
-            .record_message(&RecordMessage {
-                message_id: id.into(),
-                thread_id: "chan".into(),
-                channel_h: "chan".into(),
-                author_pubkey: author.into(),
-                body: body.into(),
-                created_at,
-                sync_state: "accepted".into(),
-                native_event_id: Some(id.into()),
-                error: None,
-            })
-            .unwrap();
+    fn event(id: &str, kind: u16, author: &str, content: &str, at: u64, tags: &str) -> RelayEvent {
+        RelayEvent {
+            id: id.to_string(),
+            kind: kind as u32,
+            pubkey: author.to_string(),
+            created_at: at,
+            channel_h: "chan".to_string(),
+            d_tag: String::new(),
+            content: content.to_string(),
+            tags_json: tags.to_string(),
+        }
     }
 
     #[test]
-    fn upsert_is_idempotent_by_reaction_id() {
+    fn authored_reactions_join_only_current_nmp_messages() {
         let store = Store::open_memory().unwrap();
-        assert!(store
-            .upsert_reaction("rx1", "msg1", "chan", "peer", "👍", 10)
-            .unwrap());
-        // Second insert of the same reaction id is a no-op.
-        assert!(!store
-            .upsert_reaction("rx1", "msg1", "chan", "peer", "👍", 10)
-            .unwrap());
-    }
-
-    #[test]
-    fn query_filters_cursor_self_and_foreign_targets() {
-        let store = Store::open_memory().unwrap();
-        record_msg(&store, "mine", "me", "pushed the fix", 5);
-        record_msg(&store, "theirs", "other", "unrelated", 5);
-
-        // A peer reaction on my message after the cursor: visible.
-        store
-            .upsert_reaction("rx-visible", "mine", "chan", "peer", "👍", 20)
-            .unwrap();
-        // A reaction before the cursor: filtered by `since`.
-        store
-            .upsert_reaction("rx-old", "mine", "chan", "peer", "🎉", 8)
-            .unwrap();
-        // My own reaction on my message: excluded.
-        store
-            .upsert_reaction("rx-self", "mine", "chan", "me", "✅", 20)
-            .unwrap();
-        // A reaction on someone else's message: excluded by the author join.
-        store
-            .upsert_reaction("rx-foreign", "theirs", "chan", "peer", "👀", 20)
-            .unwrap();
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            event("mine", 9, "me", "pushed the fix", 5, "[]"),
+            event("theirs", 9, "other", "unrelated", 5, "[]"),
+            event("visible", 7, "peer", "👍", 20, r#"[["e","mine"]]"#),
+            event("old", 7, "peer", "🎉", 8, r#"[["e","mine"]]"#),
+            event("self", 7, "me", "✅", 20, r#"[["e","mine"]]"#),
+            event("foreign", 7, "peer", "👀", 20, r#"[["e","theirs"]]"#),
+        ]));
 
         let rows = store.reactions_on_authored_after("me", 10, 50).unwrap();
-        assert_eq!(rows.len(), 1, "only the visible peer reaction survives");
-        assert_eq!(rows[0].reaction_id, "rx-visible");
-        assert_eq!(rows[0].emoji, "👍");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reaction_id, "visible");
         assert_eq!(rows[0].target_body, "pushed the fix");
+
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new());
+        assert!(store
+            .reactions_on_authored_after("me", 0, 50)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
-    fn recent_channel_reactions_limit_keeps_the_newest_rows() {
+    fn recent_channel_reactions_keep_newest_valid_rows() {
         let store = Store::open_memory().unwrap();
-        record_msg(&store, "target", "author", "decision", 1);
-        for (id, at) in [("old", 10), ("middle", 20), ("new", 30)] {
-            store
-                .upsert_reaction(id, "target", "chan", "reactor", "👍", at)
-                .unwrap();
-        }
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            event("target", 9, "author", "decision", 1, "[]"),
+            event("old", 7, "peer", "👍", 10, r#"[["e","target"]]"#),
+            event(
+                "invalid",
+                7,
+                "peer",
+                "not an emoji",
+                40,
+                r#"[["e","target"]]"#,
+            ),
+            event("middle", 7, "peer", "👍", 20, r#"[["e","target"]]"#),
+            event("new", 7, "peer", "👍", 30, r#"[["e","target"]]"#),
+        ]));
 
         let rows = store.recent_reactions_for_channel("chan", 0, 2).unwrap();
         assert_eq!(

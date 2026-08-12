@@ -6,19 +6,13 @@ mod presence;
 #[test]
 fn projection_exposes_public_identity_without_private_runtime_id() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_channel("workspace", "mosaico", "", "", 1)
-        .unwrap();
-    store
-        .upsert_channel("room", "review", "", "workspace", 2)
-        .unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("workspace").metadata("mosaico", "", "", 1),
+        crate::state::TestGroup::new("room").metadata("review", "", "workspace", 2),
+        crate::state::TestGroup::new("skills-root").metadata("skills", "", "", 3),
+        crate::state::TestGroup::new("skill-dev").metadata("skill-dev", "", "skills-root", 4),
+    ]));
     store.upsert_workspace("workspace", "/repo", 3).unwrap();
-    store
-        .upsert_channel("skills-root", "skills", "", "", 3)
-        .unwrap();
-    store
-        .upsert_channel("skill-dev", "skill-dev", "", "skills-root", 4)
-        .unwrap();
     store.upsert_workspace("skills-root", "/skills", 4).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
@@ -71,7 +65,9 @@ fn projection_exposes_public_identity_without_private_runtime_id() {
 #[test]
 fn stopped_session_projection_retains_project_and_restart_capability() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "mosaico", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("root").metadata("mosaico", "", "", 1),
+    ]));
     store.upsert_workspace("root", "/repo/mosaico", 1).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
@@ -111,9 +107,9 @@ fn stopped_session_projection_retains_project_and_restart_capability() {
 #[test]
 fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_channel("root", "cut-tracker", "", "", 1)
-        .unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("root").metadata("cut-tracker", "", "", 1),
+    ]));
     let pubkey = Keys::generate().public_key().to_hex();
     store
         .reserve_hook_session_for_test(&crate::state::RegisterSession {
@@ -158,9 +154,9 @@ fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
 #[test]
 fn projection_includes_live_unbound_supervisor() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_channel("workspace", "mosaico", "", "", 1)
-        .unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("workspace").metadata("mosaico", "", "", 1),
+    ]));
     store.upsert_workspace("workspace", "/repo", 1).unwrap();
     let metadata = crate::pty::LaunchMetadata {
         id: "pty-1".into(),
@@ -199,7 +195,9 @@ fn projection_includes_live_unbound_supervisor() {
 #[test]
 fn bound_endpoint_projection_is_transport_owned_and_generic() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "root", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+    ]));
     let pubkey = Keys::generate().public_key().to_hex();
     store
         .reserve_session_with_facts(
@@ -246,7 +244,9 @@ fn bound_endpoint_projection_is_transport_owned_and_generic() {
 fn missing_hosted_locator_preserves_the_admitted_transport() {
     for transport in ["pty", "acp", "app-server"] {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+        ]));
         let pubkey = Keys::generate().public_key().to_hex();
         store
             .reserve_session_with_facts(

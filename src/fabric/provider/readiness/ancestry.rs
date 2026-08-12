@@ -1,33 +1,39 @@
 use super::{ensure_channel_ready_inner, ChannelCtx, ChannelGate, Nip29Provider};
 use crate::fabric::nip29::readiness::ChannelReadinessError;
 
-pub(in crate::fabric::provider) fn stored_parent_hint(
+pub(in crate::fabric::provider) async fn stored_parent_hint(
     provider: &Nip29Provider,
     channel: &str,
 ) -> anyhow::Result<Option<String>> {
-    resolved_parent_hint(provider, channel, None)
+    resolved_parent_hint(provider, channel, None).await
 }
 
-pub(super) fn resolved_parent_hint(
+pub(super) async fn resolved_parent_hint(
     provider: &Nip29Provider,
     channel: &str,
     caller_hint: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
-    provider.with_store(|store| resolved_parent_hint_from_store(store, channel, caller_hint))
+    let relay_parent = provider
+        .fetch_channel(channel)
+        .await?
+        .map(|observed| observed.parent);
+    provider.with_store(|store| {
+        resolved_parent_hint_with_observed_parent(store, channel, caller_hint, relay_parent)
+    })
 }
 
-pub(super) fn resolved_parent_hint_from_store(
+pub(super) fn resolved_parent_hint_with_observed_parent(
     store: &crate::state::Store,
     channel: &str,
     caller_hint: Option<&str>,
+    observed_parent: Option<String>,
 ) -> anyhow::Result<Option<String>> {
-    let relay_parent = store.channel_parent(channel)?;
     let pending_parent = store
         .channel_resolution_parent(channel)?
         .or(store.session_readiness_parent(channel)?)
         .or_else(|| caller_hint.map(str::to_string));
     Ok(crate::fabric::nip29::readiness::effective_parent_hint(
-        relay_parent,
+        observed_parent,
         pending_parent.as_deref(),
         channel,
     ))
@@ -38,10 +44,12 @@ pub(super) async fn ensure_parent(
     parent: &str,
     management_pubkey: &str,
 ) -> Result<Vec<String>, ChannelReadinessError> {
-    let grandparent = stored_parent_hint(provider, parent).map_err(|error| {
-        ChannelReadinessError::reason(format!("{error:#}"))
-            .context(format!("reading pending ancestry for {parent} failed"))
-    })?;
+    let grandparent = stored_parent_hint(provider, parent)
+        .await
+        .map_err(|error| {
+            ChannelReadinessError::reason(format!("{error:#}"))
+                .context(format!("reading pending ancestry for {parent} failed"))
+        })?;
     let parent_ctx = ChannelCtx {
         channel: parent,
         expect_member: management_pubkey,
@@ -51,13 +59,15 @@ pub(super) async fn ensure_parent(
     if let ChannelGate::Degraded(error) = ensure_channel_ready_inner(provider, parent_ctx).await {
         return Err(error.context(format!("parent channel {parent} readiness failed")));
     }
-    Ok(provider.with_store(|store| {
-        store
+    let snapshot = provider.group_snapshot(parent).await.map_err(|error| {
+        ChannelReadinessError::reason(format!("reading parent roster failed: {error:#}"))
+    })?;
+    Ok(
+        crate::nmp_views::GroupProjection::new(std::slice::from_ref(&snapshot))
             .list_channel_members(parent)
-            .unwrap_or_default()
             .into_iter()
             .filter(|member| member.role == "admin")
             .map(|member| member.pubkey)
-            .collect()
-    }))
+            .collect(),
+    )
 }

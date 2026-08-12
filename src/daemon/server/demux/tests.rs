@@ -22,73 +22,184 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
     pubkey.to_string()
 }
 
-// ── mosaico#744: applying an NMP frame as a unit ─────────────────────────────
+#[tokio::test]
+async fn observed_local_authored_chat_emits_tail_exactly_once() {
+    use nmp::{Row, RowDelta};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use std::collections::BTreeSet;
 
-fn cached(store: &Store, id: &str) -> bool {
-    store.has_event(id).unwrap()
-}
+    let state = DaemonState::new_for_test().await;
+    let local = Keys::generate();
+    state.with_store(|store| {
+        register(
+            store,
+            &local.public_key().to_hex(),
+            "local-codex",
+            "room",
+            "locator",
+        );
+    });
+    let mut tail = state.tail_subscribe();
+    let row = Row {
+        event: EventBuilder::new(Kind::from(9_u16), "observed once")
+            .tags([Tag::parse(["h", "room"]).unwrap()])
+            .sign_with_keys(&local)
+            .unwrap(),
+        sources: BTreeSet::new(),
+    };
+    let views = state.nmp().views_handle();
 
-fn chat_row(id: &str) -> crate::state::RelayEvent {
-    crate::state::RelayEvent {
-        id: id.into(),
-        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
-        pubkey: "pk".into(),
-        created_at: 10,
-        channel_h: "room".into(),
-        d_tag: String::new(),
-        content: "hello".into(),
-        tags_json: "[]".into(),
-    }
-}
-
-#[test]
-fn a_retraction_removes_exactly_the_named_row() {
-    let store = Store::open_memory().unwrap();
-    let doomed = event_id("aa").to_hex();
-    let bystander = event_id("bb").to_hex();
-    store.insert_event(&chat_row(&doomed)).unwrap();
-    store.insert_event(&chat_row(&bystander)).unwrap();
-
-    retract_all(&store, &[event_id("aa")]);
-
-    assert!(
-        !cached(&store, &doomed),
-        "a retracted event must leave the cache"
+    let first = views.apply_frame(
+        "mosaico-h-room",
+        1,
+        vec![RowDelta::Added(row.clone())],
+        vec![],
     );
-    assert!(cached(&store, &bystander), "an untouched row must survive");
-}
+    apply_transition(&state, first).await;
+    let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)], vec![]);
+    apply_transition(&state, repeated).await;
 
-/// The order is load-bearing, not stylistic. NMP composes a row that was
-/// present at the baseline, removed, and re-added into a `Replaced`
-/// transition, delivered as `Removed(id)` followed by `Added(row)` for the
-/// SAME id. Applying additions first and removals second deletes that row
-/// outright — the batch's own addition, undone by its own removal.
-#[test]
-fn removals_are_applied_before_additions_so_a_replaced_row_survives() {
-    let store = Store::open_memory().unwrap();
-    let id = event_id("cc");
-
-    // Removals first, then the addition: the row is present afterwards.
-    retract_all(&store, &[id]);
-    store.insert_event(&chat_row(&id.to_hex())).unwrap();
+    let event = tail
+        .try_recv()
+        .expect("observed local chat emits a tail row");
+    assert!(matches!(
+        event,
+        TailEvent::Msg { channel, body, .. }
+            if channel == "room" && body == "observed once"
+    ));
     assert!(
-        cached(&store, &id.to_hex()),
-        "a Removed+Added pair for one id must leave the row present"
-    );
-
-    // The order this replaces: the addition, then the removal that was meant
-    // to precede it. The row is gone.
-    store.insert_event(&chat_row(&id.to_hex())).unwrap();
-    retract_all(&store, &[id]);
-    assert!(
-        !cached(&store, &id.to_hex()),
-        "NOTHING TO OBSERVE — additions-first must actually lose the row, \
-         otherwise this test proves nothing about the ordering"
+        tail.try_recv().is_err(),
+        "repeated observation must not emit a second tail row"
     );
 }
 
-fn event_id(prefix: &str) -> nostr::EventId {
-    nostr::EventId::from_hex(&format!("{prefix}{}", "0".repeat(64 - prefix.len()))).unwrap()
+#[tokio::test]
+async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
+    use nmp::{Row, RowDelta};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use std::collections::BTreeSet;
+
+    let state = DaemonState::new_for_test().await;
+    let mut tail = state.tail_subscribe();
+    let remote = Keys::generate();
+    let row = Row {
+        event: EventBuilder::new(Kind::from(30315_u16), "working")
+            .tags([
+                Tag::parse(["d", "status"]).unwrap(),
+                Tag::parse(["h", "room"]).unwrap(),
+                Tag::parse(["title", "Focused task"]).unwrap(),
+                Tag::parse(["state", "working"]).unwrap(),
+                Tag::parse(["state-since", "1"]).unwrap(),
+                Tag::parse(["host", "remote-host"]).unwrap(),
+                Tag::parse(["workspace", "room"]).unwrap(),
+                Tag::parse(["slug", "remote-codex"]).unwrap(),
+            ])
+            .sign_with_keys(&remote)
+            .unwrap(),
+        sources: BTreeSet::new(),
+    };
+    let id = row.event.id;
+    let views = state.nmp().views_handle();
+
+    let added = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row)], vec![]);
+    apply_transition(&state, added).await;
+    while tail.try_recv().is_ok() {}
+
+    let removed = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Removed(id)], vec![]);
+    apply_transition(&state, removed).await;
+
+    let leave = tail.try_recv().expect("status departure emits immediately");
+    assert!(matches!(
+        leave,
+        TailEvent::Leave {
+            channel,
+            agent,
+            host,
+            session,
+            ..
+        } if channel == "room"
+            && agent == "remote-codex"
+            && host == "remote-host"
+            && session == remote.public_key().to_hex()
+    ));
+}
+
+#[tokio::test]
+async fn status_tail_events_follow_exact_observation_edges() {
+    use nmp::{Row, RowDelta};
+    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use std::collections::BTreeSet;
+
+    let state = DaemonState::new_for_test().await;
+    let mut tail = state.tail_subscribe();
+    let remote = Keys::generate();
+    let row = Row {
+        event: EventBuilder::new(Kind::from(30315_u16), "working")
+            .tags([
+                Tag::parse(["d", "status"]).unwrap(),
+                Tag::parse(["h", "room-a"]).unwrap(),
+                Tag::parse(["h", "room-b"]).unwrap(),
+                Tag::parse(["title", "Focused task"]).unwrap(),
+                Tag::parse(["state", "working"]).unwrap(),
+                Tag::parse(["state-since", "1"]).unwrap(),
+                Tag::parse(["host", "remote-host"]).unwrap(),
+                Tag::parse(["workspace", "room-a"]).unwrap(),
+                Tag::parse(["slug", "remote-codex"]).unwrap(),
+            ])
+            .sign_with_keys(&remote)
+            .unwrap(),
+        sources: BTreeSet::new(),
+    };
+    let id = row.event.id;
+    let views = state.nmp().views_handle();
+
+    let entered_a = views.apply_frame(
+        "mosaico-h-room-a",
+        1,
+        vec![RowDelta::Added(row.clone())],
+        vec![],
+    );
+    apply_transition(&state, entered_a).await;
+    let a_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
+    assert!(a_events.iter().all(|event| matches!(
+        event,
+        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
+            if channel == "room-a"
+    )));
+    assert!(tail.try_recv().is_err(), "room-b is not observed yet");
+
+    let entered_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Added(row)], vec![]);
+    assert!(
+        entered_b.added.is_empty(),
+        "the canonical Row already exists"
+    );
+    assert_eq!(entered_b.entered.len(), 1, "the observation edge is new");
+    apply_transition(&state, entered_b).await;
+    let b_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
+    assert!(b_events.iter().all(|event| matches!(
+        event,
+        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
+            if channel == "room-b"
+    )));
+    assert!(tail.try_recv().is_err());
+
+    let departed_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Removed(id)], vec![]);
+    apply_transition(&state, departed_b).await;
+    assert!(matches!(
+        tail.try_recv().unwrap(),
+        TailEvent::Leave { channel, .. } if channel == "room-b"
+    ));
+    assert!(tail.try_recv().is_err(), "room-a remains observed");
+    state.with_store(|store| {
+        assert!(store
+            .get_status(&remote.public_key().to_hex(), "room-a")
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_status(&remote.public_key().to_hex(), "room-b")
+            .unwrap()
+            .is_none());
+    });
 }
 
 // ── has_alive gate ────────────────────────────────────────────────────────────

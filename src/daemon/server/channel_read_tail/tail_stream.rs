@@ -130,11 +130,11 @@ pub(in crate::daemon::server) fn tail_event_matches_channel(
     ev_channel == pr
 }
 
-/// Build the backfill event list from the materialized caches.
+/// Build the backfill event list from the current retained NMP rows plus local
+/// session state.
 ///
-/// Returns recent chat lines from `messages` as `Msg` events + a roster
-/// snapshot built from live `relay_status` rows (peers AND local agents read
-/// identically) and this daemon's own live sessions, sorted ascending by time.
+/// Returns recent chat lines as `Msg` events plus a status snapshot for peers
+/// and local agents, sorted ascending by time.
 pub(in crate::daemon::server) fn build_backfill(
     state: &Arc<DaemonState>,
     channel: Option<&str>,
@@ -142,10 +142,9 @@ pub(in crate::daemon::server) fn build_backfill(
     since: u64,
 ) -> Vec<TailEvent> {
     let mut events: Vec<TailEvent> = Vec::new();
-    let now = now_secs();
     let cap = limit.min(u32::MAX as u64) as u32;
 
-    // ── Recent chat lines from messages ──────────────────────────────────────
+    // ── Recent chat lines from NMP rows ──────────────────────────────────────
     let chat_rows: Vec<Message> = state.with_store(|s| match channel {
         Some(pr) => s
             .chat_messages_for_channel(pr, since, cap)
@@ -173,7 +172,7 @@ pub(in crate::daemon::server) fn build_backfill(
 
     // ── Roster snapshot: live status rows (peers + local agents) ─────────────
     if let Some(pr) = channel {
-        let statuses = state.with_store(|s| s.live_status_for_channel(pr, now).unwrap_or_default());
+        let statuses = state.with_store(|s| s.statuses_in_channel(pr).unwrap_or_default());
         for st in statuses {
             let host = state
                 .with_store(|s| s.get_profile(&st.pubkey))
@@ -240,15 +239,16 @@ pub(in crate::daemon::server) fn build_backfill(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     #[tokio::test]
     async fn public_tail_events_replace_internal_channel_ids_with_full_paths() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
-            store.upsert_channel("root-h", "root", "", "", 1).unwrap();
-            store
-                .upsert_channel("child-h", "review", "", "root-h", 2)
-                .unwrap();
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root-h").metadata("root", "", "", 1),
+                TestGroup::new("child-h").metadata("review", "", "root-h", 2),
+            ]));
         });
         let event = TailEvent::Msg {
             ts: 3,

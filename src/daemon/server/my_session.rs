@@ -14,7 +14,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
     let instance = state.session_instance(&rec);
     let host = state.host().clone();
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
-    let (fabric, missing_profiles) = state.with_store(|store| {
+    let fabric = state.with_store(|store| {
         crate::fabric_context::render_full_session_state(
             store,
             &rec,
@@ -24,7 +24,6 @@ pub(in crate::daemon::server) fn rpc_my_session(
             now_secs(),
         )
     })?;
-    demux::refetch_missing_profiles(state, missing_profiles);
     Ok(serde_json::json!({ "fabric": fabric }))
 }
 
@@ -42,6 +41,7 @@ pub(in crate::daemon::server) async fn rpc_my_session_status(
         &rec.pubkey,
         rec.runtime_generation,
         "manual_title",
+        None,
     )
     .await;
     Ok(serde_json::json!({ "title": title }))
@@ -57,15 +57,29 @@ mod tests {
     async fn briefing_is_read_only_and_expands_only_the_exact_sessions_workspaces() {
         let state = DaemonState::new_for_test().await;
         let pubkey = state.with_store(|s| {
-            s.upsert_channel("alpha", "alpha", "Alpha", "", 1).unwrap();
-            s.upsert_channel("beta", "beta", "Beta", "", 1).unwrap();
-            s.upsert_profile("pk", "codex", "codex", "test-host", false, 1)
-                .unwrap();
-            for channel in ["alpha", "beta"] {
-                s.replace_channel_members(channel, &["pk".into()], 1)
-                    .unwrap();
-                s.replace_channel_admins(channel, &[], 1).unwrap();
-            }
+            s.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("alpha")
+                    .metadata("alpha", "Alpha", "", 1)
+                    .admins(Vec::new())
+                    .members(vec!["pk".into()]),
+                crate::state::TestGroup::new("beta")
+                    .metadata("beta", "Beta", "", 1)
+                    .admins(Vec::new())
+                    .members(vec!["pk".into()]),
+            ]));
+            s.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
+                crate::state::Profile {
+                    pubkey: "pk".into(),
+                    name: "codex".into(),
+                    slug: "codex".into(),
+                    agent_slug: String::new(),
+                    host: "test-host".into(),
+                    is_backend: false,
+                    agents: Vec::new(),
+                    workspaces: Vec::new(),
+                    updated_at: 1,
+                },
+            ]));
             let generation = s
                 .reserve_session_with_facts(
                     &RegisterSession {

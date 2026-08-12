@@ -1,16 +1,16 @@
 use super::Nip29Provider;
 use crate::fabric::nip29::{nostr_tag, wire};
-use crate::fabric::{MaterializationOutcome, RawEnvelope};
+use crate::fabric::{ProductDecode, RawEnvelope};
 use crate::state::Store;
 
 impl Nip29Provider {
-    /// Decode one raw envelope and apply all store side-effects.
-    pub fn materialize(&self, env: &RawEnvelope, store: &Store) -> MaterializationOutcome {
-        let outcome = crate::fabric::materialize(env, store);
+    /// Decode one already NMP-delivered envelope for product presentation.
+    pub fn decode_product_event(&self, env: &RawEnvelope, store: &Store) -> ProductDecode {
+        let decoded = crate::fabric::decode_product_event(env, store);
         if let Some(channel) = roster_snapshot_channel(env) {
             self.readiness.invalidate_channel(channel);
         }
-        outcome
+        decoded
     }
 }
 

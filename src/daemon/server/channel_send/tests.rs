@@ -1,5 +1,7 @@
 use super::*;
-use crate::state::{RegisterSession, Store};
+use crate::state::{
+    Profile, RegisterSession, Status, Store, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 
 #[path = "tests/attachment_coaching.rs"]
 mod attachment_coaching;
@@ -19,22 +21,47 @@ fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &s
         .unwrap();
 }
 
+fn profile(pubkey: &str, name: &str, agent_slug: &str, host: &str) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: name.into(),
+        slug: name.into(),
+        agent_slug: agent_slug.into(),
+        host: host.into(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 1,
+    }
+}
+
+fn status(pubkey: &str, slug: &str, expiration: u64) -> Status {
+    Status {
+        pubkey: pubkey.into(),
+        channel_h: "channel".into(),
+        slug: slug.into(),
+        title: String::new(),
+        activity: String::new(),
+        workspace: String::new(),
+        branch: String::new(),
+        state: crate::session_state::SessionState::Idle,
+        state_since: 1,
+        last_seen: 1,
+        updated_at: 1,
+        expiration,
+    }
+}
+
 #[test]
 fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "channel", "", "", 1).unwrap();
-    store
-        .upsert_channel("task-a", "Task A", "", "root", 2)
-        .unwrap();
-    store
-        .upsert_channel("leaf-a", "Leaf A", "", "task-a", 3)
-        .unwrap();
-    store
-        .upsert_channel("task-b", "Task B", "", "root", 4)
-        .unwrap();
-    store
-        .upsert_channel("leaf-b", "Leaf B", "", "task-b", 5)
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("root").metadata("channel", "", "", 1),
+        TestGroup::new("task-a").metadata("Task A", "", "root", 2),
+        TestGroup::new("leaf-a").metadata("Leaf A", "", "task-a", 3),
+        TestGroup::new("task-b").metadata("Task B", "", "root", 4),
+        TestGroup::new("leaf-b").metadata("Leaf B", "", "task-b", 5),
+    ]));
     register_session(&store, "helper-pubkey", "helper", "leaf-b");
     let allocation = store.allocate_handle("helper-pubkey", "helper", 1).unwrap();
 
@@ -47,16 +74,12 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
 #[test]
 fn host_qualified_ordinal_mention_resolves_remote_profile() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile(
-            "remote-pk",
-            "developer1@remoteBackend",
-            "developer1",
-            "remoteBackend",
-            false,
-            1,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+        "remote-pk",
+        "developer1@remoteBackend",
+        "",
+        "remoteBackend",
+    )]));
 
     let resolved = resolve_recipient(
         &store,
@@ -73,16 +96,12 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
 #[test]
 fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile(
-            "remote-pk",
-            "developer1@remoteBackend",
-            "developer1@remoteBackend",
-            "remoteBackend",
-            false,
-            1,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+        "remote-pk",
+        "developer1@remoteBackend",
+        "",
+        "remoteBackend",
+    )]));
 
     let resolved = resolve_recipient(
         &store,
@@ -116,35 +135,22 @@ fn dashed_session_handle_resolves_live_session_and_validates_agent() {
 }
 
 #[test]
-fn dashed_session_handle_resolves_profile_cache() {
+fn dashed_session_handle_resolves_current_profile_row() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "remote-pk",
-            "willow-echo-042-codex",
-            "willow-echo-042-codex",
-            "codex",
-            "remoteBackend",
-            false,
-            1,
-        )
-        .unwrap();
-    store
-        .upsert_status(&crate::state::Status {
-            pubkey: "remote-pk".into(),
-            channel_h: "channel".into(),
-            slug: "willow-echo-042-codex".into(),
-            title: String::new(),
-            activity: String::new(),
-            workspace: String::new(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Idle,
-            state_since: 1,
-            last_seen: 1,
-            updated_at: 1,
-            expiration: i64::MAX as u64,
-        })
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([profile(
+                "remote-pk",
+                "willow-echo-042-codex",
+                "codex",
+                "remoteBackend",
+            )])
+            .statuses([status(
+                "remote-pk",
+                "willow-echo-042-codex",
+                i64::MAX as u64,
+            )]),
+    );
 
     let resolved =
         resolve_recipient(&store, "channel", "localBackend", "willow-echo-042-codex").unwrap();
@@ -154,69 +160,33 @@ fn dashed_session_handle_resolves_profile_cache() {
 }
 
 #[test]
-fn stale_profile_name_without_live_status_does_not_resolve() {
+fn current_profile_name_resolves_without_a_status_gate() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "remote-pk",
-            "codex-willow-echo-042",
-            "codex-willow-echo-042",
-            "codex",
-            "localBackend",
-            false,
-            1,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+        "remote-pk",
+        "codex-willow-echo-042",
+        "codex",
+        "localBackend",
+    )]));
 
-    let err = match resolve_recipient(&store, "channel", "localBackend", "codex-willow-echo-042") {
-        Ok(_) => panic!("stale profile names are not handle authority"),
-        Err(err) => err,
-    };
+    let resolved =
+        resolve_recipient(&store, "channel", "localBackend", "codex-willow-echo-042").unwrap();
 
-    assert!(err.to_string().contains("can't resolve recipient"));
+    assert_eq!(resolved.pubkey, "remote-pk");
+    assert_eq!(resolved.channel, "channel");
 }
 
 #[test]
 fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "old-pk",
-            "shared-codex",
-            "shared-codex",
-            "codex",
-            "remote",
-            false,
-            1,
-        )
-        .unwrap();
-    store
-        .upsert_status(&crate::state::Status {
-            pubkey: "old-pk".into(),
-            channel_h: "channel".into(),
-            slug: "shared-codex".into(),
-            title: String::new(),
-            activity: String::new(),
-            workspace: String::new(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Idle,
-            state_since: 1,
-            last_seen: 1,
-            updated_at: 1,
-            expiration: 1,
-        })
-        .unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "new-pk",
-            "shared-codex",
-            "shared-codex",
-            "codex",
-            "remote",
-            false,
-            2,
-        )
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([
+                profile("old-pk", "shared-codex", "codex", "remote"),
+                profile("new-pk", "shared-codex", "codex", "remote"),
+            ])
+            .statuses([status("old-pk", "shared-codex", 1)]),
+    );
 
     let error = match resolve_recipient(&store, "channel", "local", "shared-codex") {
         Ok(_) => panic!("duplicate profile projections must be ambiguous"),
@@ -228,25 +198,11 @@ fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
 #[test]
 fn untyped_profile_with_status_is_not_a_session_handle() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile("human-pk", "shared-name", "shared-name", "remote", false, 1)
-        .unwrap();
-    store
-        .upsert_status(&crate::state::Status {
-            pubkey: "human-pk".into(),
-            channel_h: "channel".into(),
-            slug: "shared-name".into(),
-            title: String::new(),
-            activity: String::new(),
-            workspace: String::new(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Idle,
-            state_since: 1,
-            last_seen: 1,
-            updated_at: 1,
-            expiration: 1,
-        })
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([profile("human-pk", "shared-name", "", "remote")])
+            .statuses([status("human-pk", "shared-name", 1)]),
+    );
 
     let error = match resolve_recipient(&store, "channel", "local", "shared-name") {
         Ok(_) => panic!("untyped profiles are not session handles"),

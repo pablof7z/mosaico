@@ -10,7 +10,6 @@ mod tests;
 pub(super) fn suspension_reminders(
     store: &Store,
     recipients: &[TaggedRecipient],
-    now: u64,
 ) -> Result<Vec<String>> {
     let reminders = recipients
         .iter()
@@ -20,26 +19,15 @@ pub(super) fn suspension_reminders(
                 &recipient.pubkey,
                 &recipient.channel,
                 Some(&recipient.label),
-                now,
             )
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(reminders.into_iter().flatten().collect())
 }
 
-pub(super) fn reply_suspension_reminders(
-    store: &Store,
-    original: &Message,
-    now: u64,
-) -> Result<Vec<String>> {
-    suspension_reminder(
-        store,
-        &original.author_pubkey,
-        &original.channel_h,
-        None,
-        now,
-    )
-    .map(|reminder| reminder.into_iter().collect())
+pub(super) fn reply_suspension_reminders(store: &Store, original: &Message) -> Result<Vec<String>> {
+    suspension_reminder(store, &original.author_pubkey, &original.channel_h, None)
+        .map(|reminder| reminder.into_iter().collect())
 }
 
 pub(super) fn suspension_reminder(
@@ -47,9 +35,8 @@ pub(super) fn suspension_reminder(
     pubkey: &str,
     channel: &str,
     target_label: Option<&str>,
-    now: u64,
 ) -> Result<Option<String>> {
-    let (state, observed_label) = recipient_presence(store, pubkey, channel, now)?;
+    let (state, observed_label) = recipient_presence(store, pubkey, channel)?;
     if state != SessionState::Suspended {
         return Ok(None);
     }
@@ -69,7 +56,6 @@ fn recipient_presence(
     store: &Store,
     pubkey: &str,
     channel: &str,
-    now: u64,
 ) -> Result<(SessionState, Option<String>)> {
     let local = store.get_session(pubkey)?;
     if let Some(session) = local {
@@ -85,7 +71,7 @@ fn recipient_presence(
     let status = store.get_status(pubkey, channel)?;
     Ok(match status {
         Some(status) => (
-            crate::session_presence::remote(&status, now).state,
+            crate::session_presence::remote(&status).state,
             Some(status.slug),
         ),
         None => (SessionState::Offline, None),

@@ -43,16 +43,8 @@ fn session_start_without_mosaico_private_key_generates_key_and_provisions_channe
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members("#tmp");
-            let members = Store::open(&home.store_path())
-                .and_then(|store| store.list_channel_members("tmp"))
-                .unwrap_or_default();
-            members
-                .iter()
-                .any(|m| m.pubkey == backend_pk && m.role == "admin")
-                && members
-                    .iter()
-                    .any(|m| m.pubkey == user_pk && m.role == "admin")
+            observed_channel_has_role("#tmp", &backend_pk, "admin")
+                && observed_channel_has_role("#tmp", &user_pk, "admin")
         }),
         "background readiness should grant generated management and user admin keys"
     );
@@ -124,13 +116,7 @@ fn generated_management_key_self_grants_on_existing_user_owned_channel() {
     .unwrap();
     let backend_pk = pubkey_of(cfg["mosaicoPrivateKey"].as_str().unwrap());
     if !wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&format!("#{channel}"));
-        let members = Store::open(&home.store_path())
-            .and_then(|store| store.list_channel_members(&channel))
-            .unwrap_or_default();
-        members
-            .iter()
-            .any(|m| m.pubkey == backend_pk && m.role == "admin")
+        observed_channel_has_role(&format!("#{channel}"), &backend_pk, "admin")
     }) {
         panic!(
             "background readiness should self-grant generated management key; daemon_log={}; group_log={}",

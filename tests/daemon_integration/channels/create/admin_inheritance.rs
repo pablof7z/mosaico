@@ -32,11 +32,9 @@ fn child_copies_every_parent_admin_in_one_group_event() {
         }
     });
     assert!(wait_until(Duration::from_secs(15), || {
-        refresh_channel_members("#tmp");
-        let store = Store::open(&home.store_path()).unwrap();
         additional_admins
             .iter()
-            .all(|pubkey| store.is_channel_admin("tmp", pubkey).unwrap_or(false))
+            .all(|pubkey| observed_channel_has_role("#tmp", pubkey, "admin"))
     }));
     let parent_events = management_events(&relay, "tmp");
     for pubkey in &additional_admins {

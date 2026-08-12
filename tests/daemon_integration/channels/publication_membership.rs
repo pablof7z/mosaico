@@ -37,14 +37,13 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
         pubkey_for_harness_session(&store, "claude-code", &sid).unwrap()
     };
     if !wait_until(Duration::from_secs(25), || {
-        refresh_channel_members(&format!("#{channel}"));
         let store = Store::open(&home.store_path()).unwrap();
         store.has_session_route(&pubkey, &channel).unwrap_or(false)
-            && store
-                .list_channel_members(&channel)
-                .unwrap_or_default()
-                .iter()
-                .any(|member| member.pubkey == pubkey)
+            && observed_channel_members(&format!("#{channel}")).is_some_and(|members| {
+                members
+                    .iter()
+                    .any(|member| member["pubkey"].as_str() == Some(pubkey.as_str()))
+            })
             && !store
                 .latest_receipts_for_surface("status", 1)
                 .unwrap_or_default()
@@ -55,7 +54,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
             "session did not establish its sole route, membership, and presence; \
              routes={:?}; members={:?}; receipts={:?}; standing={:?}; daemon_log={}",
             store.list_session_routes(&pubkey).unwrap_or_default(),
-            store.list_channel_members(&channel).unwrap_or_default(),
+            observed_channel_members(&format!("#{channel}")),
             store
                 .latest_receipts_for_surface("status", 5)
                 .unwrap_or_default(),
@@ -107,7 +106,6 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
         }),
         "presence publisher did not process the post-leave expiry"
     );
-    refresh_channel_members(&format!("#{channel}"));
     let store = Store::open(&home.store_path()).unwrap();
     assert!(store.list_session_routes(&pubkey).unwrap().is_empty());
     assert_eq!(
@@ -119,12 +117,14 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
         mosaico::state::StandingState::Absent
     );
     assert!(
-        store
-            .list_channel_members(&channel)
-            .unwrap()
-            .iter()
-            .all(|member| member.pubkey != pubkey),
-        "relay-confirmed member mirror must remain absent after expiry publication"
+        wait_until(Duration::from_secs(15), || {
+            observed_channel_members(&format!("#{channel}")).is_some_and(|members| {
+                members
+                    .iter()
+                    .all(|member| member["pubkey"].as_str() != Some(pubkey.as_str()))
+            })
+        }),
+        "NMP's delivered roster must remain absent after expiry publication"
     );
     stop_daemon(&home);
 }

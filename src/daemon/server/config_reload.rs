@@ -167,6 +167,11 @@ fn install_runtime(
     provider: Arc<Nip29Provider>,
     config: Config,
 ) {
+    state
+        .store
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .bind_nmp_views(nmp.views_handle());
     *state
         .nmp
         .write()

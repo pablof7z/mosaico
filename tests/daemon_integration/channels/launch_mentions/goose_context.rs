@@ -134,16 +134,13 @@ fn goose_pty_launch_injects_canonical_fabric_context_through_top_of_mind() {
     let session = wait_for_alive_session(&home, "goose", &channel);
     wait_for_group_member(&home, &channel, &session.pubkey);
     let marker = format!("GOOSE_FABRIC_{}", unique_session("marker"));
-    rt().block_on(publish_user_kind9(&channel, &marker, &session.pubkey));
+    let event_id = rt().block_on(publish_user_kind9(&channel, &marker, &session.pubkey));
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            Store::open(&home.store_path()).is_ok_and(|store| {
-                chat_in_channel(&store, &channel)
-                    .iter()
-                    .any(|message| message.content == marker)
-            })
-        }),
-        "relay-published Goose marker never materialized; daemon={}",
+        wait_until(Duration::from_secs(25), || observed_chat(&event_id)
+            .is_some_and(
+                |message| message["body"].as_str() == Some(marker.as_str())
+            )),
+        "relay-published Goose marker never reached the public reader; daemon={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default(),
     );
     mosaico::pty::inject(&pty_id, "inspect current fabric", true, true)

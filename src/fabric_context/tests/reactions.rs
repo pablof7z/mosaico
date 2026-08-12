@@ -3,34 +3,48 @@
 //! backend (daemon 👁 receipt) reactors, and never creates an inbox/inject row.
 
 use super::*;
-use crate::state::RecordMessage;
 
 const BACKEND_PK: &str = "backend-pubkey";
 
-fn record_self_message(store: &Store, id: &str, channel: &str, at: u64, body: &str) {
-    store
-        .record_message(&RecordMessage {
-            message_id: id.into(),
-            thread_id: channel.into(),
-            channel_h: channel.into(),
-            author_pubkey: SELF_PK.into(),
-            body: body.into(),
-            created_at: at,
-            sync_state: "accepted".into(),
-            native_event_id: Some(id.into()),
-            error: None,
-        })
-        .unwrap();
+fn event(
+    id: &str,
+    kind: u32,
+    author: &str,
+    channel: &str,
+    at: u64,
+    body: &str,
+    tags: &str,
+) -> RelayEvent {
+    RelayEvent {
+        id: id.into(),
+        kind,
+        pubkey: author.into(),
+        created_at: at,
+        channel_h: channel.into(),
+        d_tag: String::new(),
+        content: body.into(),
+        tags_json: tags.into(),
+    }
 }
 
 #[test]
 fn reaction_on_own_message_renders_once_then_is_silent() {
     let store = seed_store();
     let rec = session(&store);
-    record_self_message(&store, "mymsg", "root", 100, "pushed the fix, tests green");
-    store
-        .upsert_reaction("rx1", "mymsg", "root", OTHER_PK, "👍", 210)
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles(seed_profiles()).events([
+            event(
+                "mymsg",
+                9,
+                SELF_PK,
+                "root",
+                100,
+                "pushed the fix, tests green",
+                "[]",
+            ),
+            event("rx1", 7, OTHER_PK, "root", 210, "👍", r#"[["e","mymsg"]]"#),
+        ]),
+    );
 
     // Turn whose cursor predates the reaction: it renders exactly once.
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
@@ -66,15 +80,22 @@ fn reaction_on_own_message_renders_once_then_is_silent() {
 #[test]
 fn backend_reactor_is_not_surfaced() {
     let store = seed_store();
-    store
-        .upsert_profile(BACKEND_PK, "daemon", "daemon", "laptop", true, 1)
-        .unwrap();
+    let mut profiles = seed_profiles();
+    profiles.push(profile(BACKEND_PK, "daemon", "daemon", "", "laptop", true));
     let rec = session(&store);
-    record_self_message(&store, "mymsg", "root", 100, "shipped it");
     // A daemon 👁 receipt on my message must never appear in awareness.
-    store
-        .upsert_reaction("rx-eye", "mymsg", "root", BACKEND_PK, "👁", 210)
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
+        event("mymsg", 9, SELF_PK, "root", 100, "shipped it", "[]"),
+        event(
+            "rx-eye",
+            7,
+            BACKEND_PK,
+            "root",
+            210,
+            "👁",
+            r#"[["e","mymsg"]]"#,
+        ),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false));
     assert!(

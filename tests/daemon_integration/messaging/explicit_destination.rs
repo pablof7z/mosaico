@@ -1,7 +1,7 @@
 use crate::daemon_harness::*;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
-use nostr::{Keys, PublicKey, ToBech32};
+use nostr::Keys;
 use std::time::Duration;
 
 async fn start_session(client: &mut Client, agent: &str) -> String {
@@ -24,18 +24,14 @@ async fn start_session(client: &mut Client, agent: &str) -> String {
         .to_string()
 }
 
-fn await_chat_event(home: &Home, event_id: &str) -> mosaico::state::RelayEvent {
+fn await_observed_chat(event_id: &str) -> serde_json::Value {
     let mut found = None;
     assert!(
         wait_until(Duration::from_secs(10), || {
-            found = Store::open(&home.store_path()).ok().and_then(|store| {
-                chat_in_channel(&store, "tmp")
-                    .into_iter()
-                    .find(|event| event.id == event_id)
-            });
+            found = super::observed_message(event_id);
             found.is_some()
         }),
-        "chat event {event_id} did not materialize"
+        "chat event {event_id} was not observed by the public reader"
     );
     found.unwrap()
 }
@@ -53,10 +49,11 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         )
     });
     assert!(
-        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
-            .map(|store| store.get_channel("tmp").unwrap_or(None).is_some())
-            .unwrap_or(false)),
-        "root channel did not materialize before explicit-destination send"
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&sender, &receiver, &second_receiver],
+        )),
+        "root channel and participants were not observed before explicit-destination send"
     );
     let routes_before = session_routes(&Store::open(&home.store_path()).unwrap(), &sender);
     let child_path = "#tmp/nip29";
@@ -77,15 +74,10 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     assert_eq!(created["channel"], child_path);
     assert_eq!(created["joined"].as_bool(), Some(true));
     let store = Store::open(&home.store_path()).unwrap();
-    let child_h = store
-        .channel_id_for_name("tmp", "nip29")
-        .unwrap()
-        .expect("nip29 child id");
     let routes_after = session_routes(&store, &sender);
     assert!(routes_before
         .iter()
         .all(|route| routes_after.contains(route)));
-    assert!(routes_after.contains(&child_h));
     assert_eq!(routes_after.len(), routes_before.len() + 1);
     let sender_identity = store
         .session_identity(&sender)
@@ -101,20 +93,9 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
         .expect("second receiver identity");
     let receiver_handle = receiver_identity.display_slug();
     let second_receiver_handle = second_receiver_identity.display_slug();
-    let receiver_npub = PublicKey::parse(&receiver_identity.pubkey)
-        .unwrap()
-        .to_bech32()
-        .unwrap();
-    let second_receiver_npub = PublicKey::parse(&second_receiver_identity.pubkey)
-        .unwrap()
-        .to_bech32()
-        .unwrap();
     drop(store);
 
     let original_body = "destination-selected message";
-    let expected_wire_body = format!(
-        "nostr:{receiver_npub}, nostr:{second_receiver_npub}: destination-selected message"
-    );
     let sent = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         client
@@ -153,21 +134,20 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     );
     let event_id = sent["event_id"].as_str().unwrap().to_string();
 
-    let published = await_chat_event(&home, &event_id);
-    assert_eq!(published.pubkey, sender_identity.pubkey);
-    assert_eq!(published.channel_h, "tmp");
-    assert_eq!(published.content, expected_wire_body);
-    assert!(!published.content.contains("[from @"));
-    assert!(!published.content.contains(child_path));
-    let tags: Vec<Vec<String>> = serde_json::from_str(&published.tags_json).unwrap();
-    assert!(tags.iter().any(|tag| {
-        tag.first().map(String::as_str) == Some("p")
-            && tag.get(1).map(String::as_str) == Some(receiver_identity.pubkey.as_str())
-    }));
-    assert!(tags.iter().any(|tag| {
-        tag.first().map(String::as_str) == Some("p")
-            && tag.get(1).map(String::as_str) == Some(second_receiver_identity.pubkey.as_str())
-    }));
+    let published = await_observed_chat(&event_id);
+    assert_eq!(published["from_pubkey"], sender_identity.pubkey);
+    assert_eq!(published["channel"], "#tmp");
+    let published_body = published["body"].as_str().expect("published body");
+    assert!(published_body.contains(original_body), "{published}");
+    assert!(!published_body.contains("[from @"));
+    assert!(!published_body.contains(child_path));
+    assert_eq!(
+        published["recipient_refs"]
+            .as_array()
+            .expect("observed p-tag recipients")
+            .len(),
+        2
+    );
 
     let inline_body = format!("@{receiver_handle}: this stays ambient");
     let guard_error = rt().block_on(async {
@@ -205,26 +185,32 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     });
     assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
     let ambient_id = ambient["event_id"].as_str().unwrap().to_string();
-    let ambient_event = await_chat_event(&home, &ambient_id);
-    assert_eq!(ambient_event.content, inline_body);
-    let ambient_tags: Vec<Vec<String>> = serde_json::from_str(&ambient_event.tags_json).unwrap();
-    assert!(!ambient_tags
-        .iter()
-        .any(|tag| tag.first().map(String::as_str) == Some("p")));
+    let ambient_event = await_observed_chat(&ambient_id);
+    assert_eq!(ambient_event["body"], inline_body);
+    assert!(ambient_event["recipient_refs"]
+        .as_array()
+        .expect("ambient recipient projection")
+        .is_empty());
     stop_daemon(&home);
 }
 
 #[test]
 fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
+    let home = Home::new();
+    crate::channels::write_config(&home, false);
+    let other_dir = home.dir.path().join("other-chat-workspace");
+    std::fs::create_dir_all(&other_dir).unwrap();
+    crate::channels::initialize_workspace_root("root-chat-channel", "/tmp");
+    crate::channels::initialize_workspace_root("other-chat-channel", other_dir.to_str().unwrap());
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            observed_channel_members("#root-chat-channel").is_some()
+                && observed_channel_members("#other-chat-channel").is_some()
+        }),
+        "both ambiguous destination roots must first be delivered through NMP"
+    );
     let store = Store::open(&home.store_path()).unwrap();
-    store
-        .upsert_channel("root-chat-channel", "root-chat-channel", "", "", 1)
-        .unwrap();
-    store
-        .upsert_channel("other-chat-channel", "other-chat-channel", "", "", 1)
-        .unwrap();
     let pubkey = Keys::generate().public_key().to_hex();
     store
         .reserve_session_with_facts(

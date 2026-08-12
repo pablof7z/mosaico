@@ -131,7 +131,7 @@ pub(super) fn current_evidence(
             );
         }
 
-        for status in store.live_status_for_channel(parent, now)? {
+        for status in store.statuses_in_channel(parent)? {
             if participants.contains_key(&status.pubkey)
                 || admins.contains(&status.pubkey)
                 || whitelisted.contains(&status.pubkey)
@@ -144,7 +144,7 @@ pub(super) fn current_evidence(
             if profile.is_backend || profile.agent_slug.trim().is_empty() {
                 continue;
             }
-            let observed = crate::session_presence::remote(&status, now).state;
+            let observed = crate::session_presence::remote(&status).state;
             if !observed.is_live() {
                 continue;
             }
@@ -173,7 +173,6 @@ pub(super) fn current_evidence(
                 MESSAGE_SCAN_LIMIT,
             )?
             .into_iter()
-            .filter(|message| message.sync_state == "accepted")
             .map(|message| ConversationMessage {
                 message_id: message.message_id,
                 author_pubkey: message.author_pubkey,

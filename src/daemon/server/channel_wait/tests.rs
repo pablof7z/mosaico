@@ -2,7 +2,11 @@ use super::*;
 
 #[path = "tests/active_registry.rs"]
 mod active_registry;
-use crate::state::{RecordMessage, RegisterSession, RelayEvent};
+#[path = "tests/ambient.rs"]
+mod ambient;
+use crate::state::{
+    Message, Profile, RegisterSession, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 
 const SELF_PUBKEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const X_CHANNEL: &str = "x-h";
@@ -12,10 +16,12 @@ const Z_CHANNEL: &str = "z-h";
 fn seed_session(state: &Arc<DaemonState>) -> Session {
     state
         .with_store(|store| {
-            store.upsert_channel("root", "root", "", "", 1)?;
-            store.upsert_channel(X_CHANNEL, "x", "", "root", 2)?;
-            store.upsert_channel(Y_CHANNEL, "y", "", "root", 3)?;
-            store.upsert_channel(Z_CHANNEL, "z", "", "root", 4)?;
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root").metadata("root", "", "", 1),
+                TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
+                TestGroup::new(Y_CHANNEL).metadata("y", "", "root", 3),
+                TestGroup::new(Z_CHANNEL).metadata("z", "", "root", 4),
+            ]));
             store.reserve_hook_session_for_test(&RegisterSession {
                 pubkey: SELF_PUBKEY.into(),
                 observed_harness: "codex".into(),
@@ -32,7 +38,7 @@ fn seed_session(state: &Arc<DaemonState>) -> Session {
         .unwrap()
 }
 
-fn insert_chat(
+fn deliver_chat(
     state: &Arc<DaemonState>,
     id: &str,
     channel: &str,
@@ -45,7 +51,8 @@ fn insert_chat(
         .unwrap_or_else(|| "[]".to_string());
     state
         .with_store(|store| {
-            store.insert_event(&RelayEvent {
+            let mut events = store.events_by_kind(9, u32::MAX)?;
+            events.push(RelayEvent {
                 id: id.into(),
                 kind: 9,
                 pubkey: author.into(),
@@ -54,18 +61,8 @@ fn insert_chat(
                 d_tag: String::new(),
                 content: body.into(),
                 tags_json: tags,
-            })?;
-            store.record_message(&RecordMessage {
-                message_id: id.into(),
-                thread_id: channel.into(),
-                channel_h: channel.into(),
-                author_pubkey: author.into(),
-                body: body.into(),
-                created_at: 10,
-                sync_state: "accepted".into(),
-                native_event_id: Some(id.into()),
-                error: None,
-            })?;
+            });
+            store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events(events));
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -97,8 +94,14 @@ async fn explicit_channel_filters_resolve_across_every_joined_workspace() {
     let rec = seed_session(&state);
     state
         .with_store(|store| {
-            store.upsert_channel("other", "other", "", "", 5)?;
-            store.upsert_channel("other-y", "y", "", "other", 6)?;
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root").metadata("root", "", "", 1),
+                TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
+                TestGroup::new(Y_CHANNEL).metadata("y", "", "root", 3),
+                TestGroup::new(Z_CHANNEL).metadata("z", "", "root", 4),
+                TestGroup::new("other").metadata("other", "", "", 5),
+                TestGroup::new("other-y").metadata("y", "", "other", 6),
+            ]));
             store.grant_session_route(SELF_PUBKEY, "other-y", 7)?;
             Ok::<(), anyhow::Error>(())
         })
@@ -122,7 +125,7 @@ async fn explicit_channel_filters_resolve_across_every_joined_workspace() {
 async fn correlated_wait_skips_unrelated_chat_and_returns_exact_reply() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
-    insert_chat(
+    deliver_chat(
         &state,
         "original",
         X_CHANNEL,
@@ -131,11 +134,11 @@ async fn correlated_wait_skips_unrelated_chat_and_returns_exact_reply() {
         None,
     );
     let mut cursor = state
-        .with_store(|store| store.message_rowid("original"))
+        .with_store(|store| store.message_arrival_sequence("original"))
         .unwrap()
         .unwrap();
-    insert_chat(&state, "noise", X_CHANNEL, "noise-pk", "noise", None);
-    insert_chat(
+    deliver_chat(&state, "noise", X_CHANNEL, "noise-pk", "noise", None);
+    deliver_chat(
         &state,
         "reply",
         X_CHANNEL,
@@ -165,10 +168,10 @@ async fn ambient_wait_excludes_management_and_callers_own_chat() {
     let state = DaemonState::new_for_test().await;
     let rec = seed_session(&state);
     let mut cursor = state
-        .with_store(|store| store.latest_message_rowid())
+        .with_store(|store| store.latest_message_arrival_sequence())
         .unwrap();
-    insert_chat(&state, "self-chat", X_CHANNEL, SELF_PUBKEY, "mine", None);
-    insert_chat(
+    deliver_chat(&state, "self-chat", X_CHANNEL, SELF_PUBKEY, "mine", None);
+    deliver_chat(
         &state,
         "management-chat",
         X_CHANNEL,
@@ -176,7 +179,7 @@ async fn ambient_wait_excludes_management_and_callers_own_chat() {
         "mgmt ok",
         None,
     );
-    insert_chat(&state, "human-chat", X_CHANNEL, "human-pk", "hello", None);
+    deliver_chat(&state, "human-chat", X_CHANNEL, "human-pk", "hello", None);
     let filter =
         AuthorFilter::from_params(&state, &[X_CHANNEL.into()], &WaitParams::default()).unwrap();
 
@@ -200,8 +203,25 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
     seed_session(&state);
     state
         .with_store(|store| {
-            store.upsert_profile("human-pk", "pablo", "pablo", "", false, 1)?;
-            store.upsert_channel_member(Y_CHANNEL, "human-pk", "member", 1)?;
+            store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+                pubkey: "human-pk".into(),
+                name: "pablo".into(),
+                slug: "pablo".into(),
+                agent_slug: String::new(),
+                host: String::new(),
+                is_backend: false,
+                agents: Vec::new(),
+                workspaces: Vec::new(),
+                updated_at: 1,
+            }]));
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root").metadata("root", "", "", 1),
+                TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
+                TestGroup::new(Y_CHANNEL)
+                    .metadata("y", "", "root", 3)
+                    .members(vec!["human-pk".into()]),
+                TestGroup::new(Z_CHANNEL).metadata("z", "", "root", 4),
+            ]));
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -213,75 +233,12 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
         AuthorFilter::from_params(&state, &[X_CHANNEL.into(), Y_CHANNEL.into()], &params).unwrap();
     let message = Message {
         message_id: "human-message".into(),
-        thread_id: Y_CHANNEL.into(),
         channel_h: Y_CHANNEL.into(),
         author_pubkey: "human-pk".into(),
         body: "hello".into(),
         created_at: 1,
-        sync_state: "accepted".into(),
-        native_event_id: Some("human-message".into()),
-        error: None,
         attachment_dir: String::new(),
     };
 
     assert!(filter.matches(&state, &message));
-}
-
-#[tokio::test]
-async fn ambient_rpc_returns_first_new_chat_from_any_joined_channel() {
-    let state = DaemonState::new_for_test().await;
-    seed_session(&state);
-    let waiting = {
-        let state = state.clone();
-        tokio::spawn(async move {
-            rpc_channel_wait(
-                &state,
-                &serde_json::json!({
-                    "session": SELF_PUBKEY,
-                    "timeout_secs": 2,
-                }),
-            )
-            .await
-        })
-    };
-    tokio::time::sleep(Duration::from_millis(30)).await;
-    insert_chat(&state, "new-chat", Y_CHANNEL, "peer-pk", "hello", None);
-    state.emit_tail(TailEvent::Msg {
-        ts: 10,
-        channel: Y_CHANNEL.into(),
-        from: "peer".into(),
-        to: "channel-chat".into(),
-        body: "hello".into(),
-    });
-
-    let result = waiting.await.unwrap().unwrap();
-    assert_eq!(result["outcome"], "message");
-    assert_eq!(result["message"]["event_id"], "new-chat");
-    assert_eq!(result["message"]["channel"], "#root/y");
-    assert!(result["message"].get("channel_ref").is_none());
-}
-
-#[tokio::test]
-async fn timeout_is_a_normal_structured_outcome() {
-    let state = DaemonState::new_for_test().await;
-    seed_session(&state);
-    let result = rpc_channel_wait(
-        &state,
-        &serde_json::json!({
-            "session": SELF_PUBKEY,
-            "timeout_secs": 1,
-            "channels": ["#root/x"],
-        }),
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(result["outcome"], "timeout");
-    assert_eq!(result["timeout_secs"], 1);
-    assert_eq!(result["channels"], serde_json::json!(["#root/x"]));
-    let rec = state
-        .with_store(|store| store.get_session(SELF_PUBKEY))
-        .unwrap()
-        .unwrap();
-    assert!(!state.has_matching_active_wait(&rec, X_CHANNEL, &["peer-pk".into()]));
 }

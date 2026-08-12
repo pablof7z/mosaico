@@ -125,10 +125,6 @@ pub(super) struct DedupState {
     pub(super) peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
     pub(super) events: Mutex<(HashSet<String>, VecDeque<String>)>,
     pub(super) profiles: Mutex<HashSet<String>>,
-    pub(super) warming_profiles: Mutex<HashSet<String>>,
-    /// pubkey -> last kind:0 refetch attempt (unix secs), debouncing the
-    /// roster-driven "member has no kind:0 handle" refetch to ≤ once/90s.
-    pub(super) profile_refetch_attempts: Mutex<HashMap<String, u64>>,
     pub(super) last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
 }
 
@@ -138,8 +134,6 @@ impl DedupState {
             peer_sessions: Mutex::new(HashMap::new()),
             events: Mutex::new((HashSet::new(), VecDeque::new())),
             profiles: Mutex::new(HashSet::new()),
-            warming_profiles: Mutex::new(HashSet::new()),
-            profile_refetch_attempts: Mutex::new(HashMap::new()),
             last_status: Mutex::new(HashMap::new()),
         }
     }

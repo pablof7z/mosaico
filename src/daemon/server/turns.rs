@@ -3,8 +3,6 @@ use super::*;
 #[path = "work_start_reaction.rs"]
 pub(crate) mod work_start_reaction;
 
-const CONTEXT_PROFILE_WARM_WINDOW_SECS: u64 = 4 * 60 * 60;
-
 pub(in crate::daemon::server) async fn rpc_turn_start(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -63,8 +61,6 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     // Emit Turn{working} for the live tail feed, keyed on the routing scope.
     emit_turn_for_routes(state, &rec, now, &agent_label, "working", None);
 
-    schedule_context_profile_warm(state.clone(), rec.clone(), context_warm_since(&rec, now));
-
     // PTY inject is only confirmed when the harness user-prompt matches a
     // `submitted` row. Confirmed → `injected` (echo-suppress). Unconfirmed
     // submissions on a prompt-bearing turn roll back to `pending` so this
@@ -100,7 +96,6 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     if let Some(nudge) = super::channel_move::maybe_nudge(state, &rec, now) {
         turn.append_advisory(&nudge, "channel-topology-nudge");
     }
-    demux::refetch_missing_profiles(state, std::mem::take(&mut turn.missing_profiles));
     let audit = turn.receipt.to_json();
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)
@@ -141,7 +136,6 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
     let now = now_secs();
     let delta_since = cursor::drive_cursor_request(state, &rec, now, rec.is_working())
         .context("applying cursor turn_check projection")?;
-    schedule_context_profile_warm(state.clone(), rec.clone(), delta_since.unwrap_or(now));
     let mut turn = crate::turn_context::assemble_turn_check(
         &state.store,
         &rec,
@@ -228,70 +222,4 @@ fn emit_turn_for_routes(
             elapsed_s,
         });
     }
-}
-
-fn context_warm_since(rec: &crate::state::Session, now: u64) -> u64 {
-    if rec.seen_cursor == 0 {
-        now.saturating_sub(CONTEXT_PROFILE_WARM_WINDOW_SECS)
-    } else {
-        rec.seen_cursor
-    }
-}
-
-fn schedule_context_profile_warm(state: Arc<DaemonState>, rec: crate::state::Session, since: u64) {
-    tokio::spawn(async move {
-        warm_context_profiles(&state, &rec, since).await;
-    });
-}
-
-async fn warm_context_profiles(state: &Arc<DaemonState>, rec: &crate::state::Session, since: u64) {
-    let pubkeys = state.with_store(|s| context_profile_pubkeys(s, rec, since));
-    crate::profile::warm(state, &pubkeys).await;
-}
-
-fn context_profile_pubkeys(
-    store: &crate::state::Store,
-    rec: &crate::state::Session,
-    since: u64,
-) -> Vec<String> {
-    let mut pubkeys = Vec::new();
-    for row in store
-        .peek_pending_for_pubkey(&rec.pubkey)
-        .unwrap_or_default()
-    {
-        pubkeys.push(row.from_pubkey);
-        pubkeys.extend(crate::profile::body_mention_pubkeys(&row.body));
-    }
-
-    let channels = match store.list_session_routes(&rec.pubkey) {
-        Ok(channels) => channels,
-        Err(error) => {
-            tracing::warn!(
-                session = %rec.pubkey,
-                %error,
-                "profile warming skipped because session channel membership lookup failed"
-            );
-            Vec::new()
-        }
-    };
-    for (channel_h, _) in channels {
-        for member in store.list_channel_members(&channel_h).unwrap_or_default() {
-            pubkeys.push(member.pubkey);
-        }
-        for ev in store
-            .chat_for_channel(&channel_h, since, 10_000)
-            .unwrap_or_default()
-        {
-            if ev.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 || ev.pubkey == rec.pubkey {
-                continue;
-            }
-            pubkeys.push(ev.pubkey);
-            pubkeys.extend(crate::fabric_context::p_tag_pubkeys(&ev.tags_json));
-            pubkeys.extend(crate::profile::body_mention_pubkeys(&ev.content));
-        }
-    }
-
-    pubkeys.sort();
-    pubkeys.dedup();
-    pubkeys
 }

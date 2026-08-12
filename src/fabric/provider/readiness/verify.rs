@@ -6,12 +6,50 @@ pub(super) struct Outcome {
     pub(super) degraded: Option<ChannelReadinessError>,
 }
 
+/// Complete the known initial roster after NMP reports terminal success for a
+/// create+lock operation. The relay makes the creator an administrator, so the
+/// remaining desired administrators and optional member can be expressed as
+/// at most two typed, batched mutations without reading a projected echo back.
+pub(super) async fn initialize_created_group(
+    provider: &Nip29Provider,
+    ctx: &ChannelCtx<'_>,
+    mgmt_pubkey: &str,
+    parent_admins: &[String],
+) -> Result<(), ChannelReadinessError> {
+    let required = required_admins(provider, mgmt_pubkey, parent_admins);
+    let additional_admins = required
+        .iter()
+        .filter(|pubkey| pubkey.as_str() != mgmt_pubkey)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !additional_admins.is_empty() {
+        admins::published(
+            provider
+                .grant_admins_published(ctx.channel, &additional_admins)
+                .await,
+            format!(
+                "initial admin grant for {} users in {}",
+                additional_admins.len(),
+                ctx.channel
+            ),
+        )?;
+    }
+    if !ctx.expect_member.is_empty() && !required.iter().any(|key| key == ctx.expect_member) {
+        admins::published(
+            provider
+                .grant_member_published(ctx.channel, ctx.expect_member)
+                .await,
+            format!("initial member grant in {}", ctx.channel),
+        )?;
+    }
+    Ok(())
+}
+
 /// Bring the relay's roster up to the invariants a ready channel must satisfy.
 ///
-/// Every membership question is asked of the cache the retained group-records
-/// observation keeps current. "Is an admin" means NAMED BY kind:39001 — not
-/// that the record spelled the free-form role string "admin" — which is the
-/// same reading the store itself materializes.
+/// Every membership question is asked of NMP's complete group snapshot. "Is an
+/// admin" means named by kind:39001, not that a record used a free-form role
+/// string.
 pub(super) async fn ensure_invariants(
     provider: &Nip29Provider,
     ctx: &ChannelCtx<'_>,

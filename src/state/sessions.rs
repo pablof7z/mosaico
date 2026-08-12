@@ -1,5 +1,3 @@
-//! Pubkey-keyed durable session and runtime-incarnation persistence.
-
 use super::*;
 use rusqlite::{Transaction, TransactionBehavior};
 
@@ -80,8 +78,6 @@ impl Store {
     }
 
     /// Reserve the sole running incarnation together with its admitted facts.
-    /// Stopping runtimes still own their pubkey; only stopped runtimes advance
-    /// the generation, and revoked recovery authority can never be relaunched.
     pub fn reserve_session_with_facts(
         &self,
         r: &RegisterSession,
@@ -91,6 +87,7 @@ impl Store {
             anyhow::bail!("session pubkey must not be empty");
         }
         validate_runtime_facts(r, facts)?;
+        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let previous = tx
             .query_row(
@@ -179,7 +176,7 @@ impl Store {
             ],
         )?;
         if !r.launch_channel_h.trim().is_empty() {
-            grant_route_and_initialize_standing(&tx, r)?;
+            grant_route_and_initialize_standing(&tx, r, joined_event_seq)?;
         }
         tx.execute(
             "UPDATE handle_leases SET live=1, last_active_at=?2 WHERE pubkey=?1",
@@ -308,15 +305,17 @@ impl Store {
 fn grant_route_and_initialize_standing(
     tx: &Transaction<'_>,
     registration: &RegisterSession,
+    joined_event_seq: u64,
 ) -> Result<()> {
     tx.execute(
         "INSERT OR IGNORE INTO session_channels
              (pubkey, channel_h, joined_at, joined_event_seq)
-         VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))",
+         VALUES (?1, ?2, ?3, ?4)",
         params![
             registration.pubkey,
             registration.launch_channel_h,
-            registration.now
+            registration.now,
+            joined_event_seq,
         ],
     )?;
     tx.execute(

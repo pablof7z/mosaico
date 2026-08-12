@@ -92,8 +92,72 @@ pub(crate) fn wait_for_exact_relay_groups(
     }
 }
 
+/// Wait until the relay's current signed kind:39000 names the exact parent.
+///
+/// Session rooms are deliberately unnamed and therefore have no public path;
+/// their relay-signed parent row is the independent topology witness.
+pub(crate) fn wait_for_relay_group_parent(
+    relay: &str,
+    group: &str,
+    expected_parent: &str,
+    timeout: Duration,
+) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let last = match relay_parent_for_group(relay, group) {
+            Ok(Some(parent)) if parent == expected_parent => return,
+            Ok(Some(parent)) => format!("actual parent: {parent:?}"),
+            Ok(None) => "no current kind:39000".to_string(),
+            Err(error) => format!("query error: {error:#}"),
+        };
+        if Instant::now() >= deadline {
+            panic!("relay parent for {group} did not converge to {expected_parent:?}; {last}");
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+fn relay_parent_for_group(relay: &str, group: &str) -> Result<Option<String>> {
+    let stdout = run_nak_req_bounded(relay, &["-k", "39000", "-d", group])?;
+    let mut parents = BTreeSet::new();
+    for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+        let event: Event = serde_json::from_str(line).context("parse relay kind:39000 event")?;
+        event
+            .verify()
+            .context("verify relay kind:39000 signature")?;
+        if event.kind.as_u16() != 39_000 {
+            bail!(
+                "relay query returned unexpected kind {}",
+                event.kind.as_u16()
+            );
+        }
+        let value: serde_json::Value =
+            serde_json::from_str(line).context("parse relay metadata tags")?;
+        let tags = value["tags"]
+            .as_array()
+            .context("kind:39000 tags are not an array")?;
+        let event_group = tag_value(tags, "d").context("kind:39000 has no group identifier")?;
+        if event_group == group {
+            parents.insert(tag_value(tags, "parent").unwrap_or_default());
+        }
+    }
+    if parents.len() > 1 {
+        bail!("relay returned conflicting current parents for {group}: {parents:?}");
+    }
+    Ok(parents.into_iter().next())
+}
+
+fn tag_value(tags: &[serde_json::Value], name: &str) -> Option<String> {
+    tags.iter().find_map(|tag| {
+        let parts = tag.as_array()?;
+        (parts.first()?.as_str()? == name)
+            .then(|| parts.get(1)?.as_str().map(str::to_string))
+            .flatten()
+    })
+}
+
 fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>> {
-    let stdout = run_nak_bounded(relay, pubkey)?;
+    let stdout = run_nak_req_bounded(relay, &["-k", "39002", "-p", pubkey])?;
     let mut groups = BTreeSet::new();
     for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
         let event: Event = serde_json::from_str(line).context("parse relay kind:39002 event")?;
@@ -134,14 +198,17 @@ fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>
     Ok(groups)
 }
 
-fn run_nak_bounded(relay: &str, pubkey: &str) -> Result<String> {
+fn run_nak_req_bounded(relay: &str, filters: &[&str]) -> Result<String> {
     let scratch = tempfile::tempdir().context("create nak query scratch")?;
     let stdout_path = scratch.path().join("stdout.log");
     let stderr_path = scratch.path().join("stderr.log");
     let stdout = File::create(&stdout_path).context("create nak stdout")?;
     let stderr = File::create(&stderr_path).context("create nak stderr")?;
+    let mut args = vec!["req"];
+    args.extend_from_slice(filters);
+    args.push(relay);
     let mut child = Command::new(crate::common::nak_bin())
-        .args(["req", "-k", "39002", "-p", pubkey, relay])
+        .args(args)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
         .spawn()

@@ -67,20 +67,30 @@ fn one_remote_session(selector: &str, matches: Vec<RemoteSession>) -> Result<Rem
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{Status, Store};
+    use crate::state::{Profile, Status, Store, TestRelayDelivery};
     use nostr::{Keys, ToBech32};
 
-    fn profile(store: &Store, pubkey: &str, handle: &str) {
-        store
-            .upsert_profile_with_agent_slug(pubkey, handle, handle, "codex", "remote", false, 1)
-            .unwrap();
+    fn profile(pubkey: &str, handle: &str) -> Profile {
+        Profile {
+            pubkey: pubkey.into(),
+            name: handle.into(),
+            slug: handle.into(),
+            agent_slug: "codex".into(),
+            host: "remote".into(),
+            is_backend: false,
+            agents: Vec::new(),
+            workspaces: Vec::new(),
+            updated_at: 1,
+        }
     }
 
     #[test]
     fn historical_remote_npub_resolves_without_status() {
         let store = Store::open_memory().unwrap();
         let pubkey = Keys::generate().public_key();
-        profile(&store, &pubkey.to_hex(), "old-codex");
+        store.install_test_nmp_relay_delivery(
+            TestRelayDelivery::new().profiles([profile(&pubkey.to_hex(), "old-codex")]),
+        );
 
         let matches = remote_sessions(&store, &pubkey.to_bech32().unwrap()).unwrap();
         assert_eq!(matches.len(), 1);
@@ -92,23 +102,25 @@ mod tests {
     fn expired_remote_handle_remains_resolvable() {
         let store = Store::open_memory().unwrap();
         let pubkey = Keys::generate().public_key().to_hex();
-        profile(&store, &pubkey, "old-codex");
-        store
-            .upsert_status(&Status {
-                pubkey: pubkey.clone(),
-                channel_h: "root".into(),
-                slug: "old-codex".into(),
-                title: String::new(),
-                activity: String::new(),
-                workspace: String::new(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: 1,
-                last_seen: 1,
-                updated_at: 1,
-                expiration: 1,
-            })
-            .unwrap();
+        let status = Status {
+            pubkey: pubkey.clone(),
+            channel_h: "root".into(),
+            slug: "old-codex".into(),
+            title: String::new(),
+            activity: String::new(),
+            workspace: String::new(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            state_since: 1,
+            last_seen: 1,
+            updated_at: 1,
+            expiration: 1,
+        };
+        store.install_test_nmp_relay_delivery(
+            TestRelayDelivery::new()
+                .profiles([profile(&pubkey, "old-codex")])
+                .statuses([status]),
+        );
 
         let matches = remote_sessions(&store, "old-codex").unwrap();
         assert_eq!(matches.len(), 1);
@@ -119,9 +131,10 @@ mod tests {
     fn backend_npub_is_not_a_resumable_session() {
         let store = Store::open_memory().unwrap();
         let pubkey = Keys::generate().public_key();
-        store
-            .upsert_profile(&pubkey.to_hex(), "remote", "remote", "remote", true, 1)
-            .unwrap();
+        let mut profile = profile(&pubkey.to_hex(), "remote");
+        profile.agent_slug = "remote".into();
+        profile.is_backend = true;
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile]));
 
         assert!(remote_sessions(&store, &pubkey.to_bech32().unwrap())
             .unwrap()

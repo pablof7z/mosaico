@@ -20,6 +20,8 @@ mod v17_v18;
 mod v18_v19;
 #[path = "migration/v20_v21.rs"]
 mod v20_v21;
+#[path = "migration/v21_v22.rs"]
+mod v21_v22;
 #[test]
 fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     let directory = tempfile::tempdir().unwrap();
@@ -27,7 +29,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     fixture::create_schema_four(&path);
     drop(Store::open(&path).expect("schema four upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 21);
+    assert_eq!(version(&conn), 22);
     assert_eq!(
         conn.query_row("SELECT title FROM sessions WHERE pubkey='pk1'", [], |row| {
             row.get::<_, String>(0)
@@ -90,14 +92,7 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
         .unwrap(),
         "absent"
     );
-    assert_eq!(count(&conn, "messages"), 1);
-    assert_eq!(count(&conn, "message_recipients"), 1);
-    assert_eq!(
-        conn.query_row("SELECT delivered_at FROM message_recipients", [], |row| row
-            .get::<_, i64>(0),)
-            .unwrap(),
-        20
-    );
+    assert_eq!(count(&conn, "message_attachments"), 0);
     for table in ["sessions", "session_signers", "inbox", "workspace_roots"] {
         assert_eq!(count(&conn, table), 1, "{table} data survives");
     }
@@ -107,6 +102,16 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
         "trellis_replay_capsules",
         "llm_calls",
         "session_claims",
+        "relay_channels",
+        "relay_channel_members",
+        "relay_channel_member_sets",
+        "relay_profiles",
+        "relay_status",
+        "relay_status_sets",
+        "relay_events",
+        "relay_reactions",
+        "messages",
+        "message_recipients",
     ] {
         assert!(!fixture::table_exists(&conn, removed), "{removed} removed");
     }
@@ -142,7 +147,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
     fixture::create_schema_eight(&migrated_path);
     drop(Store::open(&migrated_path).expect("schema eight upgrades to current"));
     let migrated = Connection::open(&migrated_path).unwrap();
-    assert_eq!(version(&migrated), 21);
+    assert_eq!(version(&migrated), 22);
     assert_eq!(
         session_runtime_facts(&migrated, "pk-pty"),
         ("pty".to_string(), "migration".to_string())
@@ -182,7 +187,7 @@ fn schema_eight_transport_backfill_is_harness_scoped_and_defaults_are_canonical(
 fn migration_chain_covers_every_version_before_current() {
     assert_eq!(
         super::super::migration::supported_versions(),
-        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+        [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,]
     );
 }
 fn version(conn: &Connection) -> u32 {

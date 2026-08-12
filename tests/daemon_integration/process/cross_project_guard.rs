@@ -22,9 +22,6 @@ fn native_pre_tool_guard_warns_reads_denies_writes_and_ignores_shells() {
     let store = Store::open(&home.store_path()).unwrap();
     for (workspace, path) in [("alpha", &alpha), ("beta", &beta)] {
         store
-            .upsert_channel(workspace, workspace, "", "", 1)
-            .unwrap();
-        store
             .upsert_workspace(workspace, &path.to_string_lossy(), 1)
             .unwrap();
     }

@@ -1,5 +1,7 @@
 use super::*;
-use crate::state::{RegisterSession, Status};
+use crate::state::{
+    Profile, RegisterSession, Status, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 use crate::who_snapshot::{load_who_snapshot, WhoSource};
 
 /// Register a local pubkey-owned session.
@@ -16,7 +18,9 @@ fn register_local_in(
     ts: u64,
 ) -> String {
     if store.get_channel(channel).unwrap().is_none() {
-        store.upsert_channel(channel, channel, "", "", ts).unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new(channel).metadata(channel, "", "", ts)
+        ]));
     }
     store
         .reserve_hook_session_for_test(&RegisterSession {
@@ -51,26 +55,28 @@ fn seed_draft_title(store: &Store, session_id: &str, title: &str, _ts: u64) {
     store.set_session_title(session_id, title).unwrap();
 }
 
-/// Record a peer (or our own published) status as a kind:30315 in `relay_status`,
-/// plus a kind:0 carrying its host so remoteness can be derived.
 #[allow(clippy::too_many_arguments)]
-fn record_peer(
-    store: &Store,
+fn peer(
     pubkey: &str,
     slug: &str,
     host: &str,
     title: &str,
     busy: bool,
     ts: u64,
-) {
-    if store.get_channel("proj").unwrap().is_none() {
-        store.upsert_channel("proj", "proj", "", "", ts).unwrap();
-    }
-    store
-        .upsert_profile(pubkey, slug, slug, host, false, 1)
-        .unwrap();
-    store
-        .upsert_status(&Status {
+) -> (Profile, Status) {
+    (
+        Profile {
+            pubkey: pubkey.to_string(),
+            name: slug.to_string(),
+            slug: slug.to_string(),
+            agent_slug: String::new(),
+            host: host.to_string(),
+            is_backend: false,
+            agents: Vec::new(),
+            workspaces: Vec::new(),
+            updated_at: 1,
+        },
+        Status {
             pubkey: pubkey.to_string(),
             channel_h: "proj".to_string(),
             slug: slug.to_string(),
@@ -87,8 +93,17 @@ fn record_peer(
             last_seen: ts,
             updated_at: ts,
             expiration: ts + 90,
-        })
-        .unwrap();
+        },
+    )
+}
+
+fn install_peers(store: &Store, peers: impl IntoIterator<Item = (Profile, Status)>) {
+    let (profiles, statuses): (Vec<_>, Vec<_>) = peers.into_iter().unzip();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(profiles)
+            .statuses(statuses),
+    );
 }
 
 /// Declare `pubkey` as a key this daemon signs as, so a relay echo of our own
@@ -108,17 +123,21 @@ fn who_snapshot_merges_local_and_peer_sessions() {
         .handle_for_pubkey("pk-coder")
         .unwrap()
         .expect("derived session public handle");
-    // A relay echo of our own status (pk-coder) must be deduped out of peers.
-    record_peer(&store, "pk-coder", "coder", "laptop", "", false, 1_000);
-    // A genuine remote peer on a different host.
-    record_peer(
+    install_peers(
         &store,
-        "pk-reviewer",
-        "reviewer",
-        "tower",
-        "reviewing the patch",
-        true,
-        1_000,
+        [
+            // A relay echo of our own status must be deduped out of peers.
+            peer("pk-coder", "coder", "laptop", "", false, 1_000),
+            // A genuine remote peer on a different host.
+            peer(
+                "pk-reviewer",
+                "reviewer",
+                "tower",
+                "reviewing the patch",
+                true,
+                1_000,
+            ),
+        ],
     );
 
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
@@ -172,10 +191,16 @@ fn who_snapshot_uses_session_draft_title_for_sibling_sessions() {
 #[test]
 fn who_snapshot_ignores_relay_echo_for_known_local_agent() {
     let store = Store::open_memory().unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1_000)
+    ]));
     // pk-claude is one of our signing keys, but no live local session exists.
     own_identity(&store, "pk-claude", "claude");
     // The same identity arrives over the wire as a relay echo.
-    record_peer(&store, "pk-claude", "claude", "laptop", "", false, 1_000);
+    install_peers(
+        &store,
+        [peer("pk-claude", "claude", "laptop", "", false, 1_000)],
+    );
 
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     assert!(
@@ -187,27 +212,25 @@ fn who_snapshot_ignores_relay_echo_for_known_local_agent() {
 #[test]
 fn who_snapshot_hides_archived_channel_presence() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("proj", "proj", "", "", 1).unwrap();
-    store
-        .upsert_channel("archived", "archived", "[ARCHIVED] done", "proj", 1)
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1),
+        TestGroup::new("archived").metadata("archived", "[ARCHIVED] done", "proj", 1),
+    ]));
     register_local_in(&store, "coder", "pk-coder", "archived", "sid-coder", 1_000);
-    store
-        .upsert_status(&Status {
-            pubkey: "pk-reviewer".to_string(),
-            channel_h: "archived".to_string(),
-            slug: "reviewer".to_string(),
-            title: "done".to_string(),
-            activity: String::new(),
-            workspace: String::new(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Idle,
-            state_since: 1_000,
-            last_seen: 1_000,
-            updated_at: 1_000,
-            expiration: 1_090,
-        })
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().statuses([Status {
+        pubkey: "pk-reviewer".to_string(),
+        channel_h: "archived".to_string(),
+        slug: "reviewer".to_string(),
+        title: "done".to_string(),
+        activity: String::new(),
+        workspace: String::new(),
+        branch: String::new(),
+        state: crate::session_state::SessionState::Idle,
+        state_since: 1_000,
+        last_seen: 1_000,
+        updated_at: 1_000,
+        expiration: 1_090,
+    }]));
 
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     assert!(snapshot.rows.is_empty());
@@ -221,7 +244,13 @@ fn same_host_peer_is_not_remote() {
     // A sibling agent (e.g. codex@) on the SAME laptop arrives as a peer row; it
     // must NOT be tagged remote (the bug being fixed).
     let store = Store::open_memory().unwrap();
-    record_peer(&store, "pk-codex", "codex", "laptop", "", false, 1_000);
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1_000)
+    ]));
+    install_peers(
+        &store,
+        [peer("pk-codex", "codex", "laptop", "", false, 1_000)],
+    );
     let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let sib = snap
         .rows
@@ -235,7 +264,10 @@ fn same_host_peer_is_not_remote() {
 #[test]
 fn remote_peer_shows_host_and_flag() {
     let store = Store::open_memory().unwrap();
-    record_peer(&store, "pk-a", "a", "tower", "", false, 1_000);
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 1_000)
+    ]));
+    install_peers(&store, [peer("pk-a", "a", "tower", "", false, 1_000)]);
     let snap = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
     let peer = snap.rows.first().expect("remote peer row");
     assert!(peer.remote);

@@ -99,22 +99,14 @@ pub(crate) fn refresh_channel_members(channel_path: &str) {
     );
 }
 
-fn materialize_member_snapshot(home: &Home, channel: &str, pubkey: &str) {
-    Store::open(&home.store_path())
-        .unwrap()
-        .replace_channel_members(channel, &[pubkey.to_string()], 9_000_000)
-        .unwrap();
-}
-
 fn wait_for_channel_metadata(home: &Home, channel: &str) {
+    let path = format!("#{channel}");
     assert!(
         wait_until(std::time::Duration::from_secs(10), || {
-            Store::open(&home.store_path())
-                .ok()
-                .and_then(|store| store.get_channel(channel).ok().flatten())
-                .is_some()
+            observed_channel_members(&path).is_some()
         }),
-        "channel metadata for {channel:?} did not materialize"
+        "channel metadata for {channel:?} was not delivered through NMP; daemon_log={}",
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
 }
 

@@ -13,31 +13,27 @@ fn event(id: &str, created_at: u64) -> RelayEvent {
     }
 }
 
-/// mosaico#744. A kind:5 retraction or a NIP-40 expiry reaches Mosaico as
-/// `RowDelta::Removed(id)`; before this the delta was discarded and the row
-/// stayed cached forever.
+/// A later NMP delivery omitting a removed row immediately changes reads.
 #[test]
 fn retracting_an_event_removes_exactly_that_row() {
     let store = Store::open_memory().unwrap();
-    assert!(store.insert_event(&event("a", 10)).unwrap());
-    assert!(store.insert_event(&event("b", 11)).unwrap());
+    let a = event("a", 10);
+    let b = event("b", 11);
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([a, b.clone()]));
 
-    assert!(store.retract_event("a").unwrap());
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([b]));
     assert!(store.get_event("a").unwrap().is_none());
     assert!(store.get_event("b").unwrap().is_some());
-
-    // Retracting a row that is already gone is not an error: a supersession
-    // handled by `insert_event` and reported again as `Removed` in the same
-    // frame must not look like a failure.
-    assert!(!store.retract_event("a").unwrap());
 }
 
 #[test]
 fn chat_for_channel_after_preserves_same_second_id_cursor() {
     let store = Store::open_memory().unwrap();
-    assert!(store.insert_event(&event("a", 10)).unwrap());
-    assert!(store.insert_event(&event("b", 10)).unwrap());
-    assert!(store.insert_event(&event("c", 11)).unwrap());
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        event("a", 10),
+        event("b", 10),
+        event("c", 11),
+    ]));
 
     let rows = store.chat_for_channel_after("h1", 10, "a", 10).unwrap();
     assert_eq!(
@@ -65,9 +61,9 @@ fn latest_message_at_by_pubkey_groups_by_author_max() {
     let mut other_kind = event("k", 99);
     other_kind.pubkey = "pk-a".into();
     other_kind.kind = 7;
-    for ev in [&pk_a1, &pk_a2, &pk_b1, &other_kind] {
-        assert!(store.insert_event(ev).unwrap());
-    }
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().events([pk_a1, pk_a2, pk_b1, other_kind]),
+    );
 
     let latest = store.latest_message_at_by_pubkey("h1").unwrap();
     assert_eq!(latest.get("pk-a").copied(), Some(30));

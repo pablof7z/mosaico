@@ -42,7 +42,7 @@ pub(super) fn status_caps(
     identities: &mut read::IdentityCaps,
 ) -> Vec<StatusCap> {
     let mut rows = store
-        .live_status_for_channel(channel, 0)
+        .statuses_in_channel(channel)
         .unwrap_or_default()
         .into_iter()
         .map(|status| {

@@ -28,7 +28,7 @@ async fn collect_pending_prompt(
     if chat_rows.is_empty() {
         return Ok(None);
     }
-    crate::profile::label_chat_senders(state, &mut chat_rows).await;
+    let resolved_names = crate::profile::resolve_chat_labels(state, &mut chat_rows).await;
 
     let whitelisted = state.whitelisted_pubkeys().to_vec();
     let chat_ids: Vec<String> = chat_rows.iter().map(|row| row.event_id.clone()).collect();
@@ -47,7 +47,14 @@ async fn collect_pending_prompt(
         state.with_store(|s| crate::injection::has_unresolved_terminal_mention(s, &chat_rows));
     let show_guide = unresolved && state.coordination_reminder_due(&rec.pubkey, reminder_turn);
     let rendered = state.with_store(|s| {
-        crate::injection::render_terminal_mention(s, &chat_rows, &whitelisted, now, show_guide)
+        crate::injection::render_terminal_mention(
+            s,
+            &chat_rows,
+            &resolved_names,
+            &whitelisted,
+            now,
+            show_guide,
+        )
     });
     let Some(text) = rendered else {
         if let Err(e) = state.with_store(|s| s.reenqueue_pending(&chat_ids, &rec.pubkey)) {

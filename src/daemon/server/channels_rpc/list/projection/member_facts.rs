@@ -8,7 +8,7 @@ pub(super) fn capture(
     channel: &str,
     index: &MemberFactIndex,
 ) -> Result<(bool, Vec<MemberFacts>)> {
-    let hydrated = store.has_channel_membership_snapshot(channel)?;
+    let hydrated = store.group_state_available(channel)?;
     let members = store
         .list_channel_members(channel)?
         .iter()

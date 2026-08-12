@@ -38,7 +38,6 @@ impl Nip29Provider {
         if let GroupPublishOutcome::Failed(_) = create {
             return create;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         self.publish_group_management_outcome(
             group,
             as_nostr(lifecycle::group_lock_closed(group, group)),

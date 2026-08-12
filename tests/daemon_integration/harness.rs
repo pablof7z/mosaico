@@ -20,6 +20,13 @@ mod launch;
 pub(crate) use launch::{
     configure_pty_agent, configure_pty_agent_with_args, install_test_harness_shim,
 };
+#[path = "harness/observed.rs"]
+mod observed;
+pub(crate) use observed::{
+    observed_channel_h, observed_channel_has_role, observed_channel_members, observed_chat,
+    only_session_route, pubkey_for_harness_session, read_channel_messages,
+    session_for_harness_session, session_identity_pubkey, session_routes,
+};
 #[path = "harness/pty_guard.rs"]
 mod pty_guard;
 pub(crate) use pty_guard::PtyProcessGuard;
@@ -30,6 +37,7 @@ pub(crate) use reconcile_witness::{daemon_log_boundary, wait_for_reconciled_sess
 mod relay_witness;
 pub(crate) use relay_witness::{
     publish_addressed_chat, sign_builder_into_group, wait_for_exact_relay_groups,
+    wait_for_relay_group_parent,
 };
 #[path = "harness/wedge_relay.rs"]
 mod wedge_relay;
@@ -205,60 +213,6 @@ pub(crate) fn wait_until(timeout: Duration, mut pred: impl FnMut() -> bool) -> b
         }
         std::thread::sleep(Duration::from_millis(150));
     }
-}
-
-/// Chat events materialized in a channel, oldest-first. Chat lives verbatim in
-/// `relay_events`; row `.content` is the message body and `.pubkey` the author.
-pub(crate) fn chat_in_channel(
-    store: &mosaico::state::Store,
-    channel_h: &str,
-) -> Vec<mosaico::state::RelayEvent> {
-    store.chat_for_channel(channel_h, 0, u32::MAX).unwrap()
-}
-
-/// The selected ordinal signer pubkey bound to a session, or `None` when no
-/// session identity row has been materialized yet.
-pub(crate) fn session_identity_pubkey(
-    store: &mosaico::state::Store,
-    pubkey: &str,
-) -> Option<String> {
-    store.session_identity(pubkey).unwrap().map(|i| i.pubkey)
-}
-
-/// Resolve a harness-owned native session id through its typed locator.
-pub(crate) fn pubkey_for_harness_session(
-    store: &mosaico::state::Store,
-    harness: &str,
-    harness_session: &str,
-) -> Option<String> {
-    store
-        .resolve_pubkey_by_locator(harness, "native_resume", harness_session)
-        .unwrap()
-}
-
-pub(crate) fn session_for_harness_session(
-    store: &mosaico::state::Store,
-    harness: &str,
-    harness_session: &str,
-) -> mosaico::state::Session {
-    let pubkey = pubkey_for_harness_session(store, harness, harness_session)
-        .expect("harness session locator");
-    store.get_session(&pubkey).unwrap().expect("session row")
-}
-
-pub(crate) fn session_routes(store: &mosaico::state::Store, pubkey: &str) -> Vec<String> {
-    store
-        .list_session_routes(pubkey)
-        .expect("session routes")
-        .into_iter()
-        .map(|(channel_h, _)| channel_h)
-        .collect()
-}
-
-pub(crate) fn only_session_route(store: &mosaico::state::Store, pubkey: &str) -> String {
-    let routes = session_routes(store, pubkey);
-    assert_eq!(routes.len(), 1, "expected exactly one session route");
-    routes.into_iter().next().unwrap()
 }
 
 /// The PTY supervisor id bound to a session via its `pty_session` alias, if any.

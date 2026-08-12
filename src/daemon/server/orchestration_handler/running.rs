@@ -75,10 +75,10 @@ mod tests {
     async fn stopped_session_is_a_terminal_skip_and_is_never_restarted() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
-            store.upsert_channel("root", "root", "", "", 1).unwrap();
-            store
-                .upsert_channel("child", "child", "", "root", 1)
-                .unwrap();
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+                crate::state::TestGroup::new("child").metadata("child", "", "root", 1),
+            ]));
             let generation = store
                 .reserve_hook_session_for_test(&RegisterSession {
                     pubkey: SESSION.into(),

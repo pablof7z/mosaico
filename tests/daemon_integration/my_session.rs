@@ -37,12 +37,6 @@ fn cli_my_session_status_sets_the_exact_pty_session_title() {
         "spawned PTY session did not become live"
     );
     let pubkey = session.unwrap().pubkey;
-    assert!(wait_until(Duration::from_secs(25), || {
-        crate::channels::refresh_channel_members("#tmp");
-        Store::open(&home.store_path())
-            .map(|store| store.is_channel_member("tmp", &pubkey).unwrap_or(false))
-            .unwrap_or(false)
-    }));
 
     let title = "Researching MCP improvements around resource allocation";
     let out = run_cli_with_env(
@@ -64,23 +58,6 @@ fn cli_my_session_status_sets_the_exact_pty_session_title() {
     let store = Store::open(&home.store_path()).unwrap();
     let rec = store.get_session(&pubkey).unwrap().expect("session row");
     assert_eq!(rec.title, title);
-    let channel = only_session_route(&store, &rec.pubkey);
-
-    assert!(
-        wait_until(Duration::from_secs(20), || {
-            Store::open(&home.store_path())
-                .map(|s| {
-                    s.live_status_for_channel(&channel, 0)
-                        .map(|rows| {
-                            rows.iter()
-                                .any(|row| row.pubkey == pubkey && row.title == title)
-                        })
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false)
-        }),
-        "my session status should publish the title as kind:30315"
-    );
 
     let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);

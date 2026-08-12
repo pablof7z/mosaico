@@ -5,11 +5,8 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
     // `who --all-workspaces` must render through the same fabric pipeline as
     // single-channel `who`, with one channel block per workspace.
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call("ping", serde_json::json!({})).await.expect("ping");
-    });
+    let home = Home::new();
+    crate::channels::write_config(&home, false);
 
     let second_dir = tempfile::tempdir().unwrap();
     let workspace_map = serde_json::json!({ "tmp": "/tmp", "proj2": second_dir.path() });
@@ -18,6 +15,15 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
         serde_json::to_string(&workspace_map).unwrap(),
     )
     .unwrap();
+    crate::channels::initialize_workspace_root("tmp", "/tmp");
+    crate::channels::initialize_workspace_root("proj2", second_dir.path().to_str().unwrap());
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            observed_channel_members("#tmp").is_some()
+                && observed_channel_members("#proj2").is_some()
+        }),
+        "both workspace roots must be delivered by NMP before renderer sessions start"
+    );
 
     let out = run_cli_stdin(
         &home,

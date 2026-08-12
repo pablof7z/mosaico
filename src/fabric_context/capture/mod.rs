@@ -73,7 +73,7 @@ pub(crate) fn capture_inputs(
         // Keep relay roles in the frozen input; rendered rows do not expose them.
         let members: BTreeMap<String, String> = match store.list_channel_members(h) {
             Ok(rows) => {
-                match store.has_channel_membership_snapshot(h) {
+                match store.group_state_available(h) {
                     Ok(true) => {
                         hydrated.insert(h.clone());
                     }
@@ -129,9 +129,9 @@ pub(crate) fn capture_inputs(
         }
     }
     // Exclude this daemon's own management key by identity, independent of whether
-    // its kind:0 has been fetched into the local cache — on a cold cache (post-reset)
-    // the profile is absent, so `resolve_pubkey`'s is_backend flag alone would let
-    // the mgmt key leak into the roster. Assemble filters against this `backend` set.
+    // its kind:0 is present in the retained NMP view. On a cold observation the
+    // profile is absent, so `resolve_pubkey`'s is_backend flag alone would let the
+    // management key leak into the roster.
     if !input.backend_pubkey.is_empty() {
         identities.backend.insert(input.backend_pubkey.to_string());
     }

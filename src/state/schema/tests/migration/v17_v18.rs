@@ -48,7 +48,7 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
     assert_eq!(cleanup_due[0].channel_h, "cleanup");
     drop(store);
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 21);
+    assert_eq!(version(&conn), 22);
     assert_eq!(
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master
@@ -106,49 +106,15 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
             ("passive".into(), 9, 2),
         ]
     );
-    assert_eq!(
-        conn.query_row(
-            "SELECT workspace || ':' || branch FROM relay_status WHERE pubkey='peer'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .unwrap(),
-        ":"
-    );
-    assert_eq!(
-        conn.query_row(
-            "SELECT updated_at FROM relay_status_sets WHERE pubkey='peer'",
-            [],
-            |row| row.get::<_, u64>(0),
-        )
-        .unwrap(),
-        0
-    );
-
-    conn.execute(
-        "INSERT INTO relay_channels
-             (channel_h, name, parent, created_at, updated_at)
-         VALUES ('other-root', 'general', '', 2, 2)",
-        [],
-    )
-    .unwrap();
-    for channel_h in ["unnamed-a", "unnamed-b"] {
-        conn.execute(
-            "INSERT INTO relay_channels
-                 (channel_h, name, parent, created_at, updated_at)
-             VALUES (?1, '', 'existing-root', 2, 2)",
-            [channel_h],
-        )
-        .unwrap();
+    for removed in [
+        "relay_channels",
+        "relay_channel_members",
+        "relay_channel_member_sets",
+        "relay_status",
+        "relay_status_sets",
+    ] {
+        assert!(!fixture::table_exists(&conn, removed), "{removed} removed");
     }
-    assert!(conn
-        .execute(
-            "INSERT INTO relay_channels
-                 (channel_h, name, parent, created_at, updated_at)
-             VALUES ('duplicate-child', 'named', 'existing-root', 2, 2)",
-            [],
-        )
-        .is_err());
 }
 
 fn columns(conn: &Connection, table: &str) -> Vec<String> {

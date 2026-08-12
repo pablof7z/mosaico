@@ -113,8 +113,5 @@ pub(crate) fn assemble_turn_check(
         receipt: outcome.receipt,
         transaction_id: outcome.transaction_id,
         revision: outcome.revision,
-        // turn_check is a delta render: it never emits a full <members> roster, so
-        // no member is dropped here and there is nothing to refetch.
-        missing_profiles: Vec::new(),
     })
 }

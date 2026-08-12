@@ -23,9 +23,9 @@ pub struct ChannelCtx<'a> {
     pub parent_hint: Option<&'a str>,
     /// Caller's intended display NAME, used ONLY when this readiness check has to
     /// CREATE the (sub)group — it rides on the published kind:9002 metadata so the
-    /// relay's authored kind:39000 carries it. NEVER written to `relay_channels`
-    /// locally: that cache is materialized solely from observed relay events. A
-    /// root group always names itself after its slug, so `None` is correct there.
+    /// relay's authored kind:39000 carries it. Mosaico never writes an optimistic
+    /// group row; the retained NMP observation is the authority. A root group
+    /// always names itself after its slug, so `None` is correct there.
     pub name: Option<&'a str>,
 }
 

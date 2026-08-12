@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use nostr::Event;
 use tungstenite::{accept, Error, Message};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -33,15 +34,17 @@ pub(super) struct CountingRelay {
 }
 
 impl CountingRelay {
-    pub(super) fn start() -> Self {
+    pub(super) fn start(events: impl IntoIterator<Item = Event>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind counted relay");
         let address = listener.local_addr().expect("counted relay address");
         let stop = Arc::new(AtomicBool::new(false));
         let state = Arc::new(State::default());
+        let events = Arc::new(events.into_iter().collect::<Vec<_>>());
         let clients = Arc::new(Mutex::new(Vec::new()));
         let server = {
             let stop = stop.clone();
             let state = state.clone();
+            let events = events.clone();
             let clients = clients.clone();
             std::thread::spawn(move || {
                 while let Ok((stream, _)) = listener.accept() {
@@ -50,8 +53,9 @@ impl CountingRelay {
                     }
                     let stop = stop.clone();
                     let state = state.clone();
+                    let events = events.clone();
                     clients.lock().unwrap().push(std::thread::spawn(move || {
-                        serve(stream, stop, state);
+                        serve(stream, stop, state, events);
                     }));
                 }
             })
@@ -92,7 +96,7 @@ impl Drop for CountingRelay {
     }
 }
 
-fn serve(stream: TcpStream, stop: Arc<AtomicBool>, state: Arc<State>) {
+fn serve(stream: TcpStream, stop: Arc<AtomicBool>, state: Arc<State>, events: Arc<Vec<Event>>) {
     stream
         .set_read_timeout(Some(Duration::from_millis(100)))
         .expect("set counted relay read timeout");
@@ -124,7 +128,9 @@ fn serve(stream: TcpStream, stop: Arc<AtomicBool>, state: Arc<State>) {
                     break;
                 }
             }
-            Message::Text(text) => handle_text(connection, text.as_str(), &state, &mut websocket),
+            Message::Text(text) => {
+                handle_text(connection, text.as_str(), &state, &events, &mut websocket)
+            }
             Message::Close(_) => break,
             _ => {}
         }
@@ -141,6 +147,7 @@ fn handle_text(
     connection: u64,
     text: &str,
     state: &State,
+    events: &[Event],
     websocket: &mut tungstenite::WebSocket<TcpStream>,
 ) {
     let Ok(frame) = serde_json::from_str::<serde_json::Value>(text) else {
@@ -163,6 +170,15 @@ fn handle_text(
                 .lock()
                 .unwrap()
                 .insert((connection, sub_id.to_string()));
+            for event in events
+                .iter()
+                .filter(|event| request_matches_event(parts, event))
+            {
+                let delivery = serde_json::json!(["EVENT", sub_id, event]).to_string();
+                if websocket.send(Message::Text(delivery.into())).is_err() {
+                    return;
+                }
+            }
             let eose = serde_json::json!(["EOSE", sub_id]).to_string();
             let _ = websocket.send(Message::Text(eose.into()));
         }
@@ -176,4 +192,42 @@ fn handle_text(
         }
         _ => {}
     }
+}
+
+fn request_matches_event(parts: &[serde_json::Value], event: &Event) -> bool {
+    parts.iter().skip(2).any(|filter| {
+        let Some(filter) = filter.as_object() else {
+            return false;
+        };
+        matches_numeric_set(filter.get("kinds"), event.kind.as_u16() as u64)
+            && matches_tag_set(filter.get("#d"), event, "d")
+            && matches_tag_set(filter.get("#p"), event, "p")
+    })
+}
+
+fn matches_numeric_set(values: Option<&serde_json::Value>, value: u64) -> bool {
+    values.is_none_or(|values| {
+        values.as_array().is_some_and(|values| {
+            values
+                .iter()
+                .any(|candidate| candidate.as_u64() == Some(value))
+        })
+    })
+}
+
+fn matches_tag_set(values: Option<&serde_json::Value>, event: &Event, name: &str) -> bool {
+    values.is_none_or(|values| {
+        let Some(values) = values.as_array() else {
+            return false;
+        };
+        event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.first().map(String::as_str) == Some(name)
+                && parts.get(1).is_some_and(|value| {
+                    values
+                        .iter()
+                        .any(|candidate| candidate.as_str() == Some(value))
+                })
+        })
+    })
 }

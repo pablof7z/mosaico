@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::{TestGroup, TestGroupDelivery};
 use crate::test_env::EnvGuard;
 
 fn write(path: &std::path::Path, body: &str) {
@@ -42,18 +43,17 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
     let state = DaemonState::new_for_test().await;
     let management = state.backend_pubkey().unwrap();
     state.with_store(|store| {
-        store.upsert_channel("root-a", "root-a", "", "", 1).unwrap();
-        store.upsert_channel("root-b", "root-b", "", "", 1).unwrap();
         // Observed but not administered: cached because the relay describes it,
         // never this backend's to advertise.
-        store
-            .upsert_channel("someone-elses", "someone-elses", "", "", 1)
-            .unwrap();
-        for root in ["root-a", "root-b"] {
-            store
-                .upsert_channel_member(root, &management, "admin", 1)
-                .unwrap();
-        }
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root-a")
+                .metadata("root-a", "", "", 1)
+                .admins(vec![management.clone()]),
+            TestGroup::new("root-b")
+                .metadata("root-b", "", "", 1)
+                .admins(vec![management.clone()]),
+            TestGroup::new("someone-elses").metadata("someone-elses", "", "", 1),
+        ]));
         store
             .upsert_workspace("root-a", &work_a.to_string_lossy(), 1)
             .unwrap();

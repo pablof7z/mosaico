@@ -3,6 +3,10 @@ use rusqlite::Connection;
 
 #[path = "tests/migration.rs"]
 mod migration;
+#[path = "tests/rejection.rs"]
+mod rejection;
+#[path = "tests/relay_state_authority.rs"]
+mod relay_state_authority;
 #[path = "tests/session_context.rs"]
 mod session_context;
 
@@ -36,14 +40,31 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 21);
+    assert_eq!(version, 22);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
     assert!(!table_exists(&conn, "identities"));
     assert!(!table_exists(&conn, "durable_agent_sessions"));
-    assert!(table_exists(&conn, "relay_reactions"));
-    assert!(table_exists(&conn, "relay_status_sets"));
+    assert!(table_exists(&conn, "nmp_event_arrivals"));
+    assert!(table_exists(&conn, "message_attachments"));
+    for nmp_owned in [
+        "relay_channels",
+        "relay_channel_members",
+        "relay_channel_member_sets",
+        "relay_profiles",
+        "relay_status",
+        "relay_status_sets",
+        "relay_events",
+        "relay_reactions",
+        "messages",
+        "message_recipients",
+    ] {
+        assert!(
+            !table_exists(&conn, nmp_owned),
+            "{nmp_owned} must stay NMP-owned"
+        );
+    }
     assert!(!table_exists(&conn, "project_roots"));
     assert_eq!(
         columns(&conn, "native_turn_attempts"),
@@ -62,18 +83,6 @@ fn fresh_file_db_uses_only_canonical_schema() {
             "finished_at",
         ]
     );
-
-    let reactions = columns(&conn, "relay_reactions");
-    for col in [
-        "reaction_id",
-        "target_message_id",
-        "channel_h",
-        "reactor_pubkey",
-        "emoji",
-        "created_at",
-    ] {
-        assert!(reactions.iter().any(|c| c == col), "relay_reactions.{col}");
-    }
 
     assert_eq!(
         columns(&conn, "session_locators"),
@@ -106,15 +115,14 @@ fn fresh_file_db_uses_only_canonical_schema() {
         ]
     );
 
-    assert!(columns(&conn, "relay_profiles")
-        .iter()
-        .any(|c| c == "agent_slug"));
-    let messages = columns(&conn, "messages");
-    assert!(messages.iter().any(|c| c == "author_pubkey"));
-    assert!(!messages.iter().any(|c| c == "author_session"));
-    let recipients = columns(&conn, "message_recipients");
-    assert!(recipients.iter().any(|c| c == "recipient_pubkey"));
-    assert!(!recipients.iter().any(|c| c == "target_session"));
+    assert_eq!(
+        columns(&conn, "nmp_event_arrivals"),
+        ["sequence", "event_id"]
+    );
+    assert_eq!(
+        columns(&conn, "message_attachments"),
+        ["event_id", "directory"]
+    );
     let sess_cols = columns(&conn, "sessions");
     assert!(sess_cols.iter().any(|c| c == "pubkey"));
     assert!(sess_cols.iter().any(|c| c == "runtime_generation"));
@@ -173,128 +181,4 @@ fn fresh_file_db_uses_only_canonical_schema() {
             "sessions.{removed}"
         );
     }
-
-    let status = columns(&conn, "relay_status");
-    assert!(status.iter().any(|column| column == "workspace"));
-    assert!(status.iter().any(|column| column == "branch"));
-}
-
-#[test]
-fn schema_v1_is_rejected_instead_of_upgraded_in_place() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    {
-        let store = Store::open(&path).unwrap();
-        drop(store);
-        let conn = Connection::open(&path).unwrap();
-        conn.pragma_update(None, "user_version", 1).unwrap();
-        conn.execute("DROP TABLE session_locators", []).unwrap();
-    }
-
-    let error = match Store::open(&path) {
-        Ok(_) => panic!("schema v1 must be rejected"),
-        Err(error) => error,
-    };
-    assert!(error
-        .to_string()
-        .contains("schema version 1 predates automatic migrations"));
-    let conn = Connection::open(&path).unwrap();
-    assert!(!table_exists(&conn, "session_locators"));
-}
-
-#[test]
-fn schema_v2_is_rejected_instead_of_preserving_session_id_derived_signers() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    {
-        let store = Store::open(&path).unwrap();
-        drop(store);
-        let conn = Connection::open(&path).unwrap();
-        conn.pragma_update(None, "user_version", 2).unwrap();
-        conn.execute("DROP TABLE session_signers", []).unwrap();
-    }
-
-    let error = match Store::open(&path) {
-        Ok(_) => panic!("schema v2 must be rejected"),
-        Err(error) => error,
-    };
-    assert!(error
-        .to_string()
-        .contains("schema version 2 predates automatic migrations"));
-    let conn = Connection::open(&path).unwrap();
-    assert!(!table_exists(&conn, "session_signers"));
-}
-
-#[test]
-fn schema_v3_is_rejected_instead_of_preserving_session_keyed_inbox() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    {
-        let store = Store::open(&path).unwrap();
-        drop(store);
-        let conn = Connection::open(&path).unwrap();
-        conn.pragma_update(None, "user_version", 3).unwrap();
-        conn.execute("DROP TABLE event_claims", []).unwrap();
-    }
-
-    let error = match Store::open(&path) {
-        Ok(_) => panic!("schema v3 must be rejected"),
-        Err(error) => error,
-    };
-    assert!(error
-        .to_string()
-        .contains("schema version 3 predates automatic migrations"));
-    let conn = Connection::open(&path).unwrap();
-    assert!(!table_exists(&conn, "event_claims"));
-}
-
-#[test]
-fn stamped_non_canonical_file_db_is_rejected() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    let conn = Connection::open(&path).unwrap();
-    conn.execute_batch(
-        r#"
-        CREATE TABLE identities (
-            pubkey TEXT NOT NULL,
-            base_pubkey TEXT NOT NULL,
-            ordinal INTEGER NOT NULL DEFAULT 0,
-            session_id TEXT NOT NULL DEFAULT '',
-            PRIMARY KEY (base_pubkey, ordinal)
-        );
-        CREATE TABLE project_roots (
-            channel_h TEXT PRIMARY KEY,
-            abs_path TEXT NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE TABLE unexpected_table (id INTEGER PRIMARY KEY);
-        "#,
-    )
-    .unwrap();
-    conn.pragma_update(None, "user_version", 16u32).unwrap();
-    drop(conn);
-    let err = match Store::open(&path) {
-        Ok(_) => panic!("non-canonical schema must be rejected"),
-        Err(err) => err,
-    };
-    let text = format!("{err:#}");
-    assert!(
-        text.contains("schema 17 is missing table `sessions`"),
-        "{text}"
-    );
-}
-#[test]
-fn unstamped_existing_file_db_is_rejected() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("state.db");
-    let conn = Connection::open(&path).unwrap();
-    conn.execute("CREATE TABLE anything (id INTEGER)", [])
-        .unwrap();
-    drop(conn);
-    let err = match Store::open(&path) {
-        Ok(_) => panic!("unstamped db must be rejected"),
-        Err(err) => err,
-    };
-    let text = format!("{err:#}");
-    assert!(text.contains("has no schema version stamp"), "{text}");
 }

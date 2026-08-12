@@ -7,55 +7,6 @@ mod auth_harness;
 mod boot_recovery;
 use auth_harness::AuthRequiredRelay;
 
-/// mosaico#744. `RowDelta::event()` returns `Some` only for `Added`, so
-/// draining the frame through it silently discarded every `Removed` and
-/// `SourcesGrew`. All three variants are now named; nothing can be dropped by
-/// omission again.
-#[test]
-fn a_frame_carries_removals_alongside_additions_instead_of_discarding_them() {
-    let old = EventBuilder::new(Kind::from(39002u16), "")
-        .tags([Tag::parse(["d", "room"]).unwrap()])
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    let new = EventBuilder::new(Kind::from(39002u16), "roster grew")
-        .tags([Tag::parse(["d", "room"]).unwrap()])
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    let elsewhere = EventBuilder::new(Kind::from(9u16), "hello")
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-
-    // The republish shape: Removed(old) and Added(new) in ONE frame, plus a
-    // provenance-only delta that carries no event at all.
-    let batch = MaterializationBatch::from_deltas(&[
-        nmp::RowDelta::Removed(old.id),
-        nmp::RowDelta::SourcesGrew {
-            id: elsewhere.id,
-            sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
-        },
-        nmp::RowDelta::Added(nmp::Row {
-            event: new.clone(),
-            sources: BTreeSet::new(),
-        }),
-    ]);
-
-    assert_eq!(batch.removed, vec![old.id]);
-    assert_eq!(batch.added, vec![new]);
-    assert!(!batch.is_empty());
-}
-
-#[test]
-fn a_frame_of_only_provenance_growth_produces_no_work() {
-    let event = EventBuilder::new(Kind::from(9u16), "hello")
-        .sign_with_keys(&Keys::generate())
-        .unwrap();
-    let batch = MaterializationBatch::from_deltas(&[nmp::RowDelta::SourcesGrew {
-        id: event.id,
-        sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
-    }]);
-    assert!(batch.is_empty());
-}
-
 #[test]
 fn configured_local_hosts_are_explicitly_allowed_but_onion_is_not() {
     let local = RelayUrl::parse("ws://127.0.0.1:7777").unwrap();
@@ -69,10 +20,10 @@ fn configured_local_hosts_are_explicitly_allowed_but_onion_is_not() {
 }
 
 #[test]
-fn canonical_materialization_stream_has_exactly_one_owner() {
+fn canonical_nmp_view_stream_has_exactly_one_owner() {
     let host = NmpHost::open(&[], None, None, &Keys::generate()).unwrap();
-    let receiver = host.take_materialization_events().unwrap();
-    assert!(host.take_materialization_events().is_err());
+    let receiver = host.take_view_transitions().unwrap();
+    assert!(host.take_view_transitions().is_err());
     drop(receiver);
 }
 

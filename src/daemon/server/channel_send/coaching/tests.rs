@@ -1,5 +1,7 @@
 use super::*;
-use crate::state::{RegisterSession, Status};
+use crate::state::{
+    Profile, RegisterSession, Status, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 
 fn status(pubkey: &str, slug: &str, state: SessionState) -> Status {
     Status {
@@ -18,37 +20,44 @@ fn status(pubkey: &str, slug: &str, state: SessionState) -> Status {
     }
 }
 
-fn remote_agent(store: &Store, pubkey: &str, handle: &str, state: SessionState) {
-    store
-        .upsert_profile_with_agent_slug(pubkey, handle, handle, "codex", "remote", false, 10)
-        .unwrap();
-    store.upsert_status(&status(pubkey, handle, state)).unwrap();
+fn profile(pubkey: &str, handle: &str, agent_slug: &str, is_backend: bool) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: handle.into(),
+        slug: handle.into(),
+        agent_slug: agent_slug.into(),
+        host: "remote".into(),
+        is_backend,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 10,
+    }
 }
 
 fn store_with_members() -> Store {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("room", "Room", "", "", 1).unwrap();
-    remote_agent(&store, "drift-pk", "drift-codex", SessionState::Idle);
-    remote_agent(&store, "drizzle-pk", "drizzle-codex", SessionState::Working);
-    store
-        .upsert_profile("human-pk", "Pablo", "pablo", "remote", false, 10)
-        .unwrap();
-    store
-        .upsert_profile("backend-pk", "backend", "backend", "remote", true, 10)
-        .unwrap();
-    store
-        .replace_channel_members(
-            "room",
-            &[
-                "self-pk".into(),
-                "drift-pk".into(),
-                "drizzle-pk".into(),
-                "human-pk".into(),
-                "backend-pk".into(),
-            ],
-            10,
-        )
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+        .metadata("Room", "", "", 1)
+        .members(vec![
+            "self-pk".into(),
+            "drift-pk".into(),
+            "drizzle-pk".into(),
+            "human-pk".into(),
+            "backend-pk".into(),
+        ])]));
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([
+                profile("drift-pk", "drift-codex", "codex", false),
+                profile("drizzle-pk", "drizzle-codex", "codex", false),
+                profile("human-pk", "Pablo", "", false),
+                profile("backend-pk", "backend", "", true),
+            ])
+            .statuses([
+                status("drift-pk", "drift-codex", SessionState::Idle),
+                status("drizzle-pk", "drizzle-codex", SessionState::Working),
+            ]),
+    );
     store
 }
 
@@ -69,7 +78,7 @@ fn ack_detector_is_deliberately_narrow() {
 #[test]
 fn unique_prefix_matches_an_idle_agent_and_excludes_non_agents() {
     let store = store_with_members();
-    let notice = untagged_agent_prefix(&store, "Drift: hello", "room", "self-pk", "backend-pk", 20)
+    let notice = untagged_agent_prefix(&store, "Drift: hello", "room", "self-pk", "backend-pk")
         .unwrap()
         .unwrap();
 
@@ -79,7 +88,7 @@ fn unique_prefix_matches_an_idle_agent_and_excludes_non_agents() {
     assert!(notice.summary.contains("won't tag anyone"));
 
     assert!(
-        untagged_agent_prefix(&store, "Pablo: hello", "room", "self-pk", "backend-pk", 20)
+        untagged_agent_prefix(&store, "Pablo: hello", "room", "self-pk", "backend-pk")
             .unwrap()
             .is_none()
     );
@@ -88,7 +97,7 @@ fn unique_prefix_matches_an_idle_agent_and_excludes_non_agents() {
 #[test]
 fn ambiguous_prefix_lists_candidates_without_guessing() {
     let store = store_with_members();
-    let notice = untagged_agent_prefix(&store, "Dr: hello", "room", "self-pk", "backend-pk", 20)
+    let notice = untagged_agent_prefix(&store, "Dr: hello", "room", "self-pk", "backend-pk")
         .unwrap()
         .unwrap();
 
@@ -103,11 +112,32 @@ fn ambiguous_prefix_lists_candidates_without_guessing() {
 #[test]
 fn exact_handle_wins_over_longer_prefix_matches() {
     let store = store_with_members();
-    remote_agent(&store, "short-pk", "dr", SessionState::Working);
-    store
-        .upsert_channel_member("room", "short-pk", "member", 11)
-        .unwrap();
-    let notice = untagged_agent_prefix(&store, "DR: hello", "room", "self-pk", "", 20)
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([
+                profile("drift-pk", "drift-codex", "codex", false),
+                profile("drizzle-pk", "drizzle-codex", "codex", false),
+                profile("human-pk", "Pablo", "", false),
+                profile("backend-pk", "backend", "", true),
+                profile("short-pk", "dr", "codex", false),
+            ])
+            .statuses([
+                status("drift-pk", "drift-codex", SessionState::Idle),
+                status("drizzle-pk", "drizzle-codex", SessionState::Working),
+                status("short-pk", "dr", SessionState::Working),
+            ]),
+    );
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+        .metadata("Room", "", "", 1)
+        .members(vec![
+            "self-pk".into(),
+            "drift-pk".into(),
+            "drizzle-pk".into(),
+            "human-pk".into(),
+            "backend-pk".into(),
+            "short-pk".into(),
+        ])]));
+    let notice = untagged_agent_prefix(&store, "DR: hello", "room", "self-pk", "")
         .unwrap()
         .unwrap();
 
@@ -125,7 +155,7 @@ fn only_a_single_leading_token_and_colon_is_considered() {
         "@drift: hello",
     ] {
         assert!(
-            untagged_agent_prefix(&store, message, "room", "self-pk", "", 20)
+            untagged_agent_prefix(&store, message, "room", "self-pk", "")
                 .unwrap()
                 .is_none(),
             "{message}"
@@ -136,7 +166,9 @@ fn only_a_single_leading_token_and_colon_is_considered() {
 #[test]
 fn local_self_is_not_a_candidate() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("room", "Room", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+        .metadata("Room", "", "", 1)
+        .members(vec!["self-pk".into()])]));
     store
         .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "self-pk".into(),
@@ -149,12 +181,8 @@ fn local_self_is_not_a_candidate() {
         })
         .unwrap();
     store.allocate_handle("self-pk", "drift", 1).unwrap();
-    store
-        .replace_channel_members("room", &["self-pk".into()], 1)
-        .unwrap();
-
     assert!(
-        untagged_agent_prefix(&store, "Drift: hi", "room", "self-pk", "", 2)
+        untagged_agent_prefix(&store, "Drift: hi", "room", "self-pk", "")
             .unwrap()
             .is_none()
     );

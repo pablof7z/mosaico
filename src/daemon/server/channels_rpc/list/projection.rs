@@ -88,7 +88,7 @@ fn capture<'a>(
         .into_iter()
         .filter(|channel| !channel.is_archived())
         .collect::<Vec<_>>();
-    let activity = store.latest_accepted_message_at_by_channel()?;
+    let activity = store.latest_message_at_by_channel()?;
     let member_index = crate::agent_count::MemberFactIndex::capture(store, local_backend)?;
     let mut roots = channels
         .iter()

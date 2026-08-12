@@ -23,7 +23,6 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
         .with_context(|| format!("canonicalizing workspace path {}", path.display()))?;
 
     state.with_store(|store| {
-        store.upsert_channel(&channel, &channel, "", "", now_secs())?;
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bind_root_path(
             &channel,
             &canonical,
@@ -43,9 +42,7 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
     let ready = tokio::time::timeout(READY_TIMEOUT, readiness)
         .await
         .context("root channel readiness timed out")?;
-    ready.require_ready(format!(
-        "workspace root #{channel} was registered locally but was not provisioned"
-    ))?;
+    ready.require_ready(format!("workspace root #{channel} was not provisioned"))?;
 
     ensure_subscription(state, &channel).await?;
     publish_backend_profile(state).await?;

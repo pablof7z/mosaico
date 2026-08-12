@@ -1,11 +1,26 @@
 use super::*;
 
-fn named_child_h(home: &Home, parent_h: &str, name: &str) -> String {
-    Store::open(&home.store_path())
-        .unwrap()
-        .channel_id_for_name(parent_h, name)
-        .unwrap()
-        .unwrap_or_else(|| panic!("missing child {name:?} beneath {parent_h:?}"))
+fn find_channel_about(value: &serde_json::Value, path: &str) -> Option<String> {
+    if value.get("path").and_then(serde_json::Value::as_str) == Some(path) {
+        return value
+            .get("about")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+    }
+    value
+        .as_array()
+        .and_then(|values| {
+            values
+                .iter()
+                .find_map(|value| find_channel_about(value, path))
+        })
+        .or_else(|| {
+            value.as_object().and_then(|fields| {
+                fields
+                    .values()
+                    .find_map(|value| find_channel_about(value, path))
+            })
+        })
 }
 
 #[test]
@@ -59,8 +74,6 @@ fn channel_edit_updates_about_from_relay_truth() {
     });
     assert_eq!(created["channel"], child_path);
     assert_eq!(created["joined"].as_bool(), Some(true));
-    let child_h = named_child_h(&home, parent, &child_name);
-
     let edited = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         c.call(
@@ -82,9 +95,19 @@ fn channel_edit_updates_about_from_relay_truth() {
     assert_eq!(edited["about"].as_str(), Some("new about"));
     assert_eq!(edited["confirmed"].as_bool(), Some(true));
 
-    let store = Store::open(&home.store_path()).unwrap();
-    let channel = store.get_channel(&child_h).unwrap().expect("channel row");
-    assert_eq!(channel.about, "new about");
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            mosaico::daemon::blocking::call(
+                "channel_list",
+                serde_json::json!({ "recursive": true }),
+            )
+            .ok()
+            .and_then(|list| find_channel_about(&list, &child_path))
+            .as_deref()
+                == Some("new about")
+        }),
+        "NMP's delivered channel view did not reach the edited about"
+    );
 
     stop_daemon(&home);
 }
@@ -100,49 +123,52 @@ fn channel_edit_rejects_bare_names_and_resolves_full_paths() {
     let root = unique_session("edit-root");
     let watch_pid = std::process::id() as i32;
 
-    rt().block_on(async {
+    initialize_workspace_root(&root, "/tmp");
+    let creator = rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        c.call(
-            "session_start",
-            hook_session_start(
-                serde_json::json!({
-                    "agent": "coder",
-                    "harness_session": &sid,
-                    "cwd": "/tmp",
-                    "channel": &root,
-                    "watch_pid": watch_pid
-                }),
-                "claude-code",
-            ),
-        )
-        .await
-        .expect("session_start");
+        let started = c
+            .call(
+                "session_start",
+                hook_session_start(
+                    serde_json::json!({
+                        "agent": "coder",
+                        "harness_session": &sid,
+                        "cwd": "/tmp",
+                        "channel": &root,
+                        "watch_pid": watch_pid
+                    }),
+                    "claude-code",
+                ),
+            )
+            .await
+            .expect("session_start");
+        started["pubkey"]
+            .as_str()
+            .expect("session pubkey")
+            .to_string()
     });
 
-    let store = Store::open(&home.store_path()).unwrap();
-    let session = session_for_harness_session(&store, "claude-code", &sid);
-    let joined_channel_h = only_session_route(&store, &session.pubkey);
-    let workspace_h = Store::open(&home.store_path())
-        .unwrap()
-        .root_channel_of(&joined_channel_h)
-        .unwrap()
-        .unwrap_or(joined_channel_h);
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_channel(&workspace_h, &workspace_h, "", "", 1)
-        .unwrap();
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_channel("h-plan-direct", "planning", "", &workspace_h, 1)
-        .unwrap();
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_channel("h-epic", "epic", "", &workspace_h, 1)
-        .unwrap();
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_channel("h-plan-nested", "planning", "", "h-epic", 1)
-        .unwrap();
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        for path in [
+            format!("#{root}/planning"),
+            format!("#{root}/epic"),
+            format!("#{root}/epic/planning"),
+        ] {
+            let created = c
+                .call(
+                    "channel_create",
+                    serde_json::json!({
+                        "channel": path,
+                        "agents": [],
+                        "session": &creator,
+                    }),
+                )
+                .await
+                .unwrap_or_else(|error| panic!("create {path}: {error:#}"));
+            assert_eq!(created["channel"], path);
+        }
+    });
 
     let edit = |reference: String| {
         rt().block_on(async move {
@@ -169,8 +195,8 @@ fn channel_edit_rejects_bare_names_and_resolves_full_paths() {
     // Both same-named channels are accepted as independently addressable full
     // paths rather than being rejected as malformed references.
     for path in [
-        format!("#{workspace_h}/planning"),
-        format!("#{workspace_h}/epic/planning"),
+        format!("#{root}/planning"),
+        format!("#{root}/epic/planning"),
     ] {
         let rendered = match edit(path.clone()) {
             Ok(v) => v.to_string(),

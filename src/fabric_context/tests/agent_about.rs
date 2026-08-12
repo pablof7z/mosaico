@@ -35,12 +35,14 @@ fn canonical_context_and_human_view_keep_host_capabilities() {
     assert!(human.contains("@helper@laptop  For testing"));
 
     let empty = Store::open_memory().unwrap();
-    empty.upsert_channel("solo", "solo", "", "", 1).unwrap();
-    empty.replace_channel_members("solo", &[], 1).unwrap();
-    empty.replace_channel_admins("solo", &[], 1).unwrap();
-    empty
-        .upsert_profile(SELF_PK, "coder", "coder", "laptop", false, 1)
-        .unwrap();
+    empty.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("solo")
+        .metadata("solo", "", "", 1)
+        .admins(Vec::new())
+        .members(Vec::new())]));
+    empty.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([profile(SELF_PK, "coder", "coder", "", "laptop", false)]),
+    );
     let solo = session_record(&empty, "solo", "solo");
     let text = render_fabric_context(&empty, input(Some(&solo), "solo", 0, 100, true)).unwrap();
     assert!(!text.contains("<workspace"));

@@ -7,6 +7,7 @@ pub(crate) async fn reconcile_generation(
     pubkey: &str,
     generation: u64,
     trigger: &'static str,
+    confirmed_scope: Option<crate::fabric::provider::ConfirmedGroupScope>,
 ) {
     let session = match state.with_store(|store| store.get_session(pubkey)) {
         Ok(Some(session)) => session,
@@ -32,7 +33,10 @@ pub(crate) async fn reconcile_generation(
         &state.reconcilers.status,
         &state.reconcilers.presence_publisher,
         &keys,
-        crate::presence_publisher::DriveMeta { trigger },
+        crate::presence_publisher::DriveMeta {
+            trigger,
+            confirmed_scope,
+        },
         |status| status.reconcile(pubkey, generation, projection, now_secs()),
     );
 }
@@ -42,6 +46,7 @@ pub(crate) async fn reassert_generation(
     pubkey: &str,
     generation: u64,
     trigger: &'static str,
+    confirmed_scope: Option<crate::fabric::provider::ConfirmedGroupScope>,
 ) {
     let session = match state.with_store(|store| store.get_session(pubkey)) {
         Ok(Some(session)) if session.runtime_generation == generation && session.is_running() => {
@@ -66,7 +71,10 @@ pub(crate) async fn reassert_generation(
         &state.reconcilers.status,
         &state.reconcilers.presence_publisher,
         &keys,
-        crate::presence_publisher::DriveMeta { trigger },
+        crate::presence_publisher::DriveMeta {
+            trigger,
+            confirmed_scope,
+        },
         |status| status.reassert(pubkey, generation, projection, now_secs()),
     );
 }
@@ -89,7 +97,10 @@ pub(super) async fn close_generation(
         &state.reconcilers.status,
         &state.reconcilers.presence_publisher,
         &keys,
-        crate::presence_publisher::DriveMeta { trigger },
+        crate::presence_publisher::DriveMeta {
+            trigger,
+            confirmed_scope: None,
+        },
         |status| status.close(pubkey, generation, at),
     );
 }

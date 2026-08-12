@@ -1,16 +1,11 @@
 //! Publishing a kind:9 chat message into a NIP-29 group.
 //!
 //! **Nothing here writes to the local store.** Mosaico used to seed the chat
-//! it had just signed into `relay_events` and `messages` before any relay had
-//! seen it, because the relay does not echo a publication back to the
-//! connection that made it. NMP #1182 ended that need: a locally accepted
-//! write is injected into every live query whose filter it matches,
-//! immediately, reporting the cache and zero relays -- and Mosaico's demux
-//! subscription is exactly such a query. So the message arrives through
-//! `fabric::nip29::materializer`, the single writer, on the same path a
-//! stranger's message takes.
+//! it had just signed before NMP had delivered it. NMP #1182 ended that need:
+//! a locally accepted write is injected into every matching live query, and
+//! Mosaico consumes that observed row on the same path as a peer's message.
 
-use super::Nip29Provider;
+use super::{ConfirmedGroupScope, Nip29Provider};
 use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::NostrEventCodec;
 use anyhow::Result;
@@ -21,7 +16,6 @@ mod tests;
 
 pub(crate) struct PublishedChat {
     pub event_id: String,
-    pub created_at: u64,
 }
 
 impl Nip29Provider {
@@ -49,7 +43,22 @@ impl Nip29Provider {
         chat: &ChatMessage,
         keys: &Keys,
     ) -> Result<PublishedChat> {
-        self.publish_chat(chat, None, keys).await
+        self.publish_chat(chat, None, keys, None).await
+    }
+
+    /// Publish under the exact membership result returned by the NMP readiness
+    /// operation that immediately precedes this call.
+    ///
+    /// The result authorizes only this channel/signer pair. It does not update
+    /// Mosaico's group view; that view still changes only when NMP delivers the
+    /// relay's current group snapshot.
+    pub(crate) async fn publish_chat_after_confirmed_membership(
+        &self,
+        chat: &ChatMessage,
+        keys: &Keys,
+        scope: &ConfirmedGroupScope,
+    ) -> Result<PublishedChat> {
+        self.publish_chat(chat, None, keys, Some(scope)).await
     }
 
     /// Like [`publish_chat_checked`] but threads the kind:9 as a reply to
@@ -60,7 +69,7 @@ impl Nip29Provider {
         reply_to: &str,
         keys: &Keys,
     ) -> Result<PublishedChat> {
-        self.publish_chat(chat, Some(reply_to), keys).await
+        self.publish_chat(chat, Some(reply_to), keys, None).await
     }
 
     async fn publish_chat(
@@ -68,13 +77,18 @@ impl Nip29Provider {
         chat: &ChatMessage,
         reply_to: Option<&str>,
         keys: &Keys,
+        confirmed_scope: Option<&ConfirmedGroupScope>,
     ) -> Result<PublishedChat> {
         let channel = chat.channel.as_str();
         if channel.is_empty() {
             anyhow::bail!("a chat message must name the group it is published into");
         }
-        self.verify_publish_scope(channel, &keys.public_key().to_hex(), true)
-            .await?;
+        let signer = keys.public_key().to_hex();
+        if let Some(scope) = confirmed_scope {
+            scope.require_membership(channel, &signer)?;
+        } else {
+            self.verify_publish_scope(channel, &signer, true).await?;
+        }
         let created_at = crate::util::now_secs();
         let builder = self
             .chat_draft(chat, reply_to)?
@@ -82,7 +96,6 @@ impl Nip29Provider {
         let event_id: EventId = self.nmp.publish_group(channel, builder, keys)?;
         Ok(PublishedChat {
             event_id: event_id.to_hex(),
-            created_at,
         })
     }
 }

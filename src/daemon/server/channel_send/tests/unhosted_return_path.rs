@@ -1,10 +1,13 @@
 use super::*;
+use crate::state::{TestGroup, TestGroupDelivery};
 
 async fn unhosted_state() -> (Arc<DaemonState>, crate::state::Session) {
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.upsert_channel("room", "Room", "", "", 1)?;
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("room").metadata("Room", "", "", 1)
+            ]));
             register_session(store, "self-pk", "codex", "room");
             Ok::<(), anyhow::Error>(())
         })

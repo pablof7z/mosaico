@@ -86,7 +86,7 @@ The current eight scenarios passed admission independently:
 
 | Product contract | Why Cucumber earns its cost | Public or independent witness |
 |---|---|---|
-| Relay membership warms peer identity without exposing backend authority | Joins relay materialization, profile warming, roster rendering, and the management-identity boundary | Rendered roster plus relay-only peer |
+| Relay membership warms peer identity without exposing backend authority | Joins the retained NMP group/profile observations, roster rendering, and the management-identity boundary | Rendered roster plus relay-only peer |
 | A backend-addressed management request produces a public result | Joins operator-authored relay input, backend routing, command execution, and reply publication | Independently queried relay reply |
 | Addressed work produces one harness-visible delivery during controlled execution | Joins operator addressing, relay delivery, daemon routing, PTY injection, and bounded duplicate observation | Deterministic native-harness capture |
 | An explicit sender session overrides ambient process hints | Protects signer authority across CLI selection, ambient state, and relay publication | Relay event author |
@@ -95,11 +95,14 @@ The current eight scenarios passed admission independently:
 | Addressed work resumes a stopped session without minting a sibling identity | Joins offline delivery, native resume, stable public identity, and user-visible injection | Public session identity plus harness capture |
 | Addressed work starts an offline stable agent under its configured identity | Joins configured durable identity, offline activation, relay delivery, and user-visible injection | Public session identity plus harness capture |
 
-Cached-message search was reviewed and moved out of Cucumber. The existing
-real-binary integration test in
-`tests/daemon_integration/search.rs` already proves local-cache operation while
-the relay is wedged, public CLI grouping, subtree scope, and MCP output. The
-Gherkin scenario added no separate load-bearing contract.
+Current-observation search does not by itself earn a Cucumber scenario. Query
+filtering, grouping, pagination, and rendering belong in typed Rust and
+real-binary integration tests. A behavior-contract scenario is warranted only
+when it exercises the cross-boundary ownership promise through public evidence,
+such as a controlled NMP removal making relay state disappear or publish
+acceptance producing no local delivery before observation. Such a scenario
+must control the observation boundary and use CLI, relay, or harness output as
+its oracle; it must never inspect SQLite to prove the absence of replication.
 
 When a scenario stops earning admission, move any still-current claim to its
 proper Rust, fault, evaluation, or live layer and delete its exclusive glue.

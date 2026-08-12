@@ -48,7 +48,7 @@ fn channel_read_row_renders_hostless_sender_bare_not_with_question_mark() {
 }
 
 #[test]
-fn channel_read_row_renders_materialized_attachment_directory() {
+fn channel_read_row_renders_local_attachment_directory() {
     let item = serde_json::json!({
         "event_id": "event-files",
         "from_pubkey": "pubkey-3",

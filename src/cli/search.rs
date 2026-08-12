@@ -16,7 +16,7 @@ pub(in crate::cli) struct ChannelSearchArgs {
     #[arg(long, value_name = "TEXT")]
     pub(in crate::cli) contains: Vec<String>,
     /// Search this channel and its descendants. Repeat to search any subtree.
-    /// Omit, or pass `#`, to search every channel in the local database. Quote
+    /// Omit, or pass `#`, to search every currently observed channel. Quote
     /// paths in the shell: `'#nmp/research'`.
     #[arg(
         long,

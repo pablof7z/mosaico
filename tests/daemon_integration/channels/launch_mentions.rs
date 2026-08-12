@@ -153,19 +153,29 @@ fn wait_for_alive_session(home: &Home, slug: &str, scope: &str) -> Session {
 }
 
 fn wait_for_group_member(home: &Home, channel: &str, pubkey: &str) {
+    let path = if channel.starts_with('#') {
+        channel.to_string()
+    } else {
+        format!("#{channel}")
+    };
     assert!(
-        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
-            .map(|s| {
-                refresh_channel_members(&format!("#{channel}"));
-                s.is_channel_member(channel, pubkey).unwrap_or(false)
-            })
-            .unwrap_or(false)),
-        "{pubkey} was not visible as a member of {channel}; daemon_log={}; group_log={}",
+        wait_until(Duration::from_secs(25), || {
+            observed_channel_has_role(&path, pubkey, "member")
+        }),
+        "{pubkey} was not delivered by NMP as a member of {path}; daemon_log={}; group_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<{e}>")),
         std::fs::read_to_string(home.dir.path().join("logs/group-mgmt.log"))
             .unwrap_or_else(|e| format!("<{e}>"))
     );
+}
+
+fn observed_channel_excludes(path: &str, pubkey: &str) -> bool {
+    observed_channel_members(path).is_some_and(|members| {
+        members
+            .iter()
+            .all(|member| member.get("pubkey").and_then(serde_json::Value::as_str) != Some(pubkey))
+    })
 }
 
 fn wait_for_injected_log(log: &Path, body: &str) {

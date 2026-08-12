@@ -218,20 +218,38 @@ fn automatic_body_eligibility_requires_arrival_and_signed_time_fences() {
         );
     }
 
-    assert!(!store
-        .insert_event(&RelayEvent {
-            id: "future-seen-before".into(),
-            kind: 9,
-            pubkey: "human".into(),
-            created_at: 500,
-            channel_h: "joined".into(),
-            d_tag: String::new(),
-            content: "duplicate replay".into(),
-            tags_json: "[]".into(),
-        })
-        .unwrap());
+    insert_chat(&store, "future-seen-before", "joined", 500);
     assert!(!store
         .session_membership_admits_event("pk", "joined", "future-seen-before")
+        .unwrap());
+}
+
+#[test]
+fn persisted_join_fence_survives_restart_and_nmp_view_rebuild() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("state.db");
+    {
+        let store = Store::open(&path).unwrap();
+        running(&store);
+        insert_chat(&store, "before", "joined", 500);
+        store.grant_session_route("pk", "joined", 100).unwrap();
+        insert_chat(&store, "after", "joined", 100);
+        assert!(!store
+            .session_membership_admits_event("pk", "joined", "before")
+            .unwrap());
+        assert!(store
+            .session_membership_admits_event("pk", "joined", "after")
+            .unwrap());
+    }
+
+    let reopened = Store::open(&path).unwrap();
+    insert_chat(&reopened, "before", "joined", 500);
+    insert_chat(&reopened, "after", "joined", 100);
+    assert!(!reopened
+        .session_membership_admits_event("pk", "joined", "before")
+        .unwrap());
+    assert!(reopened
+        .session_membership_admits_event("pk", "joined", "after")
         .unwrap());
 }
 
@@ -249,16 +267,19 @@ fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
 }
 
 fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) {
-    assert!(store
-        .insert_event(&RelayEvent {
-            id: id.into(),
-            kind: 9,
-            pubkey: "human".into(),
-            created_at,
-            channel_h: channel_h.into(),
-            d_tag: String::new(),
-            content: id.into(),
-            tags_json: "[]".into(),
-        })
-        .unwrap());
+    let mut events = store
+        .nmp_views
+        .events_by_kind(crate::fabric::nip29::wire::KIND_CHAT, u32::MAX);
+    events.retain(|event| event.id != id);
+    events.push(RelayEvent {
+        id: id.into(),
+        kind: 9,
+        pubkey: "human".into(),
+        created_at,
+        channel_h: channel_h.into(),
+        d_tag: String::new(),
+        content: id.into(),
+        tags_json: "[]".into(),
+    });
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events(events));
 }

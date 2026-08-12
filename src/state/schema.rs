@@ -1,6 +1,7 @@
 //! The stamped persistence schema.
-//! `relay_*` tables are materialized caches and may be dropped/rebuilt from relay
-//! state. The remaining local tables are non-rebuildable daemon state:
+//! NIP-29 group metadata and rosters are deliberately absent: NMP owns those
+//! views. Remaining `relay_*` migrations are independent. Local tables are
+//! non-rebuildable daemon state:
 //! runtime bindings and locators, inbox, event claims, channel
 //! reservations, and workspace roots.
 use anyhow::{Context, Result};

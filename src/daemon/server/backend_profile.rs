@@ -85,18 +85,16 @@ impl DaemonState {
 /// kind:39001 admin list names the management key.
 ///
 /// This is the local reading of "to which groups does my management key belong
-/// on this relay as an admin?" — the question the retained group-records
-/// observation stands open on, materialized into `relay_channel_members`. It is
-/// deliberately not "every root channel this daemon has heard of": a backend
-/// caches the metadata of groups it merely observes, and advertising those as
-/// its own workspaces claims hosting it cannot provide. Consumers
+/// on this relay as an admin?" — the question the retained NMP group observation
+/// answers. It is deliberately not "every root channel this daemon has heard
+/// of": advertising observed metadata as the backend's own workspace would
+/// claim hosting it cannot provide. Consumers
 /// (`profile_qualifies`, `backend_profiles_for_root`) already intersect the
 /// advertised list with admin membership, so the over-claim was one they had to
 /// defend against rather than one they could use.
 ///
 /// A locally bound workspace whose group has not been provisioned yet is
-/// absent, by the same rule: `channel_init` writes a local reservation before
-/// the relay holds anything, and a reservation is not an admin grant.
+/// absent by the same rule: a product-local reservation is not an admin grant.
 pub(in crate::daemon::server) fn managed_roots(
     store: &crate::state::Store,
     management_pubkey: &str,

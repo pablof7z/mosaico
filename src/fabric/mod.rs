@@ -1,10 +1,10 @@
-//! Fabric abstraction layer around NMP I/O and provider materialization.
+//! Fabric abstraction layer around NMP I/O and product event decoding.
 //!
 //! Layering intent:
 //!   Acquisition + all durable writes ← NMP
 //!   Profile indexer + bounded reads  ← NMP
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
-//!   Materializer (store writes)       ← materialize()
+//!   Process-local presentation views  ← NMP deliveries
 
 pub(crate) mod group_management;
 pub mod nip29;
@@ -12,7 +12,7 @@ pub mod provider;
 
 /// Raw envelope currently emitted by the Nostr delivery path.
 ///
-/// This is intentionally not advertised as transport-neutral: current materialization
+/// This is intentionally not advertised as transport-neutral: current decoding
 /// is NIP-29-over-Nostr-specific. Future providers should own their native
 /// envelope type instead of making this enum a cross-fabric dumping ground.
 pub enum RawEnvelope {
@@ -28,10 +28,10 @@ pub trait NostrEventCodec {
     fn decode(&self, env: &RawEnvelope) -> Option<crate::domain::DomainEvent>;
 }
 
-// ── Materializer output ───────────────────────────────────────────────────────
+// ── Product decode output ─────────────────────────────────────────────────────
 
 #[derive(Default)]
-pub struct MaterializationOutcome {
+pub struct ProductDecode {
     /// The decoded domain event to forward onto the tail channel, if any.
     /// Emitted for every successfully decoded event, including is_self. For
     /// chat this is the enriched event (sender slug resolved from the store),
@@ -41,64 +41,35 @@ pub struct MaterializationOutcome {
 
 // ── Top-level dispatcher ──────────────────────────────────────────────────────
 
-/// Decode one raw envelope and apply all store side-effects.
+/// Decode one NMP-delivered envelope for product side effects.
 ///
-/// Every observed event is materialized into one cache by kind.
-/// Relay acceptance is the sender/channel admission boundary. Chat is cached
-/// without a second local membership decision; daemon-owned p-tag execution is
-/// handled by the server after materialization.
-pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> MaterializationOutcome {
+/// Relay-derived state remains in NMP's delivered view. This function may read
+/// that view to enrich a display value, but it never persists a second copy.
+pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> ProductDecode {
     use crate::domain::DomainEvent;
-    use crate::fabric::nip29::materializer::Nip29Materializer;
     use crate::fabric::nip29::wire::Nip29WireCodec;
 
     let RawEnvelope::Nostr(event) = env;
 
-    // Relay-authored NIP-29 state events go straight to their dedicated caches and
-    // never decode into a domain event (no tail).
-    match event.kind.as_u16() {
-        39000 => {
-            Nip29Materializer::materialize_channel(store, event);
-            return MaterializationOutcome::default();
-        }
-        // 39001/39002 never reach this projection: the roster is read through
-        // NMP's group-records observation, which folds both lists across every
-        // host in scope and delivers a whole `GroupSnapshot`. A raw roster
-        // event has no host attribution here, so there is no honest reading of
-        // one at this seam.
-        39001 | 39002 => {
-            return MaterializationOutcome::default();
-        }
-        _ => {}
+    // Group records are projected by NMP's GroupObservation, not decoded into
+    // product events here.
+    if matches!(event.kind.as_u16(), 39000..=39002) {
+        return ProductDecode::default();
     }
 
-    // Unknown kinds land in relay_events except dedicated-cache kinds.
     let codec = Nip29WireCodec;
     let Some(de) = codec.decode(env) else {
-        let k = event.kind.as_u16();
-        if k != 0 && k != 30315 {
-            Nip29Materializer::materialize_event(store, event);
-        }
-        return MaterializationOutcome::default();
+        return ProductDecode::default();
     };
 
-    let created_at = event.created_at.as_secs();
-    let mut outcome = MaterializationOutcome {
+    let mut decoded = ProductDecode {
         tail: Some(de.clone()),
     };
 
     match de {
-        DomainEvent::Profile(ref pf) => {
-            Nip29Materializer::materialize_profile(store, pf, created_at);
-        }
-
-        DomainEvent::Status(ref st) => {
-            Nip29Materializer::materialize_status(store, st, created_at);
-        }
+        DomainEvent::Profile(_) | DomainEvent::Status(_) => {}
 
         DomainEvent::ChatMessage(ref chat) => {
-            Nip29Materializer::materialize_event(store, event);
-            Nip29Materializer::materialize_chat_message(store, event, chat);
             let sender_pk = event.pubkey.to_hex();
             if let Some(slug) = store
                 .resolve_slug_for_pubkey(&sender_pk)
@@ -106,23 +77,22 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
                 .flatten()
                 .filter(|slug| !slug.is_empty())
             {
-                outcome.tail = Some(DomainEvent::ChatMessage(crate::domain::ChatMessage {
+                decoded.tail = Some(DomainEvent::ChatMessage(crate::domain::ChatMessage {
                     from: crate::domain::AgentRef::new(sender_pk, slug),
                     ..chat.clone()
                 }));
             }
         }
 
-        // Reactions (kind:7) are passive awareness: written to the reactions
-        // projection ONLY, so a reaction can never enter direct-mention routing,
+        // Reactions (kind:7) are passive awareness read from the NMP reaction
+        // projection, so they never enter direct-mention routing,
         // wake an idle agent, or inject mid-turn. No tail (nothing live-delivers).
-        DomainEvent::Reaction(ref rx) => {
-            Nip29Materializer::materialize_reaction(store, event, rx);
-            outcome.tail = None;
+        DomainEvent::Reaction(_) => {
+            decoded.tail = None;
         }
     }
 
-    outcome
+    decoded
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -130,7 +100,7 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{RegisterSession, Store};
+    use crate::state::{RegisterSession, Store, TestGroup, TestGroupDelivery};
     use nostr::{EventBuilder, Keys, Kind, Tag};
 
     fn make_tag(parts: &[&str]) -> Tag {
@@ -142,6 +112,30 @@ mod tests {
             .tags(tags)
             .sign_with_keys(keys)
             .unwrap()
+    }
+
+    fn relay_event(event: &nostr::Event) -> crate::state::RelayEvent {
+        crate::state::RelayEvent {
+            id: event.id.to_hex(),
+            kind: event.kind.as_u16() as u32,
+            pubkey: event.pubkey.to_hex(),
+            created_at: event.created_at.as_secs(),
+            channel_h: crate::fabric::nip29::nostr_tag(event, "h")
+                .unwrap_or_default()
+                .into(),
+            d_tag: crate::fabric::nip29::nostr_tag(event, "d")
+                .unwrap_or_default()
+                .into(),
+            content: event.content.clone(),
+            tags_json: serde_json::to_string(
+                &event
+                    .tags
+                    .iter()
+                    .map(|tag| tag.as_slice().to_vec())
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap(),
+        }
     }
 
     fn register(store: &Store, pubkey: &str, channel_h: &str, agent_slug: &str) {
@@ -159,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn chat_materialization_projects_recipients_without_executing_delivery() {
+    fn chat_decode_reads_observed_recipients_without_executing_delivery() {
         let store = Store::open_memory().unwrap();
         let sender_keys = Keys::generate();
         let receiver_keys = Keys::generate();
@@ -168,19 +162,23 @@ mod tests {
 
         register(&store, &sender_pk, "mychannel", "sender-ext");
         register(&store, &receiver_pk, "mychannel", "receiver-ext");
-        store.replace_channel_admins("mychannel", &[], 1).unwrap();
-        store
-            .replace_channel_members("mychannel", &[sender_pk.clone(), receiver_pk.clone()], 1)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new(
+            "mychannel",
+        )
+        .admins(Vec::new())
+        .members(vec![sender_pk.clone(), receiver_pk.clone()])]));
 
-        // Ambient message (no p-tag): stored in relay_events, inbox stays empty.
+        // Ambient message (no p-tag): observed by NMP, inbox stays empty.
         let ambient = build_event(
             &sender_keys,
             9,
             "heads up: I pushed the parser fix",
             vec![make_tag(&["h", "mychannel"])],
         );
-        materialize(&RawEnvelope::Nostr(ambient.clone()), &store);
+        store.install_test_nmp_relay_delivery(
+            crate::state::TestRelayDelivery::new().events([relay_event(&ambient)]),
+        );
+        decode_product_event(&RawEnvelope::Nostr(ambient.clone()), &store);
         assert!(store
             .peek_pending_for_pubkey(&receiver_pk)
             .unwrap()
@@ -188,8 +186,8 @@ mod tests {
         assert!(store.has_event(&ambient.id.to_hex()).unwrap());
 
         // Mention execution belongs to the daemon ownership router. The
-        // transport projection preserves the explicit recipient edge for
-        // cached reads and search without parking an executable inbox row.
+        // transport projection preserves the explicit recipient for reads and
+        // search without parking an executable inbox row.
         let mention = build_event(
             &sender_keys,
             9,
@@ -199,7 +197,11 @@ mod tests {
                 make_tag(&["p", &receiver_pk]),
             ],
         );
-        materialize(&RawEnvelope::Nostr(mention.clone()), &store);
+        store.install_test_nmp_relay_delivery(
+            crate::state::TestRelayDelivery::new()
+                .events([relay_event(&ambient), relay_event(&mention)]),
+        );
+        decode_product_event(&RawEnvelope::Nostr(mention.clone()), &store);
         let receiver_rows = store.peek_pending_for_pubkey(&receiver_pk).unwrap();
         assert!(receiver_rows.is_empty());
         assert_eq!(
@@ -216,24 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn group_metadata_materializes_into_relay_channels() {
-        let store = Store::open_memory().unwrap();
-        let relay = Keys::generate();
-        let event = build_event(
-            &relay,
-            39000,
-            "",
-            vec![make_tag(&["d", "proj"]), make_tag(&["name", "Channel"])],
-        );
-        let env = RawEnvelope::Nostr(event);
-        let outcome = materialize(&env, &store);
-        assert!(outcome.tail.is_none(), "relay-authored state has no tail");
-        assert_eq!(store.get_channel("proj").unwrap().unwrap().name, "Channel");
-    }
-
-    #[test]
-    fn reaction_materializes_to_projection_only_and_never_wakes() {
-        use crate::state::RecordMessage;
+    fn reaction_decodes_to_passive_projection_only_and_never_wakes() {
         let store = Store::open_memory().unwrap();
         let author_keys = Keys::generate();
         let reactor_keys = Keys::generate();
@@ -247,27 +232,17 @@ mod tests {
             vec![make_tag(&["h", "c"])],
         );
         let target_id = chat.id.to_hex();
-        store
-            .record_message(&RecordMessage {
-                message_id: target_id.clone(),
-                thread_id: "c".into(),
-                channel_h: "c".into(),
-                author_pubkey: author_pk.clone(),
-                body: "pushed the fix".into(),
-                created_at: 100,
-                sync_state: "accepted".into(),
-                native_event_id: Some(target_id.clone()),
-                error: None,
-            })
-            .unwrap();
-
         let reaction = build_event(
             &reactor_keys,
             7,
             "👍",
             vec![make_tag(&["e", &target_id]), make_tag(&["h", "c"])],
         );
-        let outcome = materialize(&RawEnvelope::Nostr(reaction.clone()), &store);
+        store.install_test_nmp_relay_delivery(
+            crate::state::TestRelayDelivery::new()
+                .events([relay_event(&chat), relay_event(&reaction)]),
+        );
+        let outcome = decode_product_event(&RawEnvelope::Nostr(reaction.clone()), &store);
 
         // Passive: no tail, no wake, no inbox row, no recipient edge.
         assert!(outcome.tail.is_none(), "reaction emits no tail");
@@ -284,21 +259,11 @@ mod tests {
         assert_eq!(rows[0].emoji, "👍");
         assert_eq!(rows[0].target_body, "pushed the fix");
 
-        // Replaying the same event is idempotent.
-        materialize(&RawEnvelope::Nostr(reaction), &store);
+        // Decoding the same observed row again does not create product state.
+        decode_product_event(&RawEnvelope::Nostr(reaction), &store);
         let rows = store
             .reactions_on_authored_after(&author_pk, 0, 10)
             .unwrap();
         assert_eq!(rows.len(), 1, "replayed reaction stays a single row");
-    }
-    #[test]
-    fn unknown_kind_is_cached_verbatim() {
-        let store = Store::open_memory().unwrap();
-        let agent = Keys::generate();
-        // kind:7 (reaction) is not decoded by the codec but must still be cached.
-        let event = build_event(&agent, 7, "+", vec![make_tag(&["h", "proj"])]);
-        let env = RawEnvelope::Nostr(event.clone());
-        materialize(&env, &store);
-        assert!(store.has_event(&event.id.to_hex()).unwrap());
     }
 }

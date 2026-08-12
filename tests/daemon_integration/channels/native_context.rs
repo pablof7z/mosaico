@@ -1,11 +1,31 @@
 use super::*;
 
+fn map_workspace(home: &Home, channel: &str, path: &std::path::Path) {
+    let map_path = home.dir.path().join("workspaces.json");
+    let mut map = std::fs::read_to_string(&map_path)
+        .ok()
+        .and_then(|body| {
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&body).ok()
+        })
+        .unwrap_or_default();
+    map.insert(
+        channel.to_string(),
+        path.to_string_lossy().to_string().into(),
+    );
+    std::fs::write(map_path, serde_json::to_vec(&map).unwrap()).unwrap();
+}
+
 fn named_child_h(home: &Home, parent_h: &str, name: &str) -> String {
-    Store::open(&home.store_path())
-        .unwrap()
-        .channel_id_for_name(parent_h, name)
-        .unwrap()
-        .unwrap_or_else(|| panic!("missing child {name:?} beneath {parent_h:?}"))
+    let mut child = None;
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            child = observed_channel_h(parent_h, name);
+            child.is_some()
+        }),
+        "missing child {name:?} beneath {parent_h:?}; daemon_log={}",
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+    );
+    child.unwrap()
 }
 
 #[test]
@@ -16,6 +36,8 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
     let sid = unique_session("sess-watch-create");
     let parent = "tmp".to_string();
     let watch_pid = std::process::id() as i32;
+    initialize_workspace_root(&parent, "/tmp");
+    wait_for_channel_metadata(&home, &parent);
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -69,9 +91,9 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
         .all(|route| routes_after.contains(route)));
     assert!(routes_after.contains(&child_h));
     assert_eq!(
-        store.channel_parent(&child_h).unwrap().unwrap_or_default(),
-        parent,
-        "new channel should nest under the explicit public parent"
+        observed_channel_h(&parent, "native-subtask").as_deref(),
+        Some(child_h.as_str()),
+        "NMP's delivered topology should nest the child under the explicit public parent"
     );
 
     stop_daemon(&home);
@@ -85,6 +107,11 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
     let sid = unique_session("sess-watch-who");
     let parent = unique_session("who-parent");
     let watch_pid = std::process::id() as i32;
+    let work_dir = home.dir.path().join(&parent);
+    std::fs::create_dir_all(&work_dir).unwrap();
+    map_workspace(&home, &parent, &work_dir);
+    initialize_workspace_root(&parent, work_dir.to_str().unwrap());
+    wait_for_channel_metadata(&home, &parent);
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
@@ -94,7 +121,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
                 serde_json::json!({
                     "agent": "coder",
                     "harness_session": &sid,
-                    "cwd": "/tmp",
+                    "cwd": &work_dir,
                     "channel": &parent,
                     "watch_pid": watch_pid
                 }),
@@ -105,20 +132,13 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
         .expect("session_start");
     });
 
-    let store = Store::open(&home.store_path()).unwrap();
-    let session = session_for_harness_session(&store, "claude-code", &sid);
-    let joined_channel_h = only_session_route(&store, &session.pubkey);
-    store
-        .upsert_channel(&joined_channel_h, "who-parent", "", "", 1)
-        .unwrap();
-    store
-        .replace_channel_members(&joined_channel_h, &[session.pubkey], 1)
-        .unwrap();
-
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
         let who = c
-            .call("who", serde_json::json!({"agent": "coder", "cwd": "/tmp"}))
+            .call(
+                "who",
+                serde_json::json!({"agent": "coder", "cwd": &work_dir}),
+            )
             .await
             .expect("explicit agent who should remain available");
         assert!(
@@ -132,7 +152,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
                 serde_json::json!({
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
-                    "cwd": "/tmp"
+                    "cwd": &work_dir
                 }),
             )
             .await
@@ -148,7 +168,7 @@ fn explicit_who_and_my_session_accept_the_exact_anchor() {
                 serde_json::json!({
                     "harness": "claude-code",
                     "watch_pid": watch_pid,
-                    "cwd": "/tmp"
+                    "cwd": &work_dir
                 }),
             )
             .await
@@ -172,6 +192,8 @@ fn channel_membership_commands_use_watch_pid_as_exact_session_anchor() {
     let sid = unique_session("sess-watch-membership");
     let parent = "tmp".to_string();
     let watch_pid = std::process::id() as i32;
+    initialize_workspace_root(&parent, "/tmp");
+    wait_for_channel_metadata(&home, &parent);
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");

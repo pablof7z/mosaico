@@ -99,7 +99,7 @@ pub(crate) fn load_who_snapshot(
     now: u64,
     daemon_host: &str,
 ) -> Result<WhoSnapshot> {
-    let aggregation = crate::who_aggregation::WhoAggregation::load(store, now)?;
+    let aggregation = crate::who_aggregation::WhoAggregation::load(store)?;
     build_who_snapshot(&aggregation, current_root, now, daemon_host)
 }
 
@@ -154,7 +154,7 @@ pub(crate) fn build_who_snapshot(
         &mut other_agents,
     )?;
 
-    // ── peers: relay_status across all channels, minus our own keys ────────────
+    // ── peers: current NMP status rows, minus our own keys ────────────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
     // become rows, root channels out of scope feed the other-workspaces summary.
     let mut channels: Vec<String> = aggregation

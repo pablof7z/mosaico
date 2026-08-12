@@ -125,18 +125,18 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         }
     });
 
-    let child_ids = {
-        let store = Store::open(&home.store_path()).unwrap();
-        child_names
-            .iter()
-            .map(|name| {
-                store
-                    .channel_id_for_name(&root, name)
-                    .unwrap()
-                    .unwrap_or_else(|| panic!("missing opaque channel id for {name}"))
-            })
-            .collect::<Vec<_>>()
-    };
+    let mut child_ids = Vec::new();
+    for name in &child_names {
+        let mut child = None;
+        assert!(
+            wait_until(Duration::from_secs(25), || {
+                child = observed_channel_h(&root, name);
+                child.is_some()
+            }),
+            "NMP did not deliver child {name:?} under #{root}"
+        );
+        child_ids.push(child.expect("asserted above"));
+    }
     let expected_routes = std::iter::once(root.clone())
         .chain(child_ids)
         .collect::<BTreeSet<_>>();

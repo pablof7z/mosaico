@@ -38,6 +38,7 @@ pub mod instrument;
 pub(crate) mod liveness;
 pub mod logging;
 mod nmp_host;
+mod nmp_views;
 pub mod profile;
 mod secret_scrub;
 pub mod session;

@@ -21,9 +21,11 @@ fn fully_qualified_channels_use_leading_hash_paths() {
 
 fn caller_session(state: &Arc<DaemonState>, channels: &[&str]) -> crate::state::Session {
     state.with_store(|s| {
-        for channel in channels {
-            s.upsert_channel(channel, channel, "", "", 1).unwrap();
-        }
+        s.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new(
+            channels
+                .iter()
+                .map(|channel| crate::state::TestGroup::new(channel).metadata(channel, "", "", 1)),
+        ));
         s.reserve_hook_session_for_test(&RegisterSession {
             pubkey: "caller-pubkey".to_string(),
             observed_harness: "codex".to_string(),

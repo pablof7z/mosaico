@@ -46,7 +46,7 @@ mod session_records;
 mod state;
 use background::spawn_pruner;
 use chat_rows::chat_rows_to_json;
-use demux::{spawn_demux, warm_profiles};
+use demux::spawn_demux;
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
 use session_dispatch_handler::handle_session_dispatch;
@@ -188,10 +188,7 @@ use channels_rpc::{
     ensure_session_room, rpc_channel_archive, rpc_channel_create, rpc_channel_delete,
     rpc_channel_edit, rpc_channel_list,
 };
-use diagnostics::{
-    log_nip29_role_decision, refresh_channel_members_cache, rpc_doctor, rpc_explain,
-    rpc_local_backend,
-};
+use diagnostics::{log_nip29_role_decision, rpc_doctor, rpc_explain, rpc_local_backend};
 use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};

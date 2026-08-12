@@ -90,7 +90,7 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Search messages already present in the local database.
+    /// Search messages in the daemon's current NMP view.
     Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {

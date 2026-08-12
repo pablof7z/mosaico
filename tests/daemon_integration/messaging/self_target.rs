@@ -37,17 +37,10 @@ fn agent_cannot_tag_or_reply_to_its_own_identity() {
         .expect("session identity")
         .display_slug();
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("#tmp");
-            Store::open(&home.store_path())
-                .map(|store| {
-                    store
-                        .has_channel_membership_snapshot("tmp")
-                        .unwrap_or(false)
-                        && store.is_channel_member("tmp", &pubkey).unwrap_or(false)
-                })
-                .unwrap_or(false)
-        }),
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&pubkey],
+        )),
         "self-target identity did not become a relay-confirmed /tmp member"
     );
 
@@ -90,11 +83,11 @@ fn agent_cannot_tag_or_reply_to_its_own_identity() {
             .to_string()
     });
     assert!(
-        wait_until(Duration::from_secs(5), || Store::open(&home.store_path())
-            .and_then(|store| store.get_message_by_prefix(&event_id))
-            .map(|message| message.is_some())
-            .unwrap_or(false)),
-        "original message did not enter the local read model"
+        wait_until(Duration::from_secs(10), || super::observed_message(
+            &event_id
+        )
+        .is_some()),
+        "original message was not observed by the public reader"
     );
 
     let reply_error = rt().block_on(async {

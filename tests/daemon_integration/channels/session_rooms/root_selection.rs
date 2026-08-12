@@ -1,12 +1,15 @@
 //! Per-session-room vs work-root channel selection at session start. Split out of
 //! `session_rooms.rs` to keep that file under its LOC baseline.
 use super::super::{rewrite_config_with_user_nsec, unique_session, write_config};
+use super::observed_member_path;
 use crate::daemon_harness::{
     hook_session_start, only_session_route, pubkey_for_harness_session, rt, stop_daemon,
-    wait_until, Home, ENV_LOCK,
+    wait_for_exact_relay_groups, wait_until, Home, ENV_LOCK,
 };
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
+use std::collections::BTreeSet;
+use std::time::Duration;
 
 /// With per-session rooms disabled, a human-initiated session uses the work-root
 /// root channel.
@@ -43,16 +46,19 @@ fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
         "no per-session room should be minted: got {}",
         channel_h
     );
-    // A session room is a channel with a non-empty parent; the work-root channel
-    // is a root channel. (`is_session_room` was removed; the distinction is
-    // `is_root_channel`.)
+    let mut observed_path = None;
     assert!(
-        wait_until(std::time::Duration::from_secs(25), || Store::open(
-            &home.store_path()
-        )
-        .map(|s| s.is_root_channel(&channel_h).unwrap_or(false))
-        .unwrap_or(false)),
-        "the work-root channel is not a session room"
+        wait_until(std::time::Duration::from_secs(25), || {
+            observed_path = observed_member_path("tmp", &rec.pubkey);
+            observed_path.as_deref() == Some("#tmp")
+        }),
+        "NMP's delivered view should place the session in the work-root itself; got {observed_path:?}"
+    );
+    wait_for_exact_relay_groups(
+        &crate::daemon_harness::shared_nip29_relay_url(),
+        &rec.pubkey,
+        &BTreeSet::from(["tmp".to_string()]),
+        Duration::from_secs(25),
     );
 
     stop_daemon(&home);
@@ -89,20 +95,7 @@ fn opencode_style_session_without_id_mints_room_via_pid() {
         "opencode session must mint a per-session room: got {}",
         channel_h
     );
-    // A minted session room is a non-root channel (it has a parent channel).
-    // (`is_session_room` was removed; the distinction is `!is_root_channel`.)
-    // The room's relay_channels row can materialize BEFORE its parent link (the
-    // 39000 metadata), during which it would transiently look root — so wait for
-    // the parent (non-root) to materialize rather than reading it once.
-    assert!(
-        wait_until(std::time::Duration::from_secs(25), || Store::open(
-            &home.store_path()
-        )
-        .map(|s| s.get_channel(&channel_h).unwrap_or(None).is_some()
-            && !s.is_root_channel(&channel_h).unwrap_or(true))
-        .unwrap_or(false)),
-        "minted group must be a per-session room (non-root channel)"
-    );
+    super::wait_for_session_room(&channel_h, "tmp", &rec.pubkey);
 
     stop_daemon(&home);
 }

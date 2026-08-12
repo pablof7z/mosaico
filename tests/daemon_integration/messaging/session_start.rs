@@ -38,6 +38,13 @@ fn session_start_runs_engine_and_records_alive_session() {
             .unwrap_or(false)),
         "session did not finish joining /tmp"
     );
+    assert!(
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&pubkey]
+        )),
+        "session did not reach the NMP-delivered #tmp roster"
+    );
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
@@ -126,6 +133,13 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .unwrap_or(false)),
         "replacement session did not finish joining /tmp"
     );
+    assert!(
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&new_pubkey]
+        )),
+        "replacement session did not reach the NMP-delivered #tmp roster"
+    );
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
@@ -137,9 +151,13 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .await
             .unwrap();
         let rows = v["rows"].as_array().unwrap();
+        let old = rows
+            .iter()
+            .find(|row| row["pubkey"] == old_pubkey.as_str())
+            .expect("--all should retain the stopped predecessor as history");
         assert!(
-            !rows.iter().any(|r| r["pubkey"] == old_pubkey.as_str()),
-            "old session leaked into who rows: {rows:?}"
+            old["dormant"] == true && old["state"] == "offline",
+            "stopped predecessor must be explicitly dormant/offline: {old:?}"
         );
         assert!(
             rows.iter().any(|r| r["pubkey"] == new_pubkey.as_str()),

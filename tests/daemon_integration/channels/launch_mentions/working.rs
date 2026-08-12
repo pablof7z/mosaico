@@ -119,22 +119,32 @@ fn operator_kind9_injects_into_working_launch_session() {
     .expect("corrupt post-launch agent config");
 
     let body = format!("operator relay injection {}", unique_session("body"));
-    rt().block_on(async {
-        publish_user_kind9(&channel, &body, &rec.pubkey).await;
-    });
+    let event_id = rt().block_on(publish_user_kind9(&channel, &body, &rec.pubkey));
     wait_for_injected_log(&log, &body);
 
-    let store = Store::open(&home.store_path()).unwrap();
-    let messages = chat_in_channel(&store, &channel);
+    let mut observed = None;
     assert!(
-        messages
-            .iter()
-            .any(|m| m.content == body && m.pubkey == pubkey_of(EXAMPLE_USER_NSEC)),
-        "operator kind:9 should be materialized as user-authored chat"
+        wait_until(Duration::from_secs(25), || {
+            observed = observed_chat(&event_id);
+            observed.is_some()
+        }),
+        "operator kind:9 should be exposed as observed user-authored chat"
     );
+    let observed = observed.expect("observed operator chat");
+    assert_eq!(observed["body"].as_str(), Some(body.as_str()));
+    assert_eq!(
+        observed["from_pubkey"].as_str(),
+        Some(pubkey_of(EXAMPLE_USER_NSEC).as_str())
+    );
+    let read_params = serde_json::json!({
+        "session": &rec.pubkey,
+        "channel": format!("#{channel}"),
+        "limit": 1000,
+    });
+    let messages = read_channel_messages(read_params.clone()).expect("public channel read");
     let agent_messages_before = messages
         .iter()
-        .filter(|event| event.pubkey == rec.pubkey)
+        .filter(|event| event["from_pubkey"].as_str() == Some(rec.pubkey.as_str()))
         .count();
 
     let legacy_transcript = home.dir.path().join("legacy-transcript.jsonl");
@@ -161,13 +171,15 @@ fn operator_kind9_injects_into_working_launch_session() {
             .expect("finish injected turn");
     });
     assert!(
-        !wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
-            .map(|store| chat_in_channel(&store, &channel)
-                .iter()
-                .filter(|event| event.pubkey == rec.pubkey)
-                .count()
-                > agent_messages_before)
-            .unwrap_or(false)),
+        !wait_until(Duration::from_secs(2), || read_channel_messages(
+            read_params.clone()
+        )
+        .map(|messages| messages
+            .iter()
+            .filter(|event| event["from_pubkey"].as_str() == Some(rec.pubkey.as_str()))
+            .count()
+            > agent_messages_before)
+        .unwrap_or(false)),
         "turn completion must not publish an implicit channel message"
     );
 

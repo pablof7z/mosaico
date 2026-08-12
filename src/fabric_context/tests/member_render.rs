@@ -3,9 +3,12 @@
 use crate::fabric_context::{
     assemble, capture_inputs, render_fabric_context, render_fabric_context_human, render_view_text,
 };
-use crate::state::{RegisterSession, Status, Store};
+use crate::state::{RegisterSession, Status, Store, TestGroup, TestGroupDelivery};
 
-use super::{input, seed_store, session, session_record, OTHER_PK, SELF_PK};
+use super::{
+    idle_status, input, profile, pubkeys, seed_profiles, seed_store, session, session_record,
+    TestRelayDelivery, OTHER_PK, SELF_PK,
+};
 mod lifecycle;
 #[path = "member_render/native_outcome.rs"]
 mod native_outcome;
@@ -27,22 +30,24 @@ fn full_snapshot_keeps_nameable_members_while_empty_presence_deltas_stay_quiet()
     assert!(!snapshot.contains("since=\"unknown\""), "got: {snapshot}");
     assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
 
-    store
-        .upsert_status(&Status {
-            pubkey: OTHER_PK.into(),
-            channel_h: "root".into(),
-            slug: "amber-reviewer".into(),
-            title: String::new(),
-            activity: String::new(),
-            workspace: "root".into(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Idle,
-            state_since: 150,
-            last_seen: 150,
-            updated_at: 150,
-            expiration: 300,
-        })
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([Status {
+                pubkey: OTHER_PK.into(),
+                channel_h: "root".into(),
+                slug: "amber-reviewer".into(),
+                title: String::new(),
+                activity: String::new(),
+                workspace: "root".into(),
+                branch: String::new(),
+                state: crate::session_state::SessionState::Idle,
+                state_since: 150,
+                last_seen: 150,
+                updated_at: 150,
+                expiration: 300,
+            }]),
+    );
     let delta = render_fabric_context(&store, input(Some(&rec), "root", 100, 200, true))
         .expect("forced delta should render");
     assert!(!delta.contains("<recent-presence>"), "got: {delta}");
@@ -55,19 +60,20 @@ fn full_snapshot_keeps_nameable_members_while_empty_presence_deltas_stay_quiet()
 fn member_row_shows_session_handle_without_role_for_peer_session() {
     let store = seed_store();
     let rec = session(&store);
-    store
-        .upsert_profile_with_agent_slug(
-            OTHER_PK,
-            "amber-reviewer",
-            "amber-reviewer",
-            "reviewer",
-            "laptop",
-            false,
-            2,
-        )
-        .unwrap();
-    store
-        .upsert_status(&Status {
+    let mut profiles = seed_profiles();
+    profiles.retain(|candidate| candidate.pubkey != OTHER_PK);
+    let mut peer_profile = profile(
+        OTHER_PK,
+        "amber-reviewer",
+        "amber-reviewer",
+        "reviewer",
+        "laptop",
+        false,
+    );
+    peer_profile.updated_at = 2;
+    profiles.push(peer_profile);
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles).statuses([
+        Status {
             pubkey: OTHER_PK.into(),
             channel_h: "root".into(),
             slug: "amber-reviewer".into(),
@@ -80,8 +86,8 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
             last_seen: 90,
             updated_at: 90,
             expiration: 500,
-        })
-        .unwrap();
+        },
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("context should render");
@@ -125,11 +131,14 @@ fn lease_renewal_without_state_change_produces_no_presence_delta() {
         updated_at: 90,
         expiration: 180,
     };
-    store.upsert_status(&peer).unwrap();
     peer.last_seen = 150;
     peer.updated_at = 150;
     peer.expiration = 240;
-    store.upsert_status(&peer).unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([peer]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("forced quiet delta should render");
@@ -144,7 +153,11 @@ fn lease_renewal_without_state_change_produces_no_presence_delta() {
 #[test]
 fn agent_render_includes_workspace_and_members() {
     let store = seed_store();
-    super::publish_idle_status(&store, OTHER_PK, "reviewer", "Reviewing");
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
+    );
     let rec = session(&store);
     // A representative, non-trivial view: workspace-bearing root channel with
     // members and a channel block.
@@ -164,44 +177,35 @@ fn agent_render_includes_workspace_and_members() {
 #[test]
 fn same_named_channels_under_different_workspaces_show_workspace_context() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("test1", "test1", "", "", 1).unwrap();
-    store.upsert_channel("test2", "test2", "", "", 1).unwrap();
-    store
-        .upsert_channel("test1-xxx", "xxx", "", "test1", 2)
-        .unwrap();
-    store
-        .upsert_channel("test2-xxx", "xxx", "", "test2", 2)
-        .unwrap();
-    store
-        .upsert_profile_with_agent_slug(SELF_PK, "coder", "coder", "coder", "laptop", false, 1)
-        .unwrap();
-    for (pk, slug) in [("peer-test1", "reviewer"), ("peer-test2", "tester")] {
-        store
-            .upsert_profile_with_agent_slug(pk, slug, slug, slug, "laptop", false, 1)
-            .unwrap();
-    }
-    store
-        .replace_channel_members(
-            "test1-xxx",
-            &[SELF_PK.to_string(), "peer-test1".to_string()],
-            3,
-        )
-        .unwrap();
-    store
-        .replace_channel_members(
-            "test2-xxx",
-            &[SELF_PK.to_string(), "peer-test2".to_string()],
-            3,
-        )
-        .unwrap();
-    for channel in ["test1-xxx", "test2-xxx"] {
-        store.replace_channel_admins(channel, &[], 3).unwrap();
-    }
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("test1").metadata("test1", "", "", 1),
+        TestGroup::new("test2").metadata("test2", "", "", 1),
+        TestGroup::new("test1-xxx")
+            .metadata("xxx", "", "test1", 2)
+            .admins(Vec::new())
+            .members(pubkeys(&[SELF_PK, "peer-test1"])),
+        TestGroup::new("test2-xxx")
+            .metadata("xxx", "", "test2", 2)
+            .admins(Vec::new())
+            .members(pubkeys(&[SELF_PK, "peer-test2"])),
+    ]));
+    let profiles = [
+        profile(SELF_PK, "coder", "coder", "coder", "laptop", false),
+        profile(
+            "peer-test1",
+            "reviewer",
+            "reviewer",
+            "reviewer",
+            "laptop",
+            false,
+        ),
+        profile("peer-test2", "tester", "tester", "tester", "laptop", false),
+    ];
     let rec = session_record(&store, "cross-workspace", "test1-xxx");
     store
         .grant_session_route(&rec.pubkey, "test2-xxx", 20)
         .unwrap();
-    for (pk, channel, slug, activity) in [
+    let statuses = [
         (
             "peer-test1",
             "test1-xxx",
@@ -209,24 +213,28 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
             "checking test1",
         ),
         ("peer-test2", "test2-xxx", "atlas-tester", "checking test2"),
-    ] {
-        store
-            .upsert_status(&Status {
-                pubkey: pk.into(),
-                channel_h: channel.into(),
-                slug: slug.into(),
-                title: String::new(),
-                activity: activity.into(),
-                workspace: channel.split('-').next().unwrap_or(channel).into(),
-                branch: format!("feat/{}", channel.split('-').next().unwrap_or(channel)),
-                state: crate::session_state::SessionState::Working,
-                state_since: 250,
-                last_seen: 250,
-                updated_at: 250,
-                expiration: 500,
-            })
-            .unwrap();
-    }
+    ]
+    .into_iter()
+    .map(|(pk, channel, slug, activity)| Status {
+        pubkey: pk.into(),
+        channel_h: channel.into(),
+        slug: slug.into(),
+        title: String::new(),
+        activity: activity.into(),
+        workspace: channel.split('-').next().unwrap_or(channel).into(),
+        branch: format!("feat/{}", channel.split('-').next().unwrap_or(channel)),
+        state: crate::session_state::SessionState::Working,
+        state_since: 250,
+        last_seen: 250,
+        updated_at: 250,
+        expiration: 500,
+    })
+    .collect::<Vec<_>>();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(profiles)
+            .statuses(statuses),
+    );
 
     let request = input(Some(&rec), "test1-xxx", 200, 300, true);
     let text = render_fabric_context(&store, request).expect("context should render");

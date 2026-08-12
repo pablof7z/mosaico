@@ -88,31 +88,3 @@ fn registered_work_root_cannot_change_on_relaunch() {
         "workspace"
     );
 }
-
-#[test]
-fn table_samples_prefer_fresh_status_rows() {
-    let store = Store::open_memory().unwrap();
-    for (pubkey, updated_at, expiration) in [("old", 100, 100), ("fresh", 200, 300)] {
-        store
-            .upsert_status(&Status {
-                pubkey: pubkey.into(),
-                channel_h: "room".into(),
-                slug: "agent".into(),
-                title: String::new(),
-                activity: String::new(),
-                workspace: "workspace".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: updated_at,
-                last_seen: updated_at,
-                updated_at,
-                expiration,
-            })
-            .unwrap();
-    }
-    let rows = store
-        .application_table_sample_rows("relay_status", &["pubkey"], 2)
-        .unwrap()
-        .unwrap();
-    assert_eq!(rows[0]["pubkey"], "fresh");
-}
