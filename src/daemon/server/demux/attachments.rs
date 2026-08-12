@@ -1,18 +1,18 @@
 use super::*;
 
-pub(super) fn required(outcome: &crate::fabric::MaterializationOutcome) -> bool {
+pub(super) fn required(decoded: &crate::fabric::ProductDecode) -> bool {
     matches!(
-        outcome.tail.as_ref(),
+        decoded.tail.as_ref(),
         Some(DomainEvent::ChatMessage(chat)) if !chat.attachments.is_empty()
     )
 }
 
 pub(super) async fn materialize(
     state: &Arc<DaemonState>,
-    outcome: &crate::fabric::MaterializationOutcome,
+    decoded: &crate::fabric::ProductDecode,
     event: &Event,
 ) {
-    let Some(DomainEvent::ChatMessage(chat)) = outcome.tail.as_ref() else {
+    let Some(DomainEvent::ChatMessage(chat)) = decoded.tail.as_ref() else {
         return;
     };
     if chat.attachments.is_empty() {

@@ -29,14 +29,16 @@
 
 use crate::state::{InboxRow, Store};
 use crate::util::pubkey_short;
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-/// Display name for a pubkey: its cached `kind:0` slug, else a short hex form.
-fn speaker_label(store: &Store, pubkey: &str) -> String {
-    store
-        .resolve_slug_for_pubkey(pubkey)
-        .ok()
-        .flatten()
+/// Display name for a pubkey: a name resolved for this render, then a current
+/// retained profile Row, else a short hex form.
+fn speaker_label(store: &Store, resolved_names: &BTreeMap<String, String>, pubkey: &str) -> String {
+    resolved_names
+        .get(pubkey)
+        .cloned()
+        .or_else(|| store.resolve_slug_for_pubkey(pubkey).ok().flatten())
         .filter(|n| !n.trim().is_empty())
         .unwrap_or_else(|| pubkey_short(pubkey))
 }
@@ -45,6 +47,7 @@ fn speaker_label(store: &Store, pubkey: &str) -> String {
 pub(crate) fn render_terminal_mention(
     store: &Store,
     rows: &[InboxRow],
+    resolved_names: &BTreeMap<String, String>,
     _whitelisted: &[String],
     now: u64,
     show_coordination_guide: bool,
@@ -58,7 +61,7 @@ pub(crate) fn render_terminal_mention(
         if channel_ref.is_empty() {
             return None;
         }
-        let from = speaker_label(store, &row.from_pubkey);
+        let from = speaker_label(store, resolved_names, &row.from_pubkey);
         let _ = write!(
             out,
             "\n  <channel ref=\"{}\">",

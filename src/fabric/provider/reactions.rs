@@ -8,12 +8,9 @@ impl Nip29Provider {
     /// Publish a NIP-25 kind:7 reaction through NMP's group door, gating the
     /// channel exactly like chat.
     ///
-    /// Nothing is seeded locally. This used to hand the signed event straight
-    /// back to `materialize()` because the relay does not echo a publication
-    /// to the connection that made it, so the reacting daemon's own sessions
-    /// would otherwise never see it. NMP #1182 removed that need: the accepted
-    /// row is injected into the group subscription Mosaico already holds, and
-    /// reaches `relay_reactions` through its one writer.
+    /// Nothing is seeded locally. NMP injects an accepted row into the matching
+    /// group observation, so local and remote reactions share one observed-row
+    /// path.
     ///
     /// This path deliberately never enqueues inbox or rings a doorbell: a reaction
     /// is passive awareness surfaced only at the target's next turn-start hook.

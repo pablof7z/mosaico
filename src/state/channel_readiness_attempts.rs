@@ -1,7 +1,7 @@
 //! `channel_readiness_attempts` records host/provider readiness decisions.
 //!
-//! Relay materialized rows remain the source of channel truth. These rows only
-//! explain local attempts to make that truth exist or become usable.
+//! NMP's delivered group state remains the source of channel truth. These rows
+//! only explain local attempts to make that truth exist or become usable.
 
 use super::*;
 

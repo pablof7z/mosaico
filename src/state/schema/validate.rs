@@ -10,19 +10,11 @@ const TABLES: &[&str] = &[
     "event_claims",
     "handle_leases",
     "inbox",
-    "message_recipients",
-    "messages",
+    "message_attachments",
     "native_turn_attempts",
     "mcp_actor_aliases",
+    "nmp_event_arrivals",
     "receipts",
-    "relay_channel_member_sets",
-    "relay_channel_members",
-    "relay_channels",
-    "relay_events",
-    "relay_profiles",
-    "relay_reactions",
-    "relay_status",
-    "relay_status_sets",
     "session_channels",
     "session_coaching",
     "session_locators",
@@ -31,7 +23,6 @@ const TABLES: &[&str] = &[
     "sessions",
     "workspace_roots",
 ];
-const PROFILE_COLUMNS: &[&str] = &["agent_slug", "agents_json", "workspaces_json"];
 pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
     ensure_only_tables(conn, path)?;
     for table in [
@@ -42,7 +33,8 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "session_coaching",
         "event_claims",
         "native_turn_attempts",
-        "relay_status_sets",
+        "nmp_event_arrivals",
+        "message_attachments",
     ] {
         ensure_table(conn, table, path)?;
     }
@@ -54,6 +46,16 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "session_claims",
         "llm_calls",
         "relay_agent_roster",
+        "relay_channel_member_sets",
+        "relay_channel_members",
+        "relay_channels",
+        "relay_events",
+        "relay_profiles",
+        "relay_reactions",
+        "relay_status",
+        "relay_status_sets",
+        "messages",
+        "message_recipients",
     ] {
         ensure_absent_table(conn, table, path)?;
     }
@@ -88,28 +90,6 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
             "created_at",
         ],
         &["external_id_kind", "external_id", "session_id"],
-        path,
-    )?;
-    ensure_columns(conn, "relay_profiles", PROFILE_COLUMNS, &[], path)?;
-    ensure_columns(
-        conn,
-        "relay_status",
-        &["state", "state_since", "workspace", "branch"],
-        &["busy"],
-        path,
-    )?;
-    ensure_columns(
-        conn,
-        "relay_status_sets",
-        &["pubkey", "updated_at"],
-        &[],
-        path,
-    )?;
-    ensure_columns(
-        conn,
-        "relay_status",
-        &["pubkey", "channel_h"],
-        &["session_id"],
         path,
     )?;
     ensure_columns(
@@ -168,16 +148,16 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     )?;
     ensure_columns(
         conn,
-        "messages",
-        &["message_id", "author_pubkey", "attachment_dir"],
-        &["author_session"],
+        "nmp_event_arrivals",
+        &["sequence", "event_id"],
+        &[],
         path,
     )?;
     ensure_columns(
         conn,
-        "message_recipients",
-        &["message_id", "recipient_pubkey"],
-        &["target_session"],
+        "message_attachments",
+        &["event_id", "directory"],
+        &[],
         path,
     )
 }

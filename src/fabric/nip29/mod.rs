@@ -1,7 +1,6 @@
-//! NIP-29 fabric adapter — group metadata and membership materializer.
+//! NIP-29 fabric adapter — group lifecycle, observation, and product codecs.
 
 pub mod lifecycle;
-pub mod materializer;
 pub mod orchestration;
 pub mod readiness;
 pub mod session_dispatch;

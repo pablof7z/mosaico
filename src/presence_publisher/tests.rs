@@ -102,7 +102,7 @@ async fn many_renewals_publish_only_the_running_job_and_latest_pending_state() {
     // Given the first publish is still running,
     let (publisher, gate, mut observed_rx) = blocked_publisher();
     let keys = Keys::generate();
-    publisher.submit(renewal("pk-a", 1), &keys, "renewal");
+    publisher.submit(renewal("pk-a", 1), &keys, "renewal", None);
     assert_eq!(
         timeout(Duration::from_secs(1), observed_rx.recv())
             .await
@@ -112,7 +112,7 @@ async fn many_renewals_publish_only_the_running_job_and_latest_pending_state() {
 
     // When many newer full states arrive for the same pubkey,
     for revision in 2..=100 {
-        publisher.submit(renewal("pk-a", revision), &keys, "renewal");
+        publisher.submit(renewal("pk-a", revision), &keys, "renewal", None);
     }
     gate.add_permits(1);
 
@@ -136,15 +136,15 @@ async fn expiration_replaces_a_queued_renewal_for_the_same_pubkey() {
     // Given one publish is running and a renewal is queued,
     let (publisher, gate, mut observed_rx) = blocked_publisher();
     let keys = Keys::generate();
-    publisher.submit(renewal("pk-a", 1), &keys, "opened");
+    publisher.submit(renewal("pk-a", 1), &keys, "opened", None);
     timeout(Duration::from_secs(1), observed_rx.recv())
         .await
         .expect("the running job must start")
         .expect("the running job must be observed");
-    publisher.submit(renewal("pk-a", 2), &keys, "renewal");
+    publisher.submit(renewal("pk-a", 2), &keys, "renewal", None);
 
     // When an explicit expiration supersedes it,
-    publisher.submit(expiration("pk-a", 3), &keys, "revoke");
+    publisher.submit(expiration("pk-a", 3), &keys, "revoke", None);
     gate.add_permits(1);
 
     // Then only expiration runs after the in-flight job.
@@ -164,17 +164,17 @@ async fn different_pubkeys_keep_first_pending_order_while_each_stays_latest() {
     // Given A is running,
     let (publisher, gate, mut observed_rx) = blocked_publisher();
     let keys = Keys::generate();
-    publisher.submit(renewal("blocker", 1), &keys, "opened");
+    publisher.submit(renewal("blocker", 1), &keys, "opened", None);
     timeout(Duration::from_secs(1), observed_rx.recv())
         .await
         .expect("the blocker must start")
         .expect("the blocker must be observed");
 
     // When B, A, a newer B, then C become pending,
-    publisher.submit(renewal("pk-b", 2), &keys, "renewal");
-    publisher.submit(renewal("pk-a", 3), &keys, "renewal");
-    publisher.submit(renewal("pk-b", 4), &keys, "changed");
-    publisher.submit(renewal("pk-c", 5), &keys, "renewal");
+    publisher.submit(renewal("pk-b", 2), &keys, "renewal", None);
+    publisher.submit(renewal("pk-a", 3), &keys, "renewal", None);
+    publisher.submit(renewal("pk-b", 4), &keys, "changed", None);
+    publisher.submit(renewal("pk-c", 5), &keys, "renewal", None);
     gate.add_permits(1);
 
     // Then B keeps its first-pending position but publishes only revision 4.
@@ -205,7 +205,7 @@ fn a_closed_worker_retains_no_unserviceable_presence_job() {
         pending: pending.clone(),
     };
 
-    publisher.submit(renewal("pk-a", 1), &Keys::generate(), "renewal");
+    publisher.submit(renewal("pk-a", 1), &Keys::generate(), "renewal", None);
 
     assert_eq!(
         pending

@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use anyhow::Result;
+use nmp::nip29::GroupSnapshot;
 use nmp::{AccessContext, AcquisitionEvidence, Row, SourceEvidence, SourceStatus};
 use nostr::Event;
 
@@ -21,6 +22,7 @@ enum ReadResult {
 pub(super) struct TestIo {
     writes: Mutex<VecDeque<ScriptedError>>,
     reads: Mutex<VecDeque<ReadResult>>,
+    group_snapshots: Mutex<VecDeque<GroupSnapshot>>,
 }
 
 impl TestIo {
@@ -64,6 +66,29 @@ impl NmpHost {
             SourceStatus::FinishedStoredEvents,
             BoundedReadTermination::RelaySettled,
         );
+    }
+
+    pub(crate) fn script_group_snapshot(&self, snapshot: GroupSnapshot) {
+        self.test_io
+            .group_snapshots
+            .lock()
+            .unwrap()
+            .push_back(snapshot);
+    }
+
+    pub(crate) fn take_scripted_group_snapshot(
+        &self,
+        group: &str,
+    ) -> Option<Result<GroupSnapshot>> {
+        let snapshot = self.test_io.group_snapshots.lock().unwrap().pop_front()?;
+        Some(if snapshot.id == group {
+            Ok(snapshot)
+        } else {
+            Err(anyhow::anyhow!(
+                "scripted NMP group snapshot id {:?} does not match requested group {group:?}",
+                snapshot.id
+            ))
+        })
     }
 
     pub(crate) fn script_read_timed_out_events(&self, events: Vec<Event>) {

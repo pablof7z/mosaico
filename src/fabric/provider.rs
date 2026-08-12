@@ -1,16 +1,18 @@
-//! `Nip29Provider` — concrete NIP-29 wire, materializer, and lifecycle boundary.
+//! `Nip29Provider` — concrete NIP-29 wire, product decoding, and lifecycle boundary.
 
 pub(crate) mod chat;
+mod decoding;
 mod doctor;
 mod group_management;
 mod group_state;
 mod group_topology;
-mod materialization;
 mod membership_confirmation;
 mod profiles;
 mod publish_gate;
 mod reactions;
 mod readiness;
+
+pub(crate) use publish_gate::ConfirmedGroupScope;
 
 use crate::domain::DomainEvent;
 use crate::fabric::nip29::readiness::ChannelReadiness;
@@ -88,6 +90,28 @@ impl Nip29Provider {
     /// Encode, sign, and durably enqueue one domain event. Relay delivery is
     /// always owned by NMP after this local acceptance boundary.
     pub async fn enqueue(&self, ev: &DomainEvent, keys: &nostr::Keys) -> Result<nostr::EventId> {
+        self.enqueue_with_confirmed_scope(ev, keys, None).await
+    }
+
+    /// Enqueue one status immediately after NMP returned a terminal group
+    /// mutation result for one of its channels. Other channels still require
+    /// current retained-observation evidence.
+    pub(crate) async fn enqueue_status_after_confirmed_scope(
+        &self,
+        status: &crate::domain::Status,
+        keys: &nostr::Keys,
+        scope: &ConfirmedGroupScope,
+    ) -> Result<nostr::EventId> {
+        self.enqueue_with_confirmed_scope(&DomainEvent::Status(status.clone()), keys, Some(scope))
+            .await
+    }
+
+    async fn enqueue_with_confirmed_scope(
+        &self,
+        ev: &DomainEvent,
+        keys: &nostr::Keys,
+        confirmed_scope: Option<&ConfirmedGroupScope>,
+    ) -> Result<nostr::EventId> {
         // kind:0 profiles route to BOTH the indexer relay (purplepag.es) AND
         // the main NIP-29 relay(s) — the group relay accepts kind:0 fine, so
         // relying on the indexer alone leaves backend/agent name resolution
@@ -97,11 +121,7 @@ impl Nip29Provider {
         if matches!(ev, DomainEvent::Profile(_)) {
             let builder = self.wire.encode(ev)?;
             let signed = self.nmp.sign_event(builder, keys).await?;
-            let event_id = self.nmp.enqueue_profile_event(&signed)?;
-            self.with_store(|store| {
-                self.materialize(&RawEnvelope::Nostr(signed), store);
-            });
-            return Ok(event_id);
+            return self.nmp.enqueue_profile_event(&signed);
         }
         let signer = keys.public_key().to_hex();
         match ev {
@@ -110,9 +130,14 @@ impl Nip29Provider {
                     status.expires_at,
                     Some(expires_at) if expires_at <= crate::util::now_secs()
                 );
+                let require_member = !expired;
                 for channel in &status.channels {
-                    self.verify_publish_scope(channel, &signer, !expired)
-                        .await?;
+                    if !confirmed_scope
+                        .is_some_and(|scope| scope.permits(channel, &signer, require_member))
+                    {
+                        self.verify_publish_scope(channel, &signer, require_member)
+                            .await?;
+                    }
                 }
             }
             DomainEvent::ChatMessage(message) => {

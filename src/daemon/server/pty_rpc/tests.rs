@@ -5,8 +5,10 @@ async fn resumable_sessions_expose_only_full_public_channel_paths() {
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.upsert_channel("root", "general", "", "", 1)?;
-            store.upsert_channel("opaque-child", "development", "", "root", 2)?;
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("root").metadata("general", "", "", 1),
+                crate::state::TestGroup::new("opaque-child").metadata("development", "", "root", 2),
+            ]));
             let generation =
                 store.reserve_hook_session_for_test(&crate::state::RegisterSession {
                     pubkey: "resumable-pubkey".into(),

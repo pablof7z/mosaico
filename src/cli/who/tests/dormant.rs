@@ -1,19 +1,21 @@
 use super::*;
-use crate::state::{AdmittedRuntimeFacts, RegisterSession, StopReason};
+use crate::state::{AdmittedRuntimeFacts, Profile, RegisterSession, StopReason};
 
 fn seed_stopped_member(store: &Store) {
-    store.upsert_channel("proj", "proj", "", "", 900).unwrap();
-    store
-        .upsert_profile_with_agent_slug(
-            "pk-codex",
-            "willow-summit-042-codex",
-            "willow-summit-042",
-            "codex",
-            "laptop",
-            false,
-            900,
-        )
-        .unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("proj").metadata("proj", "", "", 900)
+    ]));
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+        pubkey: "pk-codex".into(),
+        name: "willow-summit-042-codex".into(),
+        slug: "willow-summit-042".into(),
+        agent_slug: "codex".into(),
+        host: "laptop".into(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 900,
+    }]));
     let generation = store
         .reserve_session_with_facts(
             &RegisterSession {

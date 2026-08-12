@@ -70,19 +70,16 @@ pub(crate) const MISSING_CHANNEL_NAME_HINT: &str =
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     #[test]
     fn full_channel_ref_walks_to_workspace_root() {
         let store = Store::open_memory().unwrap();
-        store
-            .upsert_channel("root-h", "workspace", "", "", 1)
-            .unwrap();
-        store
-            .upsert_channel("child-h", "channel", "", "root-h", 2)
-            .unwrap();
-        store
-            .upsert_channel("qa-h", "qa", "", "child-h", 3)
-            .unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root-h").metadata("workspace", "", "", 1),
+            TestGroup::new("child-h").metadata("channel", "", "root-h", 2),
+            TestGroup::new("qa-h").metadata("qa", "", "child-h", 3),
+        ]));
 
         assert_eq!(full_channel_ref(&store, "qa-h"), "#root-h/channel/qa");
     }
@@ -98,8 +95,9 @@ mod tests {
     fn workspace_is_the_root_channel() {
         let store = Store::open_memory().unwrap();
         store
-            .upsert_channel("workspace", "workspace", "", "", 1)
-            .unwrap();
+            .install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("workspace").metadata("workspace", "", "", 1)
+            ]));
 
         assert_eq!(full_channel_ref(&store, "workspace"), "#workspace");
     }

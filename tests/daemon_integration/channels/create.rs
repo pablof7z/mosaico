@@ -24,17 +24,19 @@ fn start_creator(home: &Home, sid: &str) -> String {
             .await
             .expect("session_start");
     });
-    wait_for_channel_metadata(home, "tmp");
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            observed_channel_members("#tmp").is_some()
+        }),
+        "NMP did not deliver #tmp before creator startup completed"
+    );
     let store = Store::open(&home.store_path()).unwrap();
     pubkey_for_harness_session(&store, "claude-code", sid).expect("creator pubkey")
 }
 
-fn named_child_h(home: &Home, parent_h: &str, name: &str) -> String {
-    Store::open(&home.store_path())
-        .unwrap()
-        .channel_id_for_name(parent_h, name)
-        .unwrap()
-        .unwrap_or_else(|| panic!("missing child {name:?} beneath {parent_h:?}"))
+fn named_child_h(_home: &Home, parent_h: &str, name: &str) -> String {
+    observed_channel_h(parent_h, name)
+        .unwrap_or_else(|| panic!("missing NMP-observed child {name:?} beneath {parent_h:?}"))
 }
 
 /// Creating siblings through an absolute parent path returns their public
@@ -101,9 +103,8 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
         "adding a sibling must preserve the complete parent child set"
     );
 
-    // The parent channel group was created + locked, so the backend management
-    // key is now an admin of it. (Manageability = `is_channel_admin`; the old
-    // `is_group_owned` ownership flag no longer exists.)
+    // The parent channel group was created + locked, so NMP's delivered roster
+    // names the backend management key as an administrator.
     let store = Store::open(&home.store_path()).unwrap();
     let routes_after = session_routes(&store, &creator);
     assert!(routes_before
@@ -112,7 +113,7 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
     assert!(routes_after.contains(&child_h));
     assert!(routes_after.contains(&sibling_h));
     assert!(
-        store.is_channel_admin(parent, &backend_pk).unwrap(),
+        observed_channel_has_role("#tmp", &backend_pk, "admin"),
         "parent channel {parent} should be managed (backend admin) after channel_create created it"
     );
 
@@ -188,9 +189,9 @@ fn channel_create_no_agents_adds_join_without_replacing_routes() {
     let store = Store::open(&home.store_path()).unwrap();
     let child_h = named_child_h(&home, parent, &child_name);
     assert_eq!(
-        store.channel_parent(&child_h).unwrap().unwrap_or_default(),
-        parent,
-        "new channel should nest under its explicit public parent"
+        observed_channel_h(parent, &child_name).as_deref(),
+        Some(child_h.as_str()),
+        "NMP's delivered topology should resolve the child beneath its explicit parent"
     );
     let routes_after = session_routes(&store, &pubkey);
     assert!(routes_before

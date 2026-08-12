@@ -129,10 +129,10 @@ mod tests {
     #[test]
     fn explicit_chat_target_resolves_absolute_path_when_joined() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "general", "", "", 1).unwrap();
-        store
-            .upsert_channel("abcd1234", "planning", "", "root", 1)
-            .unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("general", "", "", 1),
+            crate::state::TestGroup::new("abcd1234").metadata("planning", "", "root", 1),
+        ]));
         store.grant_session_route("pk", "abcd1234", 1).unwrap();
 
         assert_eq!(
@@ -157,12 +157,12 @@ mod tests {
     async fn explicit_chat_target_rejects_an_unjoined_but_existing_channel() {
         let state = DaemonState::new_for_test().await;
         let rec = session("root");
-        state
-            .with_store(|s| s.upsert_channel("root", "root", "", "", 1))
-            .unwrap();
-        state
-            .with_store(|s| s.upsert_channel("other", "other", "", "", 1))
-            .unwrap();
+        state.with_store(|store| {
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+                crate::state::TestGroup::new("other").metadata("other", "", "", 1),
+            ]));
+        });
 
         let err = resolve_chat_target(&state, &rec, Some("#other"), "channel send")
             .expect_err("an existing but un-joined channel must be rejected");
@@ -176,12 +176,12 @@ mod tests {
     async fn explicit_chat_target_rejects_a_missing_path_with_suggestions() {
         let state = DaemonState::new_for_test().await;
         let rec = session("root");
-        state
-            .with_store(|s| s.upsert_channel("workspace", "general", "", "", 1))
-            .unwrap();
-        state
-            .with_store(|s| s.upsert_channel("h-alpha", "alpha", "", "workspace", 1))
-            .unwrap();
+        state.with_store(|store| {
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("workspace").metadata("general", "", "", 1),
+                crate::state::TestGroup::new("h-alpha").metadata("alpha", "", "workspace", 1),
+            ]));
+        });
 
         let err = resolve_chat_target(&state, &rec, Some("#workspace/test/hello"), "channel send")
             .expect_err("a missing path must be rejected, not auto-created");
@@ -225,8 +225,10 @@ mod tests {
     #[test]
     fn multi_join_without_explicit_channel_errors_with_reruns() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store.upsert_channel("other", "other", "", "", 1).unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+            crate::state::TestGroup::new("other").metadata("other", "", "", 1),
+        ]));
         store
             .reserve_hook_session_for_test(&crate::state::RegisterSession {
                 pubkey: "pk".to_string(),
@@ -255,13 +257,11 @@ mod tests {
     #[test]
     fn multi_join_rerun_refs_use_relative_channel_paths() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store
-            .upsert_channel("h-epic", "epic", "", "root", 1)
-            .unwrap();
-        store
-            .upsert_channel("h-plan", "planning", "", "h-epic", 1)
-            .unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+            crate::state::TestGroup::new("h-epic").metadata("epic", "", "root", 1),
+            crate::state::TestGroup::new("h-plan").metadata("planning", "", "h-epic", 1),
+        ]));
 
         assert_eq!(
             channel_reference_for(&store, "h-plan").unwrap(),

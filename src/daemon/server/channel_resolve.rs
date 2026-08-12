@@ -26,10 +26,10 @@ fn resolve_locally(
     // The channel root's `channel_h` IS its slug and it has no parent, so a request
     // to resolve `name` under a `parent` equal to it is the root asking for ITSELF —
     // return it unchanged, never mint a child of the root literally named after the
-    // root. This is the load-bearing cold-cache case: a bare `launch` (no --channel)
+    // root. This is the load-bearing cold-observation case: a bare `launch` (no --channel)
     // scopes the session to the channel root by passing the slug as both work-root
     // and channel; right after a state/relay reset the root's kind:39000 has not yet
-    // materialized, so checks 2–3 below miss and, without this guard, an opaque
+    // been delivered, so the lookup below misses and, without this guard, an opaque
     // child (parent=slug, name=slug) gets minted — the name-vs-id double-create.
     if parent == name {
         return Ok(Some(name.to_string()));
@@ -78,14 +78,13 @@ pub(in crate::daemon::server) async fn resolve_channel(
             expect_member: &member,
             parent_hint: Some(parent),
             // Operator-chosen name rides on the create publish; the relay's
-            // kind:39000 echo lands it in the cache.
+            // kind:39000 echo reaches NMP's group observation.
             name: Some(name),
         })
         .await;
-    // Fail loud: the relay never confirmed the new channel (its kind:39000 did not
-    // materialize), so there is no real id to hand back. Returning `child_h` here
-    // would point callers at a channel with no `relay_channels` row — exactly the
-    // phantom-state the relay-sourced rule forbids.
+    // Fail loud when NMP could not publish the new channel. Returning `child_h`
+    // would point callers at a channel absent from NMP's current group view —
+    // exactly the phantom state the NMP-authority rule forbids.
     gate.require_ready(format!("relay did not provision channel {name:?}"))?;
     if let Err(e) = ensure_subscription(state, &child_h).await {
         tracing::warn!(

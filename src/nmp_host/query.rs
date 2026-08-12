@@ -64,6 +64,21 @@ impl NmpHost {
             .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
     }
 
+    /// Watch one group's relay-signed records through NMP's group facade.
+    ///
+    /// The returned observation is the state owner. Callers read its complete
+    /// [`nmp::nip29::GroupSnapshot`] deliveries directly; Mosaico does not
+    /// materialize or merge another group record set.
+    pub(crate) fn observe_one_group_records(
+        &self,
+        group: &str,
+    ) -> Result<nmp::nip29::GroupObservation> {
+        self.nip29_scope()?
+            .group(group)
+            .observe(&self.engine, nmp::nip29::GroupRecord::ALL)
+            .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
+    }
+
     /// The relay-signed records describing ONE group — kinds 39000/39001/39002
     /// joined on `d`. One complete branch per host, `Pinned` and `Strict` at
     /// every nesting level, because these three kinds are signed by the RELAY

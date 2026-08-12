@@ -15,24 +15,25 @@ impl Nip29Provider {
     /// Ensure `ctx.channel` exists on the relay and has `ctx.expect_member`.
     pub(crate) async fn ensure_channel_ready<'a>(&'a self, ctx: ChannelCtx<'a>) -> ChannelGate {
         // Never provision an empty channel id: a 9007 create-group with an empty
-        // `h`/`d` mints a junk relay group (kind:39000 with d="") and a bogus
-        // empty-channel_h cache row. An empty scope means "no channel resolved",
+        // `h`/`d` mints a junk relay group (kind:39000 with d=""). An empty
+        // scope means "no channel resolved",
         // which is a caller bug, not a group to create — fail closed.
         if ctx.channel.trim().is_empty() {
             eprintln!("[daemon] ensure_channel_ready: refusing to provision an empty channel id");
             attempt::record(self, &ctx, "degraded", "empty channel id");
             return attempt::degraded(self, &ctx, "empty channel id");
         }
-        let parent_hint = match ancestry::resolved_parent_hint(self, ctx.channel, ctx.parent_hint) {
-            Ok(parent) => parent,
-            Err(error) => {
-                return attempt::degraded(
-                    self,
-                    &ctx,
-                    format!("resolving channel ancestry failed: {error:#}"),
-                );
-            }
-        };
+        let parent_hint =
+            match ancestry::resolved_parent_hint(self, ctx.channel, ctx.parent_hint).await {
+                Ok(parent) => parent,
+                Err(error) => {
+                    return attempt::degraded(
+                        self,
+                        &ctx,
+                        format!("resolving channel ancestry failed: {error:#}"),
+                    );
+                }
+            };
         let normalized = ChannelCtx {
             channel: ctx.channel,
             expect_member: ctx.expect_member,
@@ -50,7 +51,7 @@ fn ensure_channel_ready_inner<'a>(
     Box::pin(async move {
         // No depth cap: a channel path may nest arbitrarily deep (mkdir -p style),
         // so provisioning walks the whole ancestor chain up to the channel root.
-        // Parent links are a strict acyclic ancestry materialized from the relay,
+        // Parent links are a strict acyclic ancestry delivered by NMP,
         // so this recursion terminates at the root (parent_hint == None).
 
         // Normalize: Some("") is the DB's sentinel for "known root channel" but
@@ -69,7 +70,7 @@ fn ensure_channel_ready_inner<'a>(
         if is_ready {
             return ChannelGate::Ready;
         }
-        if local::is_ready(provider, &ctx) {
+        if local::is_ready(provider, &ctx).await {
             provider
                 .readiness
                 .mark_ready(ctx.channel, ctx.expect_member);
@@ -77,7 +78,7 @@ fn ensure_channel_ready_inner<'a>(
                 provider,
                 &ctx,
                 ChannelGate::Ready,
-                "channel readiness verified from materialized relay cache",
+                "channel readiness verified from NMP group state",
             );
         }
 
@@ -96,45 +97,68 @@ fn ensure_channel_ready_inner<'a>(
         } else {
             vec![]
         };
-        // Existence comes from the WIRE, never from `relay_channels`. That cache
-        // also holds the LOCAL row `channel_init` writes for a workspace root
-        // before the group is provisioned, so trusting it here would skip
-        // creation for exactly the channel that most needs it. A relay fetch
-        // FAILURE must equally never be read as "group absent" — that would
-        // drive spurious re-creation (fabrication-by-omission). Degrade loudly
-        // without attempting to create anything.
-        let group_exists = match provider.group_records_exist(ctx.channel).await {
-            Ok(exists) => exists,
-            Err(e) => {
-                tracing::error!(
-                    channel = ctx.channel,
-                    error = %format!("{e:#}"),
-                    "ensure_channel_ready: relay fetch failed — degrading without attempting creation (no fabrication-by-omission)"
-                );
-                return attempt::degraded(provider, &ctx, format!("relay fetch failed: {e:#}"));
-            }
+        // A locally reserved root/child id is exact product intent. If its
+        // retained NMP observation has no records yet, send the one create
+        // operation and let NMP's terminal result decide it; do not open a
+        // second observation merely to prove absence. For an unrelated id,
+        // absence is not ours to invent, so the bounded NMP read still fails
+        // closed.
+        let managed = provider
+            .with_store(|store| store.is_managed_channel(ctx.channel))
+            .unwrap_or(false);
+        let existing_snapshot = match provider.current_group_snapshot(ctx.channel) {
+            Some(snapshot) => Some(snapshot),
+            None if managed => None,
+            None => match provider.group_snapshot(ctx.channel).await {
+                Ok(snapshot) => Some(snapshot),
+                Err(e) => {
+                    tracing::error!(
+                        channel = ctx.channel,
+                        error = %format!("{e:#}"),
+                        "ensure_channel_ready: relay fetch failed — degrading without attempting creation (no fabrication-by-omission)"
+                    );
+                    return attempt::degraded(provider, &ctx, format!("relay fetch failed: {e:#}"));
+                }
+            },
         };
+        let group_exists = existing_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.metadata.is_some());
+        let management_is_admin = existing_snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot
+                .admins
+                .iter()
+                .any(|admin| admin.pubkey.to_hex() == mgmt_pubkey)
+        });
         let mut repaired = false;
         let mut admins_published_this_attempt = Vec::new();
         if !group_exists {
-            match provision::missing_group(provider, &ctx, parent_hint, &mgmt_pubkey).await {
-                Ok(created) => repaired |= created,
+            match provision::missing_group(provider, &ctx, parent_hint).await {
+                Ok(true) => {
+                    if let Err(error) = verify::initialize_created_group(
+                        provider,
+                        &ctx,
+                        &mgmt_pubkey,
+                        &parent_admins,
+                    )
+                    .await
+                    {
+                        return attempt::degraded_error(provider, &ctx, error);
+                    }
+                    provider
+                        .readiness
+                        .mark_ready(ctx.channel, ctx.expect_member);
+                    return attempt::finish(
+                        provider,
+                        &ctx,
+                        ChannelGate::Repaired,
+                        "channel creation and required role publications settled through NMP",
+                    );
+                }
+                Ok(false) => {}
                 Err(error) => return attempt::degraded_error(provider, &ctx, error),
             }
-        } else if !provider.admin_list_observed(ctx.channel) {
-            // The group is there but its kind:39001 has not reached the cache
-            // yet. "Not observed" is not "does not name the management key":
-            // firing a self-grant on the strength of an unseen list is acting
-            // on absence of evidence. Degrade; readiness retries.
-            return attempt::degraded(
-                provider,
-                &ctx,
-                "relay-signed admin list has not been observed yet",
-            );
-        } else if !provider.with_store(|s| {
-            s.is_channel_admin(ctx.channel, &mgmt_pubkey)
-                .unwrap_or(false)
-        }) {
+        } else if !management_is_admin {
             let required_admins = verify::required_admins(provider, &mgmt_pubkey, &parent_admins);
             let granted = provider
                 .try_grant_admins_via_user_nsec(ctx.channel, &required_admins)
@@ -203,27 +227,23 @@ fn ensure_channel_ready_inner<'a>(
             }
         }
 
-        // SOOT guarantee: a ready channel must be present in `relay_channels` from
-        // the relay's OWN kind:39000 — not a local optimistic write. A freshly
-        // created group was already materialized above; a pre-existing group hit by
-        // a cold daemon cache must be read back from the relay here.
-        if provider.with_store(|s| s.get_channel(ctx.channel).ok().flatten().is_none()) {
-            match provider.fetch_and_materialize_channel(ctx.channel).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    return attempt::degraded(
-                        provider,
-                        &ctx,
-                        "relay-settled group metadata read returned no kind:39000",
-                    );
-                }
-                Err(error) => {
-                    return attempt::degraded(
-                        provider,
-                        &ctx,
-                        format!("group metadata acquisition failed: {error:#}"),
-                    );
-                }
+        // NMP's group snapshot is the authority. Read it directly; readiness
+        // never depends on a Mosaico-owned channel copy.
+        match provider.fetch_channel(ctx.channel).await {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return attempt::degraded(
+                    provider,
+                    &ctx,
+                    "settled NMP group snapshot contained no kind:39000 metadata",
+                );
+            }
+            Err(error) => {
+                return attempt::degraded(
+                    provider,
+                    &ctx,
+                    format!("group metadata acquisition failed: {error:#}"),
+                );
             }
         }
 

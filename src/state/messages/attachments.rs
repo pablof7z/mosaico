@@ -2,17 +2,30 @@ use super::*;
 use std::path::Path;
 
 impl Store {
-    /// Attach a successfully materialized local directory without allowing a
-    /// later relay replay or retry to erase or replace it.
-    pub fn set_message_attachment_dir(&self, message_id: &str, directory: &Path) -> Result<bool> {
+    /// Keep the first successfully materialized local directory for an event.
+    /// This is intentionally independent of whether NMP currently observes it.
+    pub fn set_message_attachment_dir(&self, event_id: &str, directory: &Path) -> Result<bool> {
         let directory = directory
             .to_str()
             .context("attachment directory path is not valid UTF-8")?;
         let changed = self.conn.execute(
-            "UPDATE messages SET attachment_dir=?2
-             WHERE message_id=?1 AND attachment_dir=''",
-            params![message_id, directory],
+            "INSERT INTO message_attachments (event_id, directory)
+             VALUES (?1, ?2)
+             ON CONFLICT(event_id) DO NOTHING",
+            params![event_id, directory],
         )?;
         Ok(changed > 0)
+    }
+
+    pub(super) fn message_attachment_dir(&self, event_id: &str) -> Result<String> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT directory FROM message_attachments WHERE event_id=?1",
+                [event_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or_default())
     }
 }

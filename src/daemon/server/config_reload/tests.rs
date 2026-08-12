@@ -123,20 +123,21 @@ async fn managed_child_inherits_the_parents_desired_generation_without_roster_po
     let management = state.provider().management_pubkey().unwrap();
     state
         .with_store(|store| {
-            store.upsert_channel("root", "Root", "", "", 1)?;
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("root")
+                    .metadata("Root", "", "", 1)
+                    .admins(vec![
+                        management.clone(),
+                        configured.clone(),
+                        removed.clone(),
+                    ]),
+                crate::state::TestGroup::new("child")
+                    .metadata("Child", "", "root", 2)
+                    .admins(vec![management.clone(), configured.clone(), removed]),
+            ]));
             store.upsert_workspace("root", "/tmp/root", 1)?;
             store.reserve_channel_resolution_intent("root", "child", "child", 2)?;
-            store.upsert_channel("child", "Child", "", "root", 2)?;
-            store.replace_channel_admins(
-                "root",
-                &[management.clone(), configured.clone(), removed.clone()],
-                3,
-            )?;
-            store.replace_channel_admins(
-                "child",
-                &[management.clone(), configured.clone(), removed],
-                3,
-            )
+            Ok::<_, anyhow::Error>(())
         })
         .unwrap();
 
@@ -164,10 +165,14 @@ async fn managed_child_of_an_external_group_inherits_the_observed_parent_admins(
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.upsert_channel("external", "External", "", "", 1)?;
-            store.replace_channel_admins("external", std::slice::from_ref(&inherited), 1)?;
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("external")
+                    .metadata("External", "", "", 1)
+                    .admins(vec![inherited.clone()]),
+                crate::state::TestGroup::new("child").metadata("Child", "", "external", 2),
+            ]));
             store.reserve_channel_resolution_intent("external", "child", "child", 2)?;
-            store.upsert_channel("child", "Child", "", "external", 2)
+            Ok::<_, anyhow::Error>(())
         })
         .unwrap();
 

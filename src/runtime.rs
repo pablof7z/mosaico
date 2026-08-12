@@ -114,7 +114,10 @@ pub(crate) async fn run_session_in_daemon(
                 &status,
                 &presence_publisher,
                 &signing_keys,
-                DriveMeta { trigger: $trigger },
+                DriveMeta {
+                    trigger: $trigger,
+                    confirmed_scope: None,
+                },
                 $f,
             )
         };

@@ -39,19 +39,15 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         &original.author_pubkey,
         self_target::Action::Reply,
     )?;
-    let reply_to = original
-        .native_event_id
-        .clone()
-        .unwrap_or_else(|| original.message_id.clone());
+    let reply_to = original.message_id.clone();
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
     let uploaded_attachments =
         crate::attachment::upload_all(&p.attachments, &state.config().relays, &state.nmp(), &keys)
             .await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
-    let recipient_reminders = state.with_store(|store| {
-        recipient_notice::reply_suspension_reminders(store, &original, now_secs())
-    })?;
+    let recipient_reminders =
+        state.with_store(|store| recipient_notice::reply_suspension_reminders(store, &original))?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: original.channel_h.clone(),
@@ -74,42 +70,18 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             tracing::warn!(
                 event_id = published.event_id,
                 %error,
-                "local attachment copy failed; delivering ordinary message without files"
+                "local attachment copy failed; continuing without a local attachment directory"
             );
             None
         }
     };
-    super::persist_attachment_directory_then_deliver(
-        &published.event_id,
-        || match local_directory.as_ref() {
-            Some(directory) => state.with_store(|store| {
-                store.set_message_attachment_dir(&published.event_id, directory)
-            }),
-            None => Ok(false),
-        },
-        || {
-            super::super::direct_mentions::route(
-                state,
-                super::super::direct_mentions::DirectMention {
-                    event_id: &published.event_id,
-                    from_pubkey: &rec.pubkey,
-                    channel_h: &original.channel_h,
-                    body: &body,
-                    created_at: published.created_at,
-                    target_pubkeys: std::slice::from_ref(&original.author_pubkey),
-                    attachments: &uploaded_attachments,
-                },
-            )
-        },
-    )?;
-    state.emit_tail(TailEvent::Msg {
-        ts: published.created_at,
-        channel: original.channel_h.clone(),
-        from: instance.display_slug(),
-        to: pubkey_short(&original.author_pubkey),
-        body: body.chars().take(200).collect(),
+    // The accepted write is not routed optimistically. Its NMP Added row will
+    // drive the same observed-event path as every remote reply.
+    super::persist_attachment_directory(&published.event_id, || match local_directory.as_ref() {
+        Some(directory) => state
+            .with_store(|store| store.set_message_attachment_dir(&published.event_id, directory)),
+        None => Ok(false),
     });
-
     let channel_ref = state
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
     let coaching = super::unhosted_coaching::notices(

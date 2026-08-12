@@ -74,8 +74,8 @@ impl Nip29Provider {
         if candidates.is_empty() {
             return Ok(None);
         }
-        // `candidates` already came from the relay-signed roster the retained
-        // group-records observation materialized, so membership is settled. The
+        // `candidates` already came from the relay-signed roster delivered by
+        // the retained NMP observation, so membership is settled. The
         // one thing left to require is that the group's own kind:39000 was
         // observed too — a roster row for a group whose metadata never arrived
         // is not something to point a publish probe at.
@@ -98,7 +98,7 @@ impl Nip29Provider {
 
     async fn doctor_read_only(&self) -> DoctorProbe {
         let publish = evidence::skipped(
-            "no existing materialized NIP-29 group authorizes the management identity",
+            "no currently observed NIP-29 group authorizes the management identity",
         );
         let readback = match self
             .nmp

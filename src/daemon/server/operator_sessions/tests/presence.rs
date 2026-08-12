@@ -3,7 +3,9 @@ use super::*;
 #[test]
 fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "root", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+    ]));
     let pubkey = Keys::generate().public_key().to_hex();
     store
         .reserve_hook_session_for_test(&crate::state::RegisterSession {
@@ -30,10 +32,10 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
         updated_at: 20,
         expiration: 200,
     };
-    store.upsert_status(&status).unwrap();
     status.last_seen = 100;
     status.updated_at = 100;
-    store.upsert_status(&status).unwrap();
+    store
+        .install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().statuses([status]));
     let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
     assert_eq!(rows[0]["state"], "suspended");
     assert_eq!(rows[0]["state_since"], 10);
@@ -42,7 +44,9 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
 #[test]
 fn native_failure_is_separate_from_canonical_presence() {
     let store = Store::open_memory().unwrap();
-    store.upsert_channel("root", "root", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+    ]));
     let pubkey = Keys::generate().public_key().to_hex();
     let generation = store
         .reserve_hook_session_for_test(&crate::state::RegisterSession {

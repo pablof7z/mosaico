@@ -42,17 +42,19 @@ impl Store {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .context("setting busy_timeout")?;
         schema::initialize_file(&mut conn, path)?;
-        let store = Self { conn };
-        store.backfill_messages_from_relay_events()?;
-        Ok(store)
+        Ok(Self {
+            conn,
+            nmp_views: Default::default(),
+        })
     }
 
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         schema::initialize_memory(&conn)?;
-        let store = Self { conn };
-        store.backfill_messages_from_relay_events()?;
-        Ok(store)
+        Ok(Self {
+            conn,
+            nmp_views: Default::default(),
+        })
     }
 
     /// `PRAGMA integrity_check` → "ok" on a healthy db, else the first problem
@@ -221,12 +223,6 @@ fn escape_like(value: &str) -> String {
 
 fn sample_order_sql(table: &str, table_columns: &[String]) -> Option<&'static str> {
     match table {
-        "message_recipients" if has_columns(table_columns, &["delivered_at"]) => {
-            Some("CASE WHEN delivered_at > 0 THEN 0 ELSE 1 END, delivered_at DESC")
-        }
-        "relay_status" if has_columns(table_columns, &["expiration", "updated_at"]) => {
-            Some("expiration DESC, updated_at DESC")
-        }
         "session_locators" if has_columns(table_columns, &["pubkey", "created_at"]) => Some(
             "CASE WHEN EXISTS (\
                  SELECT 1 FROM sessions s \

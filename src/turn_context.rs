@@ -47,9 +47,6 @@ pub(crate) struct TurnContext {
     /// Monotonic render identifiers for the receipts ledger.
     pub(crate) transaction_id: i64,
     pub(crate) revision: i64,
-    /// Roster pubkeys omitted for lacking a resolvable kind:0 handle. The daemon
-    /// RPC handler schedules a debounced refetch for them.
-    pub(crate) missing_profiles: Vec<String>,
 }
 
 impl TurnContext {

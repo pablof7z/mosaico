@@ -1,11 +1,12 @@
 use super::*;
 
 #[test]
-fn schema_eighteen_adds_empty_attachment_directory_without_losing_messages() {
+fn schema_eighteen_upgrades_then_drops_relay_owned_messages() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.db");
     drop(Store::open(&path).expect("fresh schema opens"));
     let conn = Connection::open(&path).unwrap();
+    fixture::restore_relay_derived_tables(&conn);
     conn.execute(
         "INSERT INTO messages
             (message_id, channel_h, author_pubkey, body, created_at)
@@ -21,12 +22,11 @@ fn schema_eighteen_adds_empty_attachment_directory_without_losing_messages() {
     .unwrap();
     drop(conn);
 
-    let store = Store::open(&path).expect("schema eighteen upgrades to current");
-    let message = store.get_message("event").unwrap().unwrap();
-    assert_eq!(message.body, "hello");
-    assert!(message.attachment_dir.is_empty());
-    drop(store);
-    assert_eq!(version(&Connection::open(path).unwrap()), 21);
+    drop(Store::open(&path).expect("schema eighteen upgrades to current"));
+    let conn = Connection::open(path).unwrap();
+    assert_eq!(version(&conn), 22);
+    assert!(!fixture::table_exists(&conn, "messages"));
+    assert_eq!(count(&conn, "message_attachments"), 0);
 }
 
 #[test]
@@ -35,6 +35,7 @@ fn malformed_schema_eighteen_fails_without_mutating_the_database() {
     let path = directory.path().join("state.db");
     drop(Store::open(&path).expect("fresh schema opens"));
     let conn = Connection::open(&path).unwrap();
+    fixture::restore_relay_derived_tables(&conn);
     fixture::downgrade_messages_to_v19(&conn);
     conn.execute_batch(
         "ALTER TABLE messages DROP COLUMN attachment_dir;

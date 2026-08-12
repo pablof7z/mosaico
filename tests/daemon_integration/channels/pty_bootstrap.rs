@@ -108,17 +108,14 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
             .map(|locator| locator.locator_value.clone()),
         Some(pty_id.clone())
     );
-    // Membership is relay-materialized (the daemon publishes the 39002 snapshot
-    // and materializes it back from the relay), so poll for it rather than
-    // asserting on a single refresh — otherwise this races the propagation.
+    // Membership is NMP-owned, so observe it through the daemon's retained NMP
+    // view rather than reopening SQLite as a relay-state cache.
+    let channel_path = format!("#{channel}");
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&format!("#{channel}"));
-            Store::open(&home.store_path())
-                .map(|s| s.is_channel_member(&channel, &rec.pubkey).unwrap_or(false))
-                .unwrap_or(false)
+            observed_channel_has_role(&channel_path, &rec.pubkey, "member")
         }),
-        "agent {} did not materialize as a member of {channel}; daemon_log={}",
+        "agent {} was not delivered by NMP as a member of {channel}; daemon_log={}",
         rec.pubkey,
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<unreadable: {e}>"))

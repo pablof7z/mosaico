@@ -76,7 +76,7 @@ fn owned_pubkeys(state: &DaemonState) -> Result<BTreeSet<String>> {
 mod tests {
     use super::*;
     use crate::identity::LocalAgentUpdate;
-    use crate::state::{RecordMessage, RegisterSession};
+    use crate::state::{RegisterSession, RelayEvent, TestRelayDelivery};
     use crate::test_env::EnvGuard;
     use nostr::Keys;
 
@@ -140,7 +140,7 @@ mod tests {
         });
 
         let targets = vec![stable_pk.clone(), revoked_pk.clone(), remote_pk.clone()];
-        state.with_store(|store| seed_message(store, "event", &sender_pk));
+        state.with_store(|store| seed_message(store, "event", &sender_pk, &targets));
         let report = route(
             &state,
             DirectMention {
@@ -167,9 +167,11 @@ mod tests {
                 .unwrap()
                 .is_empty());
             let recipients = store.message_recipients("event").unwrap();
-            assert_eq!(recipients.len(), 2);
+            assert_eq!(recipients.len(), 3);
             assert!(recipients.iter().all(|edge| {
-                edge.recipient_pubkey == stable_pk || edge.recipient_pubkey == revoked_pk
+                edge.recipient_pubkey == stable_pk
+                    || edge.recipient_pubkey == revoked_pk
+                    || edge.recipient_pubkey == remote_pk
             }));
         });
 
@@ -194,19 +196,20 @@ mod tests {
         }));
     }
 
-    fn seed_message(store: &Store, event_id: &str, sender_pk: &str) {
-        store
-            .record_message(&RecordMessage {
-                message_id: event_id.into(),
-                thread_id: "room".into(),
-                channel_h: "room".into(),
-                author_pubkey: sender_pk.into(),
-                body: "please inspect".into(),
-                created_at: 5,
-                sync_state: "accepted".into(),
-                native_event_id: Some(event_id.into()),
-                error: None,
-            })
-            .unwrap();
+    fn seed_message(store: &Store, event_id: &str, sender_pk: &str, targets: &[String]) {
+        let tags = targets
+            .iter()
+            .map(|target| vec!["p", target.as_str()])
+            .collect::<Vec<_>>();
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([RelayEvent {
+            id: event_id.into(),
+            kind: 9,
+            pubkey: sender_pk.into(),
+            created_at: 5,
+            channel_h: "room".into(),
+            d_tag: String::new(),
+            content: "please inspect".into(),
+            tags_json: serde_json::to_string(&tags).unwrap(),
+        }]));
     }
 }

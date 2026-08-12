@@ -5,6 +5,7 @@ use crate::state::{PresentationState, RuntimeState, Session, StopReason};
 
 mod eviction;
 mod presentation;
+mod publish_fence;
 mod standing;
 #[cfg(test)]
 #[path = "managed_lifecycle/tests.rs"]

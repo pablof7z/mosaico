@@ -1,5 +1,4 @@
 use crate::daemon::server::DaemonState;
-use crate::daemon::tail_event::TailEvent;
 use crate::domain::{AgentRef, ChatMessage};
 use std::sync::Arc;
 
@@ -33,23 +32,13 @@ pub(super) async fn publish_start_failure_notice(
         mentioned_pubkeys: requester_pubkey.map(str::to_string).into_iter().collect(),
         attachments: Vec::new(),
     };
-    let published = match state.provider().publish_chat_checked(&chat, &keys).await {
-        Ok(published) => published,
+    match state.provider().publish_chat_checked(&chat, &keys).await {
+        Ok(_) => {}
         Err(error) => {
             state.emit_delivery_failure(channel, agent_slug, "spawn", body);
             tracing::warn!(agent = agent_slug, channel, error = %format!("{error:#}"), "start-failure notice publish failed");
-            return;
         }
-    };
-    state.emit_tail(TailEvent::Msg {
-        ts: published.created_at,
-        channel: channel.to_string(),
-        from,
-        to: requester_pubkey
-            .map(crate::util::pubkey_short)
-            .unwrap_or_else(|| agent_slug.to_string()),
-        body: body.chars().take(200).collect(),
-    });
+    }
 }
 
 #[cfg(test)]

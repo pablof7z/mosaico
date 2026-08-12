@@ -1,6 +1,5 @@
 use crate::daemon_harness::*;
 use mosaico::{daemon::client::Client, state::Store};
-use nostr::{PublicKey, ToBech32};
 use std::time::Duration;
 
 async fn start(client: &mut Client, agent: &str) -> String {
@@ -45,18 +44,10 @@ fn send_publishes_then_returns_structured_message_coaching() {
         )
     });
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members("#tmp");
-            Store::open(&home.store_path())
-                .map(|store| {
-                    store
-                        .has_channel_membership_snapshot("tmp")
-                        .unwrap_or(false)
-                        && store.is_channel_member("tmp", &sender).unwrap_or(false)
-                        && store.is_channel_member("tmp", &receiver).unwrap_or(false)
-                })
-                .unwrap_or(false)
-        }),
+        wait_until(Duration::from_secs(25), || super::channel_has_members(
+            "#tmp",
+            &[&sender, &receiver],
+        )),
         "coaching participants did not become relay-confirmed /tmp members"
     );
     let receiver_handle = Store::open(&home.store_path())
@@ -103,16 +94,15 @@ fn send_publishes_then_returns_structured_message_coaching() {
         receiver_handle
     );
     assert!(notice(&redundant, "unhosted_no_return_path").is_some());
-    let receiver_npub = PublicKey::parse(&receiver).unwrap().to_bech32().unwrap();
     let event_id = redundant["event_id"].as_str().unwrap();
     assert!(
-        wait_until(Duration::from_secs(10), || Store::open(&home.store_path())
-            .map(|store| chat_in_channel(&store, "tmp")
-                .iter()
-                .any(|event| event.id == event_id
-                    && event.content == format!("nostr:{receiver_npub}: please review")))
-            .unwrap_or(false)),
-        "normalized chat did not materialize"
+        wait_until(Duration::from_secs(10), || super::observed_message(
+            event_id
+        )
+        .is_some_and(|message| message["body"]
+            .as_str()
+            .is_some_and(|body| body.ends_with(": please review")))),
+        "normalized chat was not observed by the public reader"
     );
 
     let reply = rt().block_on(async {

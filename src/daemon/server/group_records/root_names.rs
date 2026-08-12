@@ -1,55 +1,50 @@
 //! Repairing a workspace root whose relay-signed name drifted off its group id.
 //!
 //! Driven by the retained group-records observation and by nothing else. The
-//! roots this backend may rename are exactly the ones whose relay-signed admin
-//! list names the management key — the question the observation stands open on
-//! — so there is no relay enumeration to filter down afterwards, and no bound
-//! or timeout deciding how much of the answer arrives.
+//! roots this backend may rename are selected directly from the current NMP
+//! snapshots whose relay-signed admin list names the management key. There is
+//! no second group-record projection to query afterwards.
 //!
-//! A root is considered only when THIS delivery carried a record for it. The
-//! name being compared is then relay truth: `relay_channels` also holds the
-//! local row `channel_init` writes for a workspace root before the group is
-//! provisioned, and a reservation is not something to publish a rename against.
+//! A root is considered only when THIS delivery carries relay metadata for it.
+//! A local `channel_init` reservation is therefore never mistaken for a name
+//! the relay actually signed and never causes a repair publication.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use anyhow::Result;
-
 use super::DaemonState;
-use crate::state::Store;
 
-/// Rename every root in `delivered` whose relay-signed name is not its group id.
+/// Rename every delivered root whose relay-signed name is not its group id.
 ///
 /// `attempted` bounds this to one publish per root for the life of the
 /// observation. An accepted rename needs no retry — the relay's next record
 /// carries the corrected name and stops matching — and a rejected one must not
 /// be re-published on every subsequent delivery.
 ///
-/// The publishes are spawned rather than awaited: this runs on the drain that
-/// folds deliveries into the cache, and a slow relay write must not hold up the
-/// next snapshot.
+/// The publishes are spawned rather than awaited: this runs on the retained
+/// observation drain, and a slow relay write must not hold up the next snapshot.
+/// This function only borrows NMP's current delivery.
 pub(super) fn repair_delivered(
     state: &Arc<DaemonState>,
-    delivered: &BTreeSet<String>,
+    snapshots: &[nmp::nip29::GroupSnapshot],
     attempted: &mut BTreeSet<String>,
 ) {
     let Some(backend_pubkey) = state.backend_pubkey() else {
         return;
     };
-    let candidates: BTreeSet<String> = delivered.difference(attempted).cloned().collect();
-    if candidates.is_empty() {
-        return;
-    }
-    let roots = match state
-        .with_store(|store| roots_needing_workspace_name(store, &backend_pubkey, &candidates))
-    {
-        Ok(roots) => roots,
+    let bindings = match state.with_store(|store| {
+        crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()
+    }) {
+        Ok(bindings) => bindings
+            .into_iter()
+            .map(|binding| binding.channel_h)
+            .collect::<BTreeSet<_>>(),
         Err(error) => {
-            tracing::error!(%error, "workspace root repair authority lookup failed");
+            tracing::error!(%error, "workspace root repair binding lookup failed");
             return;
         }
     };
+    let roots = roots_needing_workspace_name(snapshots, &backend_pubkey, &bindings, attempted);
     if roots.is_empty() {
         return;
     }
@@ -73,87 +68,112 @@ pub(super) fn repair_delivered(
 /// binding: a root bound to a directory on this machine is this backend's to
 /// keep named even while the admin record is in flight.
 fn roots_needing_workspace_name(
-    store: &Store,
+    snapshots: &[nmp::nip29::GroupSnapshot],
     backend_pubkey: &str,
-    delivered: &BTreeSet<String>,
-) -> Result<Vec<String>> {
-    let mut roots = Vec::new();
-    for channel in store.list_root_channels()? {
-        if !delivered.contains(&channel.channel_h) {
-            continue;
-        }
-        if channel.name.trim() == channel.channel_h {
-            continue;
-        }
-        if store.is_channel_admin(&channel.channel_h, backend_pubkey)?
-            || crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-                .path_for_channel(&channel.channel_h)?
-                .is_some()
-        {
-            roots.push(channel.channel_h);
-        }
-    }
-    Ok(roots)
+    bound_roots: &BTreeSet<String>,
+    attempted: &BTreeSet<String>,
+) -> Vec<String> {
+    snapshots
+        .iter()
+        .filter(|snapshot| !attempted.contains(&snapshot.id))
+        .filter(|snapshot| super::is_root(snapshot))
+        .filter(|snapshot| {
+            snapshot
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.name.as_deref())
+                .is_none_or(|name| name.trim() != snapshot.id)
+        })
+        .filter(|snapshot| {
+            bound_roots.contains(&snapshot.id)
+                || snapshot
+                    .admins
+                    .iter()
+                    .any(|admin| admin.pubkey.to_hex() == backend_pubkey)
+        })
+        .map(|snapshot| snapshot.id.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
-    fn seeded() -> Store {
-        let store = Store::open_memory().unwrap();
-        store.upsert_channel("one", "wrong", "", "", 1).unwrap();
-        store.upsert_channel("two", "two", "", "", 1).unwrap();
-        store.upsert_channel("remote", "remote", "", "", 1).unwrap();
-        store
-            .upsert_channel("bound", "also-wrong", "", "", 1)
-            .unwrap();
-        store.upsert_workspace("bound", "/work/bound", 1).unwrap();
-        store
-            .upsert_channel_member("one", "backend", "admin", 1)
-            .unwrap();
-        store
-            .upsert_channel_member("two", "backend", "admin", 1)
-            .unwrap();
-        store
-    }
+    use nmp::nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
+    use nmp::RelayUrl;
+    use nostr::{EventId, Keys, Timestamp};
 
-    fn delivery(ids: &[&str]) -> BTreeSet<String> {
-        ids.iter().map(|id| id.to_string()).collect()
+    fn snapshot(
+        id: &str,
+        name: &str,
+        parent: Option<&str>,
+        admin: Option<nostr::PublicKey>,
+    ) -> GroupSnapshot {
+        let host = RelayUrl::parse("wss://relay.example").unwrap();
+        let mut tags = Vec::new();
+        if let Some(parent) = parent {
+            tags.push(vec!["parent".to_string(), parent.to_string()]);
+        }
+        GroupSnapshot {
+            id: id.to_string(),
+            metadata: Some(GroupMetadata {
+                name: Some(name.to_string()),
+                about: None,
+                picture: None,
+                tags,
+                as_of: Timestamp::from(1),
+                event_id: EventId::all_zeros(),
+                host: host.clone(),
+            }),
+            admins: admin
+                .map(|pubkey| ListedSubject {
+                    pubkey,
+                    role: Some("admin".to_string()),
+                    hosts: BTreeSet::from([host]),
+                })
+                .into_iter()
+                .collect(),
+            members: Vec::new(),
+            availability: GroupAvailability::Ready,
+            per_host: BTreeMap::new(),
+            disagreements: BTreeSet::new(),
+        }
     }
 
     #[test]
     fn only_managed_misnamed_roots_need_repair() {
-        let store = seeded();
+        let backend = Keys::generate().public_key();
+        let remote = Keys::generate().public_key();
+        let snapshots = vec![
+            snapshot("one", "wrong", None, Some(backend)),
+            snapshot("two", "two", None, Some(backend)),
+            snapshot("remote", "wrong", None, Some(remote)),
+            snapshot("bound", "also-wrong", None, None),
+            snapshot("child", "wrong", Some("one"), Some(backend)),
+        ];
         assert_eq!(
             roots_needing_workspace_name(
-                &store,
-                "backend",
-                &delivery(&["one", "two", "remote", "bound"])
-            )
-            .unwrap(),
+                &snapshots,
+                &backend.to_hex(),
+                &BTreeSet::from(["bound".to_string()]),
+                &BTreeSet::new(),
+            ),
             vec!["bound", "one"]
         );
     }
 
     #[test]
-    fn a_root_this_delivery_did_not_carry_is_left_alone() {
-        let store = seeded();
-        assert_eq!(
-            roots_needing_workspace_name(&store, "backend", &delivery(&["one"])).unwrap(),
-            vec!["one"]
-        );
-        assert!(
-            roots_needing_workspace_name(&store, "backend", &delivery(&["two"]))
-                .unwrap()
-                .is_empty(),
-            "a correctly named root needs no repair"
-        );
-        assert!(
-            roots_needing_workspace_name(&store, "backend", &BTreeSet::new())
-                .unwrap()
-                .is_empty(),
-            "an empty delivery repairs nothing, however stale the cache is"
-        );
+    fn an_attempted_root_is_not_republished() {
+        let backend = Keys::generate().public_key();
+        assert!(roots_needing_workspace_name(
+            &[snapshot("one", "wrong", None, Some(backend))],
+            &backend.to_hex(),
+            &BTreeSet::new(),
+            &BTreeSet::from(["one".to_string()]),
+        )
+        .is_empty());
     }
 }

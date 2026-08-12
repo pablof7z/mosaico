@@ -86,11 +86,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
     });
     assert_eq!(created["channel"], side_path);
     assert_eq!(created["joined"].as_bool(), Some(false));
-    let side = Store::open(&home.store_path())
-        .unwrap()
-        .channel_id_for_name(&root, "side")
-        .unwrap()
-        .expect("side channel id");
+    let side = observed_channel_h(&root, "side").expect("NMP-observed side channel id");
     let pty_count = mosaico::pty::read_all_metadata().len();
     let before_invite = Store::open(&home.store_path())
         .unwrap()
@@ -123,13 +119,14 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
 
     assert!(
         wait_until(Duration::from_secs(25), || {
-            refresh_channel_members(&side_path);
             Store::open(&home.store_path())
-                .map(|s| {
-                    s.has_session_route(&rec.pubkey, &side).unwrap_or(false)
-                        && s.is_channel_member(&side, &rec.pubkey).unwrap_or(false)
-                })
+                .map(|s| s.has_session_route(&rec.pubkey, &side).unwrap_or(false))
                 .unwrap_or(false)
+                && observed_channel_members(&side_path).is_some_and(|members| {
+                    members
+                        .iter()
+                        .any(|member| member["pubkey"].as_str() == Some(rec.pubkey.as_str()))
+                })
         }),
         "live session was not joined/member in {side}; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log"))

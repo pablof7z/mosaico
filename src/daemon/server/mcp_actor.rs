@@ -90,20 +90,7 @@ async fn publish_profile(
             &prepared.keys,
         )
         .await?;
-    let npub = crate::idref::npub(&prepared.identity.pubkey)
-        .unwrap_or_else(|| prepared.identity.pubkey.clone());
-    state.with_store(|s| {
-        s.upsert_profile_with_agent_slug(
-            &prepared.identity.pubkey,
-            &prepared.identity.handle,
-            &npub,
-            &prepared.identity.slug,
-            &state.host(),
-            false,
-            now_secs(),
-        )?;
-        Ok::<_, anyhow::Error>(())
-    })
+    Ok(())
 }
 
 #[cfg(test)]
@@ -118,17 +105,16 @@ mod tests {
         let pubkey = prepared.identity.pubkey.clone();
         let actor_key = "mcp1_redacted_actor_key_1234567890";
         state.with_store(|store| {
-            store
-                .upsert_channel("mosaico", "mosaico", "", "", 1)
-                .unwrap();
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("mosaico")
+                    .metadata("mosaico", "", "", 1)
+                    .members(vec![pubkey.clone()]),
+            ]));
             store
                 .reserve_mcp_actor_session(&pubkey, "mcp-openai", "mosaico", 1)
                 .unwrap();
             store
                 .bind_mcp_actor(actor_key, "openai", &pubkey, 1)
-                .unwrap();
-            store
-                .upsert_channel_member("mosaico", &pubkey, "member", 1)
                 .unwrap();
         });
 

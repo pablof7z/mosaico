@@ -1,23 +1,10 @@
-//! `relay_channels` — kind:39000 group metadata cache.
+//! NIP-29 group metadata read through the daemon's live NMP view.
 //!
 //! A channel and a channel are one abstraction; `parent` is the only distinction
 //! (`""` = top-level root channel, set = session/task channel).
 
 use super::*;
 
-fn row_to_channel(row: &rusqlite::Row) -> rusqlite::Result<Channel> {
-    Ok(Channel {
-        channel_h: row.get(0)?,
-        name: row.get(1)?,
-        about: row.get(2)?,
-        parent: row.get(3)?,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
-    })
-}
-
-const COLS: &str = "channel_h, name, about, parent, created_at, updated_at";
-const MAX_CHANNEL_PARENT_DEPTH: usize = 16;
 pub const CHANNEL_ABOUT_MAX_CHARS: usize = 80;
 pub const ARCHIVED_CHANNEL_ABOUT_PREFIX: &str = "[ARCHIVED]";
 
@@ -43,47 +30,17 @@ impl Channel {
 }
 
 impl Store {
-    /// Materialize a kind:39000 metadata event. Newer `created_at` wins; an older
-    /// event for the same channel is ignored (NIP-01 replacement semantics).
-    pub fn upsert_channel(
-        &self,
-        channel_h: &str,
-        name: &str,
-        about: &str,
-        parent: &str,
-        created_at: u64,
-    ) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO relay_channels (channel_h, name, about, parent, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
-             ON CONFLICT(channel_h) DO UPDATE SET
-                 name=excluded.name, about=excluded.about, parent=excluded.parent,
-                 created_at=excluded.created_at, updated_at=excluded.updated_at
-             WHERE excluded.created_at >= relay_channels.created_at",
-            params![channel_h, name, about, parent, created_at],
-        )?;
-        Ok(())
-    }
-
     /// The opaque `channel_h` for a named child within `parent`. Named siblings
     /// are unique; root and unnamed channels deliberately do not share this
     /// namespace. `None` when no channel by that name exists under `parent`.
     pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
-        if parent.is_empty() || name.is_empty() {
-            return Ok(None);
-        }
         Ok(self
-            .conn
-            .query_row(
-                "SELECT channel_h FROM relay_channels WHERE parent=?1 AND name=?2",
-                params![parent, name],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?)
+            .nmp_views
+            .with_groups(|groups| groups.channel_id_for_name(parent, name)))
     }
 
     /// A local reservation for a channel name whose relay-authored kind:39000 has
-    /// not materialized yet. This is not channel truth; it prevents two immediate
+    /// not reached the retained NMP view yet. This is not channel truth; it prevents two immediate
     /// session-start hooks for the same `(parent, name)` from minting two ids while
     /// daemon-side readiness is still in flight.
     pub fn channel_resolution_intent(&self, parent: &str, name: &str) -> Result<Option<String>> {
@@ -99,7 +56,7 @@ impl Store {
     }
 
     /// Immediate parent retained while a named channel's relay metadata is
-    /// still pending. This is a readiness hint, not materialized channel truth.
+    /// still pending. This is a readiness hint, not channel truth.
     pub fn channel_resolution_parent(&self, channel_h: &str) -> Result<Option<String>> {
         Ok(self
             .conn
@@ -132,22 +89,13 @@ impl Store {
     /// Fetch one channel's metadata.
     pub fn get_channel(&self, channel_h: &str) -> Result<Option<Channel>> {
         Ok(self
-            .conn
-            .query_row(
-                &format!("SELECT {COLS} FROM relay_channels WHERE channel_h=?1"),
-                params![channel_h],
-                row_to_channel,
-            )
-            .optional()?)
+            .nmp_views
+            .with_groups(|groups| groups.get_channel(channel_h)))
     }
 
     /// All known channels, newest metadata first.
     pub fn list_channels(&self) -> Result<Vec<Channel>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_channels ORDER BY updated_at DESC"
-        ))?;
-        let rows = stmt.query_map([], row_to_channel)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self.nmp_views.with_groups(|groups| groups.list_channels()))
     }
 
     pub fn is_archived_channel(&self, channel_h: &str) -> Result<bool> {
@@ -159,11 +107,9 @@ impl Store {
 
     /// Root channels as read-model rows, ordered by stable channel id.
     pub fn list_root_channels(&self) -> Result<Vec<Channel>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_channels WHERE parent='' ORDER BY channel_h"
-        ))?;
-        let rows = stmt.query_map([], row_to_channel)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.list_root_channels()))
     }
 
     /// Read-model metadata for a workspace/channel.
@@ -175,90 +121,45 @@ impl Store {
     /// or `None` if the channel is unknown.
     pub fn channel_parent(&self, channel_h: &str) -> Result<Option<String>> {
         Ok(self
-            .conn
-            .query_row(
-                "SELECT parent FROM relay_channels WHERE channel_h=?1",
-                params![channel_h],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?)
+            .nmp_views
+            .with_groups(|groups| groups.channel_parent(channel_h)))
     }
 
     /// Walk a known channel's `parent` links to its top-level root channel.
     /// Returns `None` when the channel or any ancestor is unknown; callers that
     /// use rootness for routing/admission must not silently treat that as root.
     pub fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
-        if self.get_channel(channel_h)?.is_none() {
-            return Ok(None);
-        }
-
-        let mut cur = channel_h.to_string();
-        let mut seen = std::collections::HashSet::new();
-        for _ in 0..MAX_CHANNEL_PARENT_DEPTH {
-            if !seen.insert(cur.clone()) {
-                anyhow::bail!("channel parent cycle detected at {cur}");
-            }
-            let Some(parent) = self.channel_parent(&cur)? else {
-                return Ok(None);
-            };
-            if parent.is_empty() {
-                return Ok(Some(cur));
-            }
-            if self.get_channel(&parent)?.is_none() {
-                return Ok(None);
-            }
-            cur = parent;
-        }
-        anyhow::bail!(
-            "channel parent chain exceeds {MAX_CHANNEL_PARENT_DEPTH} links at {channel_h}"
-        );
+        self.nmp_views
+            .with_groups(|groups| groups.root_channel_of(channel_h))
     }
 
     /// True when the channel is a known top-level root channel (`parent`
     /// empty). Unknown channels are not root.
     pub fn is_root_channel(&self, channel_h: &str) -> Result<bool> {
-        Ok(self
-            .root_channel_of(channel_h)?
-            .map(|root| root == channel_h)
-            .unwrap_or(false))
+        self.nmp_views
+            .with_groups(|groups| groups.is_root_channel(channel_h))
     }
 
     /// True when the channel is known and belongs under a different top-level
     /// channel root. Unknown ancestry is not treated as a sub-channel.
     pub fn is_subchannel(&self, channel_h: &str) -> Result<bool> {
-        Ok(self
-            .root_channel_of(channel_h)?
-            .map(|root| root != channel_h)
-            .unwrap_or(false))
+        self.nmp_views
+            .with_groups(|groups| groups.is_subchannel(channel_h))
     }
 
     /// Direct children of `parent` (one hop), ordered by stable id.
     pub fn list_child_channels(&self, parent: &str) -> Result<Vec<Channel>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_channels WHERE parent=?1 ORDER BY channel_h"
-        ))?;
-        let rows = stmt.query_map(params![parent], row_to_channel)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.list_child_channels(parent)))
     }
 
-    /// Drop local cache rows for a channel after a confirmed kind:9008 delete.
-    /// Does not cascade to descendants — callers must delete leaves first.
+    /// Drop host-local bindings for a channel after a confirmed kind:9008 delete.
+    /// NMP owns the relay-derived group state and is not mutated here.
     pub fn purge_deleted_channel(&self, channel_h: &str) -> Result<()> {
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
-        )?;
-        transaction.execute(
-            "DELETE FROM relay_channel_members WHERE channel_h=?1",
-            params![channel_h],
-        )?;
-        transaction.execute(
-            "DELETE FROM relay_channel_member_sets WHERE channel_h=?1",
-            params![channel_h],
-        )?;
-        transaction.execute(
-            "DELETE FROM relay_status WHERE channel_h=?1",
-            params![channel_h],
         )?;
         transaction.execute(
             "DELETE FROM session_channels WHERE channel_h=?1",
@@ -276,10 +177,6 @@ impl Store {
         // a root is hard-deleted (kind:9008).
         transaction.execute(
             "DELETE FROM workspace_roots WHERE channel_h=?1",
-            params![channel_h],
-        )?;
-        transaction.execute(
-            "DELETE FROM relay_channels WHERE channel_h=?1",
             params![channel_h],
         )?;
         transaction.commit()?;

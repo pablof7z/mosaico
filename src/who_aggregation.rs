@@ -27,7 +27,7 @@ pub(crate) struct WhoAggregation {
 }
 
 impl WhoAggregation {
-    pub(crate) fn load(store: &Store, now: u64) -> Result<Self> {
+    pub(crate) fn load(store: &Store) -> Result<Self> {
         let channels = store
             .list_channels()
             .context("who aggregation: failed to list channels")?;
@@ -72,8 +72,6 @@ impl WhoAggregation {
         for status in store
             .list_status_sessions(None, None)
             .context("who aggregation: failed to read statuses")?
-            .into_iter()
-            .filter(|status| status.expiration == 0 || status.expiration >= now)
         {
             statuses
                 .entry(status.channel_h.clone())

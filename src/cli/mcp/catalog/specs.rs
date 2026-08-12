@@ -85,7 +85,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "mosaico.channel_search",
-        description: "Search messages already present in the local database, newest first.",
+        description: "Search messages in the daemon's current NMP view, newest first.",
         props: &[
             Prop::new("from", "array", "Author identities; matches any value."),
             Prop::new(
@@ -101,7 +101,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "channels",
                 "array",
-                "Channel subtrees. Omit, or pass #, for every locally cached channel.",
+                "Channel subtrees. Omit, or pass #, for every currently observed channel.",
             ),
             Prop::new("since", "string", "Unix timestamp or duration like 2h."),
             Prop::new("until", "string", "Unix timestamp or duration like 2h."),

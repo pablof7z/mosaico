@@ -1,236 +1,58 @@
-//! `relay_channel_members` — kind:39001 (admins) + kind:39002 (members) cache.
+//! NIP-29 admin/member reads through the daemon's live NMP group view.
 //!
-//! `role='admin'` is THE ONLY management authority over a channel. Materializing
-//! kind:39001 replaces the admin rows; kind:39002 replaces the member rows; each
-//! preserves the other set. A pubkey appears at most once per channel. Replacement
-//! batches are guarded by `(channel_h, role)` high-water marks so stale relay
-//! replays cannot delete a newer roster.
+//! `role='admin'` is the only management authority over a channel. No roster is
+//! persisted or optimistically changed in Mosaico's SQLite store.
 
 use super::*;
 
-/// High-water mark for a materialized channel member/admin replacement set.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChannelMemberSet {
-    pub channel_h: String,
-    pub role: String,
-    pub updated_at: u64,
-}
-
-fn row_to_member(row: &rusqlite::Row) -> rusqlite::Result<ChannelMember> {
-    Ok(ChannelMember {
-        channel_h: row.get(0)?,
-        pubkey: row.get(1)?,
-        role: row.get(2)?,
-        updated_at: row.get(3)?,
-    })
-}
-
-fn row_to_member_set(row: &rusqlite::Row) -> rusqlite::Result<ChannelMemberSet> {
-    Ok(ChannelMemberSet {
-        channel_h: row.get(0)?,
-        role: row.get(1)?,
-        updated_at: row.get(2)?,
-    })
-}
-
-const COLS: &str = "channel_h, pubkey, role, updated_at";
-const SET_COLS: &str = "channel_h, role, updated_at";
-
 impl Store {
-    /// Replace the admin set for a channel (kind:39001 materialization). Member
-    /// rows are preserved; a pubkey promoted to admin supersedes its member row.
-    pub fn replace_channel_admins(
-        &self,
-        channel_h: &str,
-        admins: &[String],
-        updated_at: u64,
-    ) -> Result<()> {
-        self.replace_role(channel_h, "admin", admins, updated_at)
-    }
-
-    /// Replace the member set for a channel (kind:39002 materialization). Admin
-    /// rows are preserved; a pubkey already an admin keeps its admin role.
-    pub fn replace_channel_members(
-        &self,
-        channel_h: &str,
-        members: &[String],
-        updated_at: u64,
-    ) -> Result<()> {
-        self.replace_role(channel_h, "member", members, updated_at)
-    }
-
-    fn replace_role(
-        &self,
-        channel_h: &str,
-        role: &str,
-        pubkeys: &[String],
-        updated_at: u64,
-    ) -> Result<()> {
-        let current: Option<u64> = self
-            .conn
-            .query_row(
-                "SELECT updated_at FROM relay_channel_member_sets
-                 WHERE channel_h=?1 AND role=?2",
-                params![channel_h, role],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if current.is_some_and(|seen| seen > updated_at) {
-            return Ok(());
-        }
-        self.conn.execute(
-            "INSERT INTO relay_channel_member_sets (channel_h, role, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(channel_h, role) DO UPDATE SET updated_at=excluded.updated_at",
-            params![channel_h, role, updated_at],
-        )?;
-        self.conn.execute(
-            "DELETE FROM relay_channel_members WHERE channel_h=?1 AND role=?2",
-            params![channel_h, role],
-        )?;
-        for pk in pubkeys {
-            // A pubkey is unique per channel: if it already holds the other role,
-            // promoting to admin wins; demoting to member only applies if absent.
-            if role == "admin" {
-                self.conn.execute(
-                    "INSERT INTO relay_channel_members (channel_h, pubkey, role, updated_at)
-                     VALUES (?1, ?2, 'admin', ?3)
-                     ON CONFLICT(channel_h, pubkey) DO UPDATE SET role='admin', updated_at=?3",
-                    params![channel_h, pk, updated_at],
-                )?;
-            } else {
-                self.conn.execute(
-                    "INSERT INTO relay_channel_members (channel_h, pubkey, role, updated_at)
-                     VALUES (?1, ?2, 'member', ?3)
-                     ON CONFLICT(channel_h, pubkey) DO UPDATE SET updated_at=?3",
-                    params![channel_h, pk, updated_at],
-                )?;
-            }
-        }
-        Ok(())
-    }
-
     /// Can this pubkey manage the channel? (role='admin')
     pub fn is_channel_admin(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
         Ok(self
-            .conn
-            .query_row(
-                "SELECT 1 FROM relay_channel_members
-                 WHERE channel_h=?1 AND pubkey=?2 AND role='admin'",
-                params![channel_h, pubkey],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+            .nmp_views
+            .with_groups(|groups| groups.is_channel_admin(channel_h, pubkey)))
     }
 
     /// Is this pubkey a member of the channel? (admin OR member)
     pub fn is_channel_member(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
         Ok(self
-            .conn
-            .query_row(
-                "SELECT 1 FROM relay_channel_members WHERE channel_h=?1 AND pubkey=?2",
-                params![channel_h, pubkey],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some())
+            .nmp_views
+            .with_groups(|groups| groups.is_channel_member(channel_h, pubkey)))
     }
 
-    /// Have both relay-authored role snapshots for this channel hydrated?
-    pub fn has_channel_membership_snapshot(&self, channel_h: &str) -> Result<bool> {
-        let n: i64 = self.conn.query_row(
-            "SELECT COUNT(DISTINCT role) FROM relay_channel_member_sets
-             WHERE channel_h=?1 AND role IN ('admin', 'member')",
-            params![channel_h],
-            |r| r.get(0),
-        )?;
-        Ok(n >= 2)
-    }
-
-    pub fn channel_member_sets(&self, channel_h: &str) -> Result<Vec<ChannelMemberSet>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {SET_COLS} FROM relay_channel_member_sets
-             WHERE channel_h=?1 ORDER BY role"
-        ))?;
-        let rows = stmt.query_map(params![channel_h], row_to_member_set)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    /// Has NMP supplied usable aggregate group state for this channel?
+    pub fn group_state_available(&self, channel_h: &str) -> Result<bool> {
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.group_state_available(channel_h)))
     }
 
     /// All members (admins and members) of a channel.
     pub fn list_channel_members(&self, channel_h: &str) -> Result<Vec<ChannelMember>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {COLS} FROM relay_channel_members WHERE channel_h=?1 ORDER BY role, pubkey"
-        ))?;
-        let rows = stmt.query_map(params![channel_h], row_to_member)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.list_channel_members(channel_h)))
     }
 
     /// Channels this pubkey belongs to in ANY role (admin or member). Used by the
     /// subscription planner to cover every channel a local/ordinal pubkey is in.
     pub fn list_channels_where_member(&self, pubkey: &str) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT channel_h FROM relay_channel_members WHERE pubkey=?1 ORDER BY channel_h",
-        )?;
-        let rows = stmt.query_map(params![pubkey], |r| r.get::<_, String>(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
-    /// Upsert ONE membership row (optimistic local cache write while a relay grant
-    /// is being confirmed). Admin supersedes member; a pubkey is unique per channel.
-    pub fn upsert_channel_member(
-        &self,
-        channel_h: &str,
-        pubkey: &str,
-        role: &str,
-        updated_at: u64,
-    ) -> Result<()> {
-        if role == "admin" {
-            self.conn.execute(
-                "INSERT INTO relay_channel_members (channel_h, pubkey, role, updated_at)
-                 VALUES (?1, ?2, 'admin', ?3)
-                 ON CONFLICT(channel_h, pubkey) DO UPDATE SET role='admin', updated_at=?3",
-                params![channel_h, pubkey, updated_at],
-            )?;
-        } else {
-            // Never demote an existing admin to member.
-            self.conn.execute(
-                "INSERT INTO relay_channel_members (channel_h, pubkey, role, updated_at)
-                 VALUES (?1, ?2, 'member', ?3)
-                 ON CONFLICT(channel_h, pubkey) DO UPDATE SET updated_at=?3",
-                params![channel_h, pubkey, updated_at],
-            )?;
-        }
-        Ok(())
-    }
-
-    /// Remove one cached channel membership. This is an optimistic local reflection
-    /// of a management-key removal; the next relay 39002 materialization remains the
-    /// source of truth.
-    pub fn remove_channel_member(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
-        let n = self.conn.execute(
-            "DELETE FROM relay_channel_members WHERE channel_h=?1 AND pubkey=?2",
-            params![channel_h, pubkey],
-        )?;
-        Ok(n > 0)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.list_channels_where_member(pubkey)))
     }
 
     /// Channels this pubkey can manage (every channel where it is an admin).
     pub fn list_channels_where_admin(&self, pubkey: &str) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT channel_h FROM relay_channel_members
-             WHERE pubkey=?1 AND role='admin' ORDER BY channel_h",
-        )?;
-        let rows = stmt.query_map(params![pubkey], |r| r.get::<_, String>(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.list_channels_where_admin(pubkey)))
     }
 
     /// Number of members (admins + members) in a channel.
     pub fn count_channel_members(&self, channel_h: &str) -> Result<u64> {
-        Ok(self.conn.query_row(
-            "SELECT COUNT(*) FROM relay_channel_members WHERE channel_h=?1",
-            params![channel_h],
-            |r| r.get::<_, i64>(0),
-        )? as u64)
+        Ok(self
+            .nmp_views
+            .with_groups(|groups| groups.count_channel_members(channel_h)))
     }
 }

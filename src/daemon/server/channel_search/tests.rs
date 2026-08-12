@@ -1,9 +1,12 @@
 use super::*;
-use crate::state::RecordMessage;
+use crate::state::{Profile, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery};
 use nostr::Keys;
+use std::cell::RefCell;
 
 struct Fixture {
     state: Arc<DaemonState>,
+    profiles: Vec<Profile>,
+    events: RefCell<Vec<RelayEvent>>,
     pablo: String,
     agent: String,
 }
@@ -13,57 +16,78 @@ impl Fixture {
         let state = DaemonState::new_for_test().await;
         let pablo = Keys::generate().public_key().to_hex();
         let agent = Keys::generate().public_key().to_hex();
+        let profiles = vec![
+            profile(&pablo, "Pablo", "", ""),
+            profile(&agent, "mist-codex", "codex", "remote"),
+        ];
         state.with_store(|store| {
-            store.upsert_channel("root", "general", "", "", 1).unwrap();
-            store
-                .upsert_channel("child", "research", "", "root", 2)
-                .unwrap();
-            store
-                .upsert_channel("deep", "notes", "", "child", 3)
-                .unwrap();
-            store.upsert_channel("other", "general", "", "", 4).unwrap();
-            store
-                .upsert_profile(&pablo, "Pablo", "Pablo", "", false, 1)
-                .unwrap();
-            store
-                .upsert_profile_with_agent_slug(
-                    &agent,
-                    "mist-codex",
-                    "mist-codex",
-                    "codex",
-                    "remote",
-                    false,
-                    1,
-                )
-                .unwrap();
+            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root").metadata("general", "", "", 1),
+                TestGroup::new("child").metadata("research", "", "root", 2),
+                TestGroup::new("deep").metadata("notes", "", "child", 3),
+                TestGroup::new("other").metadata("general", "", "", 4),
+            ]));
+            store.install_test_nmp_relay_delivery(
+                TestRelayDelivery::new().profiles(profiles.clone()),
+            );
         });
         Self {
             state,
+            profiles,
+            events: RefCell::new(Vec::new()),
             pablo,
             agent,
         }
     }
 
     fn message(&self, id: &str, channel: &str, author: &str, body: &str, at: u64) {
+        self.events.borrow_mut().push(RelayEvent {
+            id: id.into(),
+            kind: 9,
+            pubkey: author.into(),
+            created_at: at,
+            channel_h: channel.into(),
+            d_tag: String::new(),
+            content: body.into(),
+            tags_json: "[]".into(),
+        });
+        self.refresh();
+    }
+
+    fn recipient(&self, id: &str, pubkey: &str) {
+        let mut events = self.events.borrow_mut();
+        let event = events.iter_mut().find(|event| event.id == id).unwrap();
+        event.tags_json = serde_json::to_string(&vec![vec!["p", pubkey]]).unwrap();
+        drop(events);
+        self.refresh();
+    }
+
+    fn refresh(&self) {
         self.state.with_store(|store| {
-            store
-                .record_message(&RecordMessage {
-                    message_id: id.into(),
-                    thread_id: channel.into(),
-                    channel_h: channel.into(),
-                    author_pubkey: author.into(),
-                    body: body.into(),
-                    created_at: at,
-                    sync_state: "accepted".into(),
-                    native_event_id: Some(id.into()),
-                    error: None,
-                })
-                .unwrap();
+            store.install_test_nmp_relay_delivery(
+                TestRelayDelivery::new()
+                    .profiles(self.profiles.clone())
+                    .events(self.events.borrow().clone()),
+            );
         });
     }
 
     fn search(&self, params: serde_json::Value) -> serde_json::Value {
         rpc_channel_search(&self.state, &params).unwrap()
+    }
+}
+
+fn profile(pubkey: &str, name: &str, agent_slug: &str, host: &str) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: name.into(),
+        slug: name.into(),
+        agent_slug: agent_slug.into(),
+        host: host.into(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 1,
     }
 }
 
@@ -110,9 +134,7 @@ async fn identity_recipient_text_and_time_filters_combine_without_membership_che
     f.message("match", "deep", &f.pablo, "LAND commit now", 20);
     f.message("wrong-author", "deep", &f.agent, "land commit now", 21);
     f.message("wrong-body", "deep", &f.pablo, "land patch now", 22);
-    f.state
-        .with_store(|store| store.add_message_recipient("match", &f.agent, None))
-        .unwrap();
+    f.recipient("match", &f.agent);
     f.state
         .with_store(|store| {
             store.set_message_attachment_dir(
@@ -121,9 +143,7 @@ async fn identity_recipient_text_and_time_filters_combine_without_membership_che
             )
         })
         .unwrap();
-    f.state
-        .with_store(|store| store.add_message_recipient("wrong-body", &f.agent, None))
-        .unwrap();
+    f.recipient("wrong-body", &f.agent);
 
     let result = f.search(serde_json::json!({
         "from":["@Pablo"],

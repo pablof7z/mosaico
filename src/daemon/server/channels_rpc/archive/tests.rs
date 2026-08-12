@@ -5,7 +5,6 @@ fn member(pubkey: &str, role: &str) -> crate::state::ChannelMember {
         channel_h: "chan".to_string(),
         pubkey: pubkey.to_string(),
         role: role.to_string(),
-        updated_at: 1,
     }
 }
 

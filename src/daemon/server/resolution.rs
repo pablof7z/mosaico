@@ -164,9 +164,11 @@ mod tests {
     #[test]
     fn work_root_for_walks_to_top_level_root() {
         let store = Store::open_memory().unwrap();
-        store.upsert_channel("root", "root", "", "", 1).unwrap();
-        store.upsert_channel("task", "Task", "", "root", 1).unwrap();
-        store.upsert_channel("deep", "Deep", "", "task", 1).unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("root", "", "", 1),
+            crate::state::TestGroup::new("task").metadata("Task", "", "root", 1),
+            crate::state::TestGroup::new("deep").metadata("Deep", "", "task", 1),
+        ]));
 
         assert_eq!(work_root_for(&store, "deep").unwrap(), "root");
         assert_eq!(work_root_for(&store, "root").unwrap(), "root");

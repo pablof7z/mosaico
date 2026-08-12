@@ -1,139 +1,43 @@
-//! `messages` / `message_recipients` — canonical channel read model.
+//! Kind:9 chat projection read through the active NMP view.
 //!
-//! `relay_events` remains the verbatim wire cache. These rows are the stable
-//! reader-facing shape: message body, author pubkey, sync state, and recipient
-//! pubkeys. Delivery state still lives in `inbox`.
+//! Message identity, content, ordering, and `p`-tag recipients belong to NMP.
+//! SQLite retains only the independently keyed local attachment directory.
 
 use super::*;
 use std::collections::BTreeMap;
 
 mod attachments;
-mod backfill;
 mod wait_cursor;
 
-pub(super) const MESSAGE_COLS: &str =
-    "message_id, thread_id, channel_h, author_pubkey, body, created_at, \
-     sync_state, native_event_id, error, attachment_dir";
-const RECIPIENT_COLS: &str = "message_id, recipient_pubkey, delivered_at";
-
-fn opt_text(s: Option<String>) -> Option<String> {
-    s.filter(|v| !v.is_empty())
-}
-
-pub(super) fn row_to_message(row: &rusqlite::Row) -> rusqlite::Result<Message> {
-    Ok(Message {
-        message_id: row.get(0)?,
-        thread_id: row.get(1)?,
-        channel_h: row.get(2)?,
-        author_pubkey: row.get(3)?,
-        body: row.get(4)?,
-        created_at: row.get(5)?,
-        sync_state: row.get(6)?,
-        native_event_id: opt_text(row.get(7)?),
-        error: opt_text(row.get(8)?),
-        attachment_dir: row.get(9)?,
-    })
-}
-
-fn row_to_recipient(row: &rusqlite::Row) -> rusqlite::Result<MessageRecipient> {
-    let delivered_at: u64 = row.get(2)?;
-    Ok(MessageRecipient {
-        message_id: row.get(0)?,
-        recipient_pubkey: row.get(1)?,
-        delivered_at: (delivered_at > 0).then_some(delivered_at),
-    })
-}
-
 impl Store {
-    /// Record or refresh one canonical message row, idempotent by `message_id`.
-    ///
-    /// There is ONE writer of a chat row now -- the materializer, fed by the
-    /// subscription -- so this no longer defends any column against a local
-    /// optimistic copy of the same event racing the relay's.
-    pub fn record_message(&self, msg: &RecordMessage) -> Result<String> {
-        let message_id = msg.message_id.trim();
-        if message_id.is_empty() {
-            anyhow::bail!("message_id must not be empty");
-        }
-        let native_event_id = msg.native_event_id.as_deref().unwrap_or("");
-        let error = msg.error.as_deref().unwrap_or("");
-        self.conn.execute(
-            "INSERT INTO messages
-                 (message_id, thread_id, channel_h, author_pubkey, body,
-                  created_at, sync_state, native_event_id, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULLIF(?8, ''), NULLIF(?9, ''))
-             ON CONFLICT(message_id) DO UPDATE SET
-                 thread_id=excluded.thread_id,
-                 channel_h=excluded.channel_h,
-                 author_pubkey=excluded.author_pubkey,
-                 body=excluded.body,
-                 created_at=excluded.created_at,
-                 sync_state=excluded.sync_state,
-                 native_event_id=COALESCE(excluded.native_event_id, messages.native_event_id),
-                 error=excluded.error,
-                 attachment_dir=messages.attachment_dir",
-            params![
-                message_id,
-                msg.thread_id,
-                msg.channel_h,
-                msg.author_pubkey,
-                msg.body,
-                msg.created_at,
-                msg.sync_state,
-                native_event_id,
-                error
-            ],
-        )?;
-        Ok(message_id.to_string())
-    }
-
-    /// Record a recipient edge for a message. Runtime selection is deliberately
-    /// absent: one pubkey has one durable edge regardless of process replacement.
-    pub fn add_message_recipient(
-        &self,
-        message_id: &str,
-        recipient_pubkey: &str,
-        delivered_at: Option<u64>,
-    ) -> Result<()> {
-        let delivered_at = delivered_at.unwrap_or(0);
-        self.conn.execute(
-            "INSERT INTO message_recipients
-                 (message_id, recipient_pubkey, delivered_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(message_id, recipient_pubkey) DO UPDATE SET
-                 delivered_at=MAX(message_recipients.delivered_at, excluded.delivered_at)",
-            params![message_id, recipient_pubkey, delivered_at],
-        )?;
-        Ok(())
+    fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
+        message.attachment_dir = self.message_attachment_dir(&message.message_id)?;
+        Ok(message)
     }
 
     pub fn get_message_by_prefix(&self, prefix: &str) -> Result<Option<Message>> {
         if prefix.len() >= 64 {
             return self.get_message(prefix);
         }
-        let pattern = format!("{prefix}*");
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages
-             WHERE message_id GLOB ?1 OR native_event_id GLOB ?1
-             ORDER BY created_at DESC, message_id DESC LIMIT 2"
-        ))?;
-        let mut rows = stmt.query_map(params![pattern], row_to_message)?;
-        let first = rows.next().transpose()?;
-        if rows.next().is_some() {
+        let mut matches = self
+            .nmp_views
+            .messages()
+            .into_iter()
+            .filter(|row| row.message.message_id.starts_with(prefix));
+        let first = matches.next();
+        if matches.next().is_some() {
             anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one message");
         }
-        Ok(first)
+        first
+            .map(|row| self.with_local_attachment(row.message))
+            .transpose()
     }
 
     pub fn get_message(&self, message_id: &str) -> Result<Option<Message>> {
-        Ok(self
-            .conn
-            .query_row(
-                &format!("SELECT {MESSAGE_COLS} FROM messages WHERE message_id=?1"),
-                params![message_id],
-                row_to_message,
-            )
-            .optional()?)
+        self.nmp_views
+            .message(message_id)
+            .map(|row| self.with_local_attachment(row.message))
+            .transpose()
     }
 
     pub fn chat_messages_for_channel(
@@ -142,13 +46,9 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<Message>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages
-             WHERE channel_h=?1 AND created_at > ?2
-             ORDER BY created_at ASC, message_id ASC LIMIT ?3"
-        ))?;
-        let rows = stmt.query_map(params![channel_h, since, limit], row_to_message)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        self.messages_matching(limit, |message| {
+            message.channel_h == channel_h && message.created_at > since
+        })
     }
 
     pub fn recent_chat_messages_for_channel(
@@ -157,13 +57,17 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<Message>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages
-             WHERE channel_h=?1 AND created_at > ?2
-             ORDER BY created_at DESC, message_id DESC LIMIT ?3"
-        ))?;
-        let rows = stmt.query_map(params![channel_h, since, limit], row_to_message)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut messages = self
+            .nmp_views
+            .messages()
+            .into_iter()
+            .map(|row| row.message)
+            .filter(|message| message.channel_h == channel_h && message.created_at > since)
+            .collect::<Vec<_>>();
+        messages.sort_by(|left, right| {
+            (&right.created_at, &right.message_id).cmp(&(&left.created_at, &left.message_id))
+        });
+        self.attach_and_truncate(messages, limit)
     }
 
     pub fn chat_messages_for_channel_after(
@@ -173,40 +77,37 @@ impl Store {
         after_id: &str,
         limit: u32,
     ) -> Result<Vec<Message>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages
-             WHERE channel_h=?1
-               AND (created_at > ?2 OR (created_at = ?2 AND message_id > ?3))
-             ORDER BY created_at ASC, message_id ASC LIMIT ?4"
-        ))?;
-        let rows = stmt.query_map(
-            params![channel_h, after_created_at, after_id, limit],
-            row_to_message,
-        )?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        self.messages_matching(limit, |message| {
+            message.channel_h == channel_h
+                && (message.created_at > after_created_at
+                    || (message.created_at == after_created_at
+                        && message.message_id.as_str() > after_id))
+        })
     }
 
     pub fn recent_chat_messages(&self, since: u64, limit: u32) -> Result<Vec<Message>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {MESSAGE_COLS} FROM messages
-             WHERE created_at >= ?1
-             ORDER BY created_at DESC, message_id DESC LIMIT ?2"
-        ))?;
-        let rows = stmt.query_map(params![since, limit], row_to_message)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut messages = self
+            .nmp_views
+            .messages()
+            .into_iter()
+            .map(|row| row.message)
+            .filter(|message| message.created_at >= since)
+            .collect::<Vec<_>>();
+        messages.sort_by(|left, right| {
+            (&right.created_at, &right.message_id).cmp(&(&left.created_at, &left.message_id))
+        });
+        self.attach_and_truncate(messages, limit)
     }
 
-    /// Latest accepted chat activity by channel. Pending or failed optimistic
-    /// sends have not become channel activity and therefore do not contribute.
-    pub fn latest_accepted_message_at_by_channel(&self) -> Result<BTreeMap<String, u64>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT channel_h, MAX(created_at)
-             FROM messages
-             WHERE sync_state='accepted' AND channel_h<>''
-             GROUP BY channel_h",
-        )?;
-        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        Ok(rows.collect::<rusqlite::Result<BTreeMap<_, _>>>()?)
+    pub fn latest_message_at_by_channel(&self) -> Result<BTreeMap<String, u64>> {
+        let mut latest = BTreeMap::new();
+        for row in self.nmp_views.messages() {
+            latest
+                .entry(row.message.channel_h)
+                .and_modify(|at: &mut u64| *at = (*at).max(row.message.created_at))
+                .or_insert(row.message.created_at);
+        }
+        Ok(latest)
     }
 
     pub fn pubkey_has_own_message_after_in_channel(
@@ -215,22 +116,11 @@ impl Store {
         channel_h: &str,
         since: u64,
     ) -> Result<bool> {
-        let exists: i64 = self.conn.query_row(
-            // Authored BY this pubkey is the whole question. A `direction`
-            // column used to be conjoined here, and said nothing extra: every
-            // caller passes its own key, so `author_pubkey=?1` already means
-            // "this agent wrote it".
-            "SELECT EXISTS(
-                 SELECT 1 FROM messages
-                 WHERE author_pubkey=?1
-                   AND channel_h=?2
-                   AND sync_state='accepted'
-                   AND created_at > ?3
-             )",
-            params![pubkey, channel_h, since],
-            |row| row.get(0),
-        )?;
-        Ok(exists != 0)
+        Ok(self.nmp_views.messages().into_iter().any(|row| {
+            row.message.author_pubkey == pubkey
+                && row.message.channel_h == channel_h
+                && row.message.created_at > since
+        }))
     }
 
     pub fn should_render_reply_nudge(
@@ -243,19 +133,49 @@ impl Store {
         if self.has_reaction_from_pubkey_on_message(message_id, author_pubkey)? {
             return Ok(false);
         }
-        if self.pubkey_has_own_message_after_in_channel(author_pubkey, channel_h, since)? {
-            return Ok(false);
-        }
-        Ok(true)
+        Ok(!self.pubkey_has_own_message_after_in_channel(author_pubkey, channel_h, since)?)
     }
 
     pub fn message_recipients(&self, message_id: &str) -> Result<Vec<MessageRecipient>> {
-        let mut stmt = self.conn.prepare(&format!(
-            "SELECT {RECIPIENT_COLS} FROM message_recipients
-             WHERE message_id=?1 ORDER BY recipient_pubkey ASC"
-        ))?;
-        let rows = stmt.query_map(params![message_id], row_to_recipient)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        Ok(self
+            .nmp_views
+            .message(message_id)
+            .map(|row| row.recipients)
+            .unwrap_or_default())
+    }
+
+    pub(super) fn message_projection(&self) -> Result<Vec<(Message, Vec<MessageRecipient>)>> {
+        self.nmp_views
+            .messages()
+            .into_iter()
+            .map(|row| Ok((self.with_local_attachment(row.message)?, row.recipients)))
+            .collect()
+    }
+
+    fn messages_matching(
+        &self,
+        limit: u32,
+        include: impl Fn(&Message) -> bool,
+    ) -> Result<Vec<Message>> {
+        let mut messages = self
+            .nmp_views
+            .messages()
+            .into_iter()
+            .map(|row| row.message)
+            .filter(include)
+            .collect::<Vec<_>>();
+        messages.sort_by(|left, right| {
+            (&left.created_at, &left.message_id).cmp(&(&right.created_at, &right.message_id))
+        });
+        self.attach_and_truncate(messages, limit)
+    }
+
+    fn attach_and_truncate(&self, mut messages: Vec<Message>, limit: u32) -> Result<Vec<Message>> {
+        messages.truncate(limit as usize);
+        messages
+            .into_iter()
+            .map(|message| self.with_local_attachment(message))
+            .collect()
     }
 }
 

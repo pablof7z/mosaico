@@ -7,7 +7,7 @@ use nostr::Keys;
 use tokio::sync::mpsc;
 
 use crate::domain::{DomainEvent, Status};
-use crate::fabric::provider::Nip29Provider;
+use crate::fabric::provider::{ConfirmedGroupScope, Nip29Provider};
 use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
 use crate::state::Store;
 
@@ -19,12 +19,14 @@ mod tests;
 
 pub(crate) struct DriveMeta<'a> {
     pub trigger: &'a str,
+    pub confirmed_scope: Option<ConfirmedGroupScope>,
 }
 
 struct PublishJob {
     outcome: StatusOutcome,
     keys: Keys,
     trigger: String,
+    confirmed_scope: Option<ConfirmedGroupScope>,
 }
 
 #[derive(Default)]
@@ -82,15 +84,27 @@ impl PresencePublisher {
                     .read()
                     .unwrap_or_else(|poison| poison.into_inner())
                     .clone();
-                let event_ids =
-                    apply_status_effects(&job.outcome, &provider, &job.keys, &job.trigger).await;
+                let event_ids = apply_status_effects(
+                    &job.outcome,
+                    &provider,
+                    &job.keys,
+                    &job.trigger,
+                    job.confirmed_scope.as_ref(),
+                )
+                .await;
                 record_status_receipt(&store, &job.outcome, &event_ids);
             }
         });
         PresencePublisher { signal_tx, pending }
     }
 
-    fn submit(&self, outcome: StatusOutcome, keys: &Keys, trigger: &str) {
+    fn submit(
+        &self,
+        outcome: StatusOutcome,
+        keys: &Keys,
+        trigger: &str,
+        confirmed_scope: Option<ConfirmedGroupScope>,
+    ) {
         if outcome.effects.is_empty() {
             return;
         }
@@ -101,6 +115,7 @@ impl PresencePublisher {
                 outcome,
                 keys: keys.clone(),
                 trigger: trigger.to_string(),
+                confirmed_scope,
             });
         match self.signal_tx.try_send(()) {
             Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}
@@ -150,7 +165,7 @@ pub(crate) fn drive(
         let mut policy = status.lock().expect("status policy poisoned");
         f(&mut policy)
     };
-    publisher.submit(outcome, keys, meta.trigger);
+    publisher.submit(outcome, keys, meta.trigger, meta.confirmed_scope);
 }
 
 async fn apply_status_effects(
@@ -158,6 +173,7 @@ async fn apply_status_effects(
     provider: &Nip29Provider,
     keys: &Keys,
     trigger: &str,
+    confirmed_scope: Option<&ConfirmedGroupScope>,
 ) -> Vec<String> {
     let mut ids = Vec::new();
     for effect in &outcome.effects {
@@ -168,7 +184,9 @@ async fn apply_status_effects(
             "status/{}#rev:{}:{trigger}",
             status.agent.pubkey, outcome.revision
         );
-        if let Some(id) = enqueue_status(provider, keys, status.clone(), source_ref).await {
+        if let Some(id) =
+            enqueue_status(provider, keys, status.clone(), source_ref, confirmed_scope).await
+        {
             ids.push(id);
         }
     }
@@ -209,8 +227,17 @@ async fn enqueue_status(
     keys: &Keys,
     status: Status,
     source_ref: String,
+    confirmed_scope: Option<&ConfirmedGroupScope>,
 ) -> Option<String> {
-    match provider.enqueue(&DomainEvent::Status(status), keys).await {
+    let result = match confirmed_scope {
+        Some(scope) => {
+            provider
+                .enqueue_status_after_confirmed_scope(&status, keys, scope)
+                .await
+        }
+        None => provider.enqueue(&DomainEvent::Status(status), keys).await,
+    };
+    match result {
         Ok(event_id) => {
             tracing::debug!(event_id = %event_id.to_hex(), source_ref, "status accepted by NMP");
             Some(event_id.to_hex())

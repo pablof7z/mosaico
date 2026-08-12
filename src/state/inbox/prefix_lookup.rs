@@ -9,7 +9,7 @@ impl Store {
         let pattern = format!("{}%", prefix.replace(['%', '_'], ""));
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.event_id LIKE ?1
              ORDER BY inbox.created_at DESC, inbox.target_pubkey ASC"
         ))?;
@@ -26,7 +26,7 @@ impl Store {
         let pattern = format!("{}%", prefix.replace(['%', '_'], ""));
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.event_id LIKE ?1 AND inbox.target_pubkey=?2
              ORDER BY inbox.created_at DESC"
         ))?;

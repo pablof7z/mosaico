@@ -1,19 +1,14 @@
-//! Local-only search over the canonical `messages` read model.
-//!
-//! Public identity and channel selectors are resolved by the daemon before this
-//! query runs. This layer deals only in immutable pubkeys and opaque channel ids;
-//! it never consults relay or membership state.
+//! Local search over the current NMP kind:9 projection.
 
 use super::{Message, MessageRecipient, Store};
 use anyhow::Result;
-use rusqlite::types::Value;
+use std::collections::BTreeSet;
 
 pub(crate) const MESSAGE_SEARCH_DEFAULT_LIMIT: u32 = 20;
 pub(crate) const MESSAGE_SEARCH_MAX_LIMIT: u32 = 200;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct MessageSearchQuery {
-    /// Empty means every channel represented by a message row.
     pub(crate) channels: Vec<String>,
     pub(crate) from_pubkeys: Vec<String>,
     pub(crate) to_pubkeys: Vec<String>,
@@ -22,8 +17,6 @@ pub(crate) struct MessageSearchQuery {
     pub(crate) until: Option<u64>,
     pub(crate) limit: u32,
     pub(crate) before: Option<MessageSearchPosition>,
-    /// The current daemon management key, needed even before its profile cache
-    /// has warmed. Cached remote backend profiles are excluded independently.
     pub(crate) backend_pubkey: Option<String>,
 }
 
@@ -46,149 +39,82 @@ pub(crate) struct MessageSearchPage {
 }
 
 impl Store {
-    /// Search the canonical local message cache, globally newest first.
-    ///
-    /// Repeated values within a dimension are ORed. Different dimensions are
-    /// ANDed. Text matching happens in Rust so literal substring semantics and
-    /// Unicode case folding do not depend on SQLite's ASCII-only `lower()`.
+    /// Search current NMP messages, newest first. Values within one dimension
+    /// are ORed; dimensions are ANDed.
     pub(crate) fn search_messages(&self, query: &MessageSearchQuery) -> Result<MessageSearchPage> {
         anyhow::ensure!(
             (1..=MESSAGE_SEARCH_MAX_LIMIT).contains(&query.limit),
             "message search limit must be between 1 and {MESSAGE_SEARCH_MAX_LIMIT}"
         );
 
-        let mut clauses = vec![
-            "NOT EXISTS (
-                SELECT 1 FROM relay_profiles backend_author
-                WHERE backend_author.pubkey=messages.author_pubkey
-                  AND backend_author.is_backend=1
-             )"
-            .to_string(),
-            "NOT EXISTS (
-                SELECT 1
-                FROM message_recipients backend_edge
-                JOIN relay_profiles backend_recipient
-                  ON backend_recipient.pubkey=backend_edge.recipient_pubkey
-                WHERE backend_edge.message_id=messages.message_id
-                  AND backend_recipient.is_backend=1
-             )"
-            .to_string(),
-        ];
-        let mut values = Vec::new();
-        if let Some(backend_pubkey) = query
-            .backend_pubkey
-            .as_deref()
-            .filter(|pubkey| !pubkey.is_empty())
-        {
-            clauses.push("author_pubkey<>?".to_string());
-            values.push(Value::Text(backend_pubkey.to_string()));
-            clauses.push(
-                "NOT EXISTS (
-                    SELECT 1 FROM message_recipients management_edge
-                    WHERE management_edge.message_id=messages.message_id
-                      AND management_edge.recipient_pubkey=?
-                 )"
-                .to_string(),
-            );
-            values.push(Value::Text(backend_pubkey.to_string()));
-        }
-        push_in_clause(&mut clauses, &mut values, "channel_h", &query.channels);
-        push_in_clause(
-            &mut clauses,
-            &mut values,
-            "author_pubkey",
-            &query.from_pubkeys,
-        );
-        if !query.to_pubkeys.is_empty() {
-            clauses.push(format!(
-                "EXISTS (
-                    SELECT 1 FROM message_recipients recipient
-                    WHERE recipient.message_id=messages.message_id
-                      AND recipient.recipient_pubkey IN ({})
-                 )",
-                placeholders(query.to_pubkeys.len())
-            ));
-            values.extend(query.to_pubkeys.iter().cloned().map(Value::Text));
-        }
-        if let Some(since) = query.since {
-            clauses.push("created_at>=?".to_string());
-            values.push(Value::Integer(u64_to_sql(since)?));
-        }
-        if let Some(until) = query.until {
-            clauses.push("created_at<=?".to_string());
-            values.push(Value::Integer(u64_to_sql(until)?));
-        }
-        if let Some(before) = &query.before {
-            clauses.push("(created_at<? OR (created_at=? AND message_id<?))".to_string());
-            let at = u64_to_sql(before.created_at)?;
-            values.push(Value::Integer(at));
-            values.push(Value::Integer(at));
-            values.push(Value::Text(before.message_id.clone()));
-        }
-
-        let where_sql = if clauses.is_empty() {
-            String::new()
-        } else {
-            format!(" WHERE {}", clauses.join(" AND "))
-        };
-        let sql = format!(
-            "SELECT {} FROM messages{}
-             ORDER BY created_at DESC, message_id DESC",
-            super::messages::MESSAGE_COLS,
-            where_sql
-        );
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(
-            rusqlite::params_from_iter(values.iter()),
-            super::messages::row_to_message,
-        )?;
+        let backend_pubkeys = self
+            .nmp_views
+            .profiles()
+            .into_iter()
+            .filter(|profile| profile.is_backend)
+            .map(|profile| profile.pubkey)
+            .chain(
+                query
+                    .backend_pubkey
+                    .iter()
+                    .filter(|pubkey| !pubkey.is_empty())
+                    .cloned(),
+            )
+            .collect::<BTreeSet<_>>();
         let needles = query
             .contains
             .iter()
             .map(|value| value.to_lowercase())
             .collect::<Vec<_>>();
-        let wanted = query.limit as usize + 1;
-        let mut matched = Vec::with_capacity(wanted);
-        for row in rows {
-            let message = row?;
-            if !needles.is_empty() {
-                let haystack = message.body.to_lowercase();
-                if !needles.iter().any(|needle| haystack.contains(needle)) {
-                    continue;
-                }
-            }
-            matched.push(message);
-            if matched.len() == wanted {
-                break;
-            }
-        }
+        let mut hits = self
+            .message_projection()?
+            .into_iter()
+            .filter(|(message, recipients)| {
+                !backend_pubkeys.contains(&message.author_pubkey)
+                    && !recipients
+                        .iter()
+                        .any(|recipient| backend_pubkeys.contains(&recipient.recipient_pubkey))
+                    && matches_any(&query.channels, &message.channel_h)
+                    && matches_any(&query.from_pubkeys, &message.author_pubkey)
+                    && (query.to_pubkeys.is_empty()
+                        || recipients.iter().any(|recipient| {
+                            query.to_pubkeys.contains(&recipient.recipient_pubkey)
+                        }))
+                    && query.since.is_none_or(|since| message.created_at >= since)
+                    && query.until.is_none_or(|until| message.created_at <= until)
+                    && query.before.as_ref().is_none_or(|before| {
+                        (message.created_at, message.message_id.as_str())
+                            < (before.created_at, before.message_id.as_str())
+                    })
+                    && (needles.is_empty()
+                        || needles
+                            .iter()
+                            .any(|needle| message.body.to_lowercase().contains(needle)))
+            })
+            .map(|(message, recipients)| MessageSearchHit {
+                message,
+                recipients,
+            })
+            .collect::<Vec<_>>();
+        hits.sort_by(|left, right| {
+            (&right.message.created_at, &right.message.message_id)
+                .cmp(&(&left.message.created_at, &left.message.message_id))
+        });
 
-        let has_more = matched.len() > query.limit as usize;
-        matched.truncate(query.limit as usize);
+        let has_more = hits.len() > query.limit as usize;
+        hits.truncate(query.limit as usize);
         let next = has_more.then(|| {
-            let last = matched.last().expect("a page with more rows is non-empty");
+            let last = hits.last().expect("a page with more rows is non-empty");
             MessageSearchPosition {
-                created_at: last.created_at,
-                message_id: last.message_id.clone(),
+                created_at: last.message.created_at,
+                message_id: last.message.message_id.clone(),
             }
         });
-        let hits = matched
-            .into_iter()
-            .map(|message| {
-                let recipients = self.message_recipients(&message.message_id)?;
-                Ok(MessageSearchHit {
-                    message,
-                    recipients,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
         Ok(MessageSearchPage { hits, next })
     }
 
-    /// Resolve one global public identity selector to an immutable pubkey.
-    ///
-    /// This intentionally reads only profile/handle caches. It does not scope by
-    /// channel membership, running state, or caller identity.
+    /// Resolve a public identity from the current NMP profile delivery plus
+    /// product-local handle leases.
     pub(crate) fn resolve_message_search_identity(&self, selector: &str) -> Result<String> {
         let selector = selector.trim().trim_start_matches('@');
         anyhow::ensure!(!selector.is_empty(), "identity selector must not be empty");
@@ -199,23 +125,30 @@ impl Store {
         let mut matches = Vec::new();
         match crate::idref::parse_ref(selector) {
             crate::idref::Ref::Agent { slug, host } => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT DISTINCT pubkey FROM relay_profiles
-                     WHERE host=?1 AND (name=?2 OR slug=?2 OR agent_slug=?2)",
-                )?;
                 matches.extend(
-                    stmt.query_map(rusqlite::params![host, slug], |row| row.get(0))?
-                        .collect::<rusqlite::Result<Vec<String>>>()?,
+                    self.nmp_views
+                        .profiles()
+                        .into_iter()
+                        .filter(|profile| {
+                            profile.host == host
+                                && (profile.name == slug
+                                    || profile.slug == slug
+                                    || profile.agent_slug == slug)
+                        })
+                        .map(|profile| profile.pubkey),
                 );
             }
             crate::idref::Ref::Token(token) => {
-                let mut stmt = self.conn.prepare(
-                    "SELECT DISTINCT pubkey FROM relay_profiles
-                     WHERE name=?1 OR slug=?1 OR agent_slug=?1",
-                )?;
                 matches.extend(
-                    stmt.query_map([&token], |row| row.get(0))?
-                        .collect::<rusqlite::Result<Vec<String>>>()?,
+                    self.nmp_views
+                        .profiles()
+                        .into_iter()
+                        .filter(|profile| {
+                            profile.name == token
+                                || profile.slug == token
+                                || profile.agent_slug == token
+                        })
+                        .map(|profile| profile.pubkey),
                 );
                 if let Some(pubkey) = self.pubkey_for_handle(&token)? {
                     matches.push(pubkey);
@@ -227,7 +160,7 @@ impl Store {
         matches.dedup();
         match matches.as_slice() {
             [pubkey] => Ok(pubkey.clone()),
-            [] => anyhow::bail!("no cached identity matching {selector:?}"),
+            [] => anyhow::bail!("no observed identity matching {selector:?}"),
             _ => anyhow::bail!(
                 "identity selector {selector:?} is ambiguous; use a full npub or pubkey"
             ),
@@ -235,25 +168,8 @@ impl Store {
     }
 }
 
-fn push_in_clause(
-    clauses: &mut Vec<String>,
-    values: &mut Vec<Value>,
-    column: &str,
-    candidates: &[String],
-) {
-    if candidates.is_empty() {
-        return;
-    }
-    clauses.push(format!("{column} IN ({})", placeholders(candidates.len())));
-    values.extend(candidates.iter().cloned().map(Value::Text));
-}
-
-fn placeholders(len: usize) -> String {
-    std::iter::repeat_n("?", len).collect::<Vec<_>>().join(",")
-}
-
-fn u64_to_sql(value: u64) -> Result<i64> {
-    i64::try_from(value).map_err(|_| anyhow::anyhow!("timestamp exceeds SQLite integer range"))
+fn matches_any(candidates: &[String], actual: &str) -> bool {
+    candidates.is_empty() || candidates.iter().any(|candidate| candidate == actual)
 }
 
 #[cfg(test)]

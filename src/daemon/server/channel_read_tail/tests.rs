@@ -1,19 +1,44 @@
 use super::*;
-use crate::state::{Message, Store};
+use crate::state::{
+    Message, Profile, RelayEvent, Store, TestGroup, TestGroupDelivery, TestRelayDelivery,
+};
 use crate::util::CHAT_RENDER_WORD_LIMIT;
 
 fn row(body: String) -> Message {
     Message {
         message_id: "event-1".into(),
-        thread_id: "channel-1".into(),
         channel_h: "channel-1".into(),
         author_pubkey: "pubkey-1".into(),
         body,
         created_at: 123,
-        sync_state: "accepted".into(),
-        native_event_id: Some("event-1".into()),
-        error: None,
         attachment_dir: String::new(),
+    }
+}
+
+fn profile(pubkey: &str, name: &str, slug: &str, host: &str, is_backend: bool) -> Profile {
+    Profile {
+        pubkey: pubkey.into(),
+        name: name.into(),
+        slug: slug.into(),
+        agent_slug: String::new(),
+        host: host.into(),
+        is_backend,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+        updated_at: 1,
+    }
+}
+
+fn relay_message(message: &Message, tags_json: &str) -> RelayEvent {
+    RelayEvent {
+        id: message.message_id.clone(),
+        kind: 9,
+        pubkey: message.author_pubkey.clone(),
+        created_at: message.created_at,
+        channel_h: message.channel_h.clone(),
+        d_tag: String::new(),
+        content: message.body.clone(),
+        tags_json: tags_json.into(),
     }
 }
 
@@ -59,11 +84,13 @@ fn chat_log_json_exposes_the_materialized_attachment_directory() {
 #[test]
 fn root_channel_read_backfill_and_live_scopes_include_nested_descendants() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("root", "channel", "", "", 1).unwrap();
-    store.upsert_channel("task", "Task", "", "root", 2).unwrap();
-    store.upsert_channel("deep", "Deep", "", "task", 3).unwrap();
-    store.upsert_channel("leaf", "Leaf", "", "deep", 4).unwrap();
-    store.upsert_channel("other", "Other", "", "", 5).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("root").metadata("channel", "", "", 1),
+        TestGroup::new("task").metadata("Task", "", "root", 2),
+        TestGroup::new("deep").metadata("Deep", "", "task", 3),
+        TestGroup::new("leaf").metadata("Leaf", "", "deep", 4),
+        TestGroup::new("other").metadata("Other", "", "", 5),
+    ]));
 
     assert_eq!(
         channel_read_scopes_for_store(&store, "root"),
@@ -117,8 +144,13 @@ async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
 
     let state = DaemonState::new_for_test().await;
     state.with_store(|s| {
-        s.upsert_profile(TARGET_PK, "target@laptop", "target", "laptop", false, 1)
-            .unwrap();
+        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+            TARGET_PK,
+            "target@laptop",
+            "target",
+            "laptop",
+            false,
+        )]));
     });
     let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
     let msg = row(format!("please ask nostr:{npub} for review"));
@@ -130,9 +162,13 @@ async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
 #[test]
 fn is_backend_row_true_when_author_is_flagged_backend() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile(BACKEND_PK, "laptop (mosaico)", "hub", "laptop", true, 1)
-        .unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+        BACKEND_PK,
+        "laptop (mosaico)",
+        "hub",
+        "laptop",
+        true,
+    )]));
     let mut msg = row("mgmt ok: 14 agent(s) on laptop".to_string());
     msg.author_pubkey = BACKEND_PK.to_string();
 
@@ -142,13 +178,18 @@ fn is_backend_row_true_when_author_is_flagged_backend() {
 #[test]
 fn is_backend_row_true_when_recipient_is_flagged_backend() {
     let store = Store::open_memory().unwrap();
-    store
-        .upsert_profile(BACKEND_PK, "laptop (mosaico)", "hub", "laptop", true, 1)
-        .unwrap();
     let msg = row("list agents".to_string());
-    store
-        .add_message_recipient(&msg.message_id, BACKEND_PK, None)
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([profile(
+                BACKEND_PK,
+                "laptop (mosaico)",
+                "hub",
+                "laptop",
+                true,
+            )])
+            .events([relay_message(&msg, &format!(r#"[["p","{BACKEND_PK}"]]"#))]),
+    );
 
     assert!(is_backend_row(&store, "", &msg));
 }

@@ -1,5 +1,5 @@
-//! Persistence-foundation tests: canonical session identity, NIP-01 replacement,
-//! NIP-40 status liveness, and unique-pubkey-per-channel membership.
+//! Persistence-foundation tests: canonical session identity and host-local
+//! channel, delivery, and runtime facts. NMP owns relay event semantics.
 //!
 //! Split by theme into sibling files to stay under the repo's per-file LOC
 //! ceiling; shared fixtures live here.
@@ -22,9 +22,7 @@ mod agent_usage;
 mod channels_tree;
 mod identity_projection_and_roots;
 mod inbox_ledger;
-mod nip01_events;
 mod retention;
 mod runtime_admission;
 mod session_coaching;
 mod session_identity;
-mod status_membership;

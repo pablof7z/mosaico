@@ -16,8 +16,35 @@ mod session_start;
 #[path = "messaging/target_wire.rs"]
 mod target_wire;
 use inbox_rows::receiver_inbox_rows;
+
+pub(super) fn channel_has_members(channel: &str, expected_pubkeys: &[&str]) -> bool {
+    let Ok(response) = mosaico::daemon::blocking::call(
+        "channel_members",
+        serde_json::json!({ "channel": channel }),
+    ) else {
+        return false;
+    };
+    let observed = response["members"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|member| member["pubkey"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    expected_pubkeys
+        .iter()
+        .all(|pubkey| observed.contains(pubkey))
+}
+
+pub(super) fn read_messages(params: serde_json::Value) -> Option<Vec<serde_json::Value>> {
+    read_channel_messages(params)
+}
+
+pub(super) fn observed_message(event_id: &str) -> Option<serde_json::Value> {
+    observed_chat(event_id)
+}
+
 #[test]
-fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
+fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new().with_backend_key();
     crate::channels::write_config(&home, false);
@@ -47,25 +74,12 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         .unwrap()
         .expect("receiver session row");
     let receiver_scope = format!("#{}", only_session_route(&store, &receiver_row.pubkey));
-    let receiver_channel = receiver_scope.trim_start_matches('#').to_string();
     drop(store);
     assert!(
-        wait_until(Duration::from_secs(25), || {
-            crate::channels::refresh_channel_members(&receiver_scope);
-            Store::open(&home.store_path())
-                .map(|store| {
-                    store
-                        .has_channel_membership_snapshot(&receiver_channel)
-                        .unwrap_or(false)
-                        && store
-                            .is_channel_member(&receiver_channel, &sender_pubkey)
-                            .unwrap_or(false)
-                        && store
-                            .is_channel_member(&receiver_channel, &receiver_row.pubkey)
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false)
-        }),
+        wait_until(Duration::from_secs(25), || channel_has_members(
+            &receiver_scope,
+            &[&sender_pubkey, &receiver_row.pubkey],
+        )),
         "sender and receiver did not become relay-confirmed channel members"
     );
     let receiver_pubkey = receiver_row.pubkey.clone();
@@ -75,23 +89,7 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         .unwrap()
         .expect("receiver identity")
         .display_slug();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_profile(
-            &receiver_row.pubkey,
-            &receiver_handle,
-            &receiver_handle,
-            "test-host",
-            false,
-            now,
-        )
-        .unwrap();
     let body = "hello from redirected stdin";
-    let read_body = target_wire::redirected_stdin_rendered_body(&receiver_handle);
     let wire_body =
         target_wire::redirected_stdin_body_for_session(&home, &receiver_pubkey, &receiver_row);
     let out = run_cli_stdin_with_env_in_dir(
@@ -107,40 +105,34 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    let immediately_parked = Store::open(&home.store_path()).unwrap();
-    assert!(
-        receiver_inbox_rows(&immediately_parked, &receiver_pubkey)
-            .iter()
-            .any(|row| row.body == wire_body),
-        "successful local send must park the direct inbox before any readback wait"
-    );
-    drop(immediately_parked);
-
-    // Poll until the relay-materialized chat propagates to the readable store,
-    // rather than asserting on a single racy read.
-    let mut read_stdout = String::new();
+    // Publication acceptance is not product delivery. Wait until the daemon's
+    // retained NMP observation exposes the message through the public reader.
+    let mut original = None;
     assert!(
         wait_until(Duration::from_secs(10), || {
-            let out = run_cli_with_env_in_dir(
-                &home,
-                &[
-                    "channel",
-                    "read",
-                    "--channel",
-                    &receiver_scope,
-                    "--limit",
-                    "1",
-                ],
-                &[("MOSAICO_PUBKEY", &sender_pubkey)],
-                std::path::Path::new("/tmp"),
-            );
-            if !out.status.success() {
-                return false;
-            }
-            read_stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            read_stdout.contains(&format!("> {read_body} ["))
+            original = read_messages(serde_json::json!({
+                "session": &sender_pubkey,
+                "channel": &receiver_scope,
+                "limit": 20,
+            }))
+            .and_then(|messages| {
+                messages.into_iter().find(|message| {
+                    message["body"]
+                        .as_str()
+                        .is_some_and(|rendered| rendered.contains(body))
+                })
+            });
+            original.is_some()
         }),
-        "channel read should render the body and a timestamp; got: {read_stdout}"
+        "observed chat did not reach the public channel reader"
+    );
+    assert!(
+        wait_until(Duration::from_secs(10), || Store::open(&home.store_path())
+            .map(|store| receiver_inbox_rows(&store, &receiver_pubkey)
+                .iter()
+                .any(|row| row.body == wire_body))
+            .unwrap_or(false)),
+        "observed direct message did not park the recipient inbox"
     );
 
     // The inbox records the sender's per-session pubkey as `from_pubkey`.
@@ -151,51 +143,56 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
         .expect("sender session row")
         .pubkey;
     let original_channel = receiver_scope.trim_start_matches('#');
-    let original_event = Store::open(&home.store_path())
+    let original_event_id = original.unwrap()["full_event_id"]
+        .as_str()
+        .expect("observed message id")
+        .to_string();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
-        .chat_for_channel(original_channel, 0, u32::MAX)
-        .unwrap()
-        .into_iter()
-        .find(|event| event.content == wire_body)
-        .expect("original chat event");
+        .as_secs();
     Store::open(&home.store_path())
         .unwrap()
         .revoke_route_and_mark_absent(&sender_pubkey, original_channel, now + 1)
         .expect("remove reply target's local route");
-    let reply_text = "reply parked without relay echo";
-    rt().block_on(async {
+    let reply_text = "reply delivered after observation";
+    let reply_event_id = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
-        client
+        let reply = client
             .call(
                 "channel_reply",
                 serde_json::json!({
                     "session": &receiver_pubkey,
-                    "id": original_event.id,
+                    "id": original_event_id,
                     "message": reply_text
                 }),
             )
             .await
-            .expect("reply to route-less local author");
+            .expect("publish reply to route-less local author");
+        reply["event_id"]
+            .as_str()
+            .expect("reply event id")
+            .to_string()
     });
+    assert!(
+        wait_until(Duration::from_secs(10), || observed_message(
+            &reply_event_id
+        )
+        .is_some()),
+        "accepted reply was never observed through NMP"
+    );
     let reply_store = Store::open(&home.store_path()).unwrap();
     assert!(!reply_store
         .has_session_route(&sender_pubkey, original_channel)
         .unwrap());
-    assert!(
-        receiver_inbox_rows(&reply_store, &sender_pubkey)
-            .iter()
-            .any(|row| row.body.contains(reply_text)),
-        "local reply must park under the owned author even without a target route"
-    );
     drop(reply_store);
-
     assert!(
-        wait_until(Duration::from_secs(2), || Store::open(&home.store_path())
-            .map(|store| receiver_inbox_rows(&store, &receiver_pubkey)
+        wait_until(Duration::from_secs(10), || Store::open(&home.store_path())
+            .map(|store| receiver_inbox_rows(&store, &sender_pubkey)
                 .iter()
-                .any(|row| row.body == wire_body))
+                .any(|row| row.body.contains(reply_text)))
             .unwrap_or(false)),
-        "receiver did not get live chat row"
+        "observed reply did not park under the owned author without a route"
     );
     let store = Store::open(&home.store_path()).unwrap();
     // The inbound routing ledger may still be pending, or may already be marked
@@ -218,9 +215,8 @@ fn local_send_and_reply_park_direct_inbox_without_waiting_for_relay_echo() {
             .await
             .expect("statusline");
         let pending = statusline["pending"].as_array().expect("pending array");
-        // `from_slug` is resolved from the relay-cached profile; the local sender's
-        // kind:0 isn't materialized in this nak env, so match on body (the delivery
-        // is the invariant; sender identity is checked above via inbox from_pubkey).
+        // Profile observation is independent of exact-recipient delivery, so
+        // match the body and verify sender identity from the inbox row below.
         assert!(
             pending.iter().any(|row| { row["body"] == wire_body }),
             "statusline should surface explicit chat mentions as pending: {statusline}"

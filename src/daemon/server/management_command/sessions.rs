@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 pub(super) fn list_sessions(state: &Arc<DaemonState>, scope_root: Option<&str>) -> Result<String> {
     let now = crate::util::now_secs();
-    let summaries = state.with_store(|s| session_summaries_from_store(s, scope_root, now))?;
+    let summaries = state.with_store(|s| session_summaries_from_store(s, scope_root))?;
     if summaries.is_empty() {
         let scope = scope_root
             .map(|h| format!(" in {}", super::channel_label(state, h)))
@@ -52,7 +52,6 @@ struct SessionSummary {
 fn session_summaries_from_store(
     store: &Store,
     scope_root: Option<&str>,
-    now: u64,
 ) -> Result<Vec<SessionSummary>> {
     let channels = store
         .list_channels()?
@@ -62,9 +61,6 @@ fn session_summaries_from_store(
     let scope = scope_root.map(|root| channel_subtree(&channels, root));
     let mut rows: BTreeMap<String, SessionSummary> = BTreeMap::new();
     for status in store.list_status_sessions(None, None)? {
-        if status.expiration < now {
-            continue;
-        }
         if let Some(scope) = &scope {
             if !scope.contains(&status.channel_h) {
                 continue;
@@ -73,7 +69,7 @@ fn session_summaries_from_store(
         let label = channel_label_from_map(&channels, &status.channel_h);
         let profile = store.get_profile(&status.pubkey).ok().flatten();
         let agent = session_handle(&status, profile.as_ref());
-        let presence = projected_presence(store, &status, now);
+        let presence = projected_presence(store, &status);
         let key = status.pubkey.clone();
         rows.entry(key)
             .and_modify(|row| {
@@ -113,18 +109,14 @@ fn session_summaries_from_store(
     Ok(out)
 }
 
-fn projected_presence(
-    store: &Store,
-    status: &Status,
-    now: u64,
-) -> crate::session_presence::PublicPresence {
+fn projected_presence(store: &Store, status: &Status) -> crate::session_presence::PublicPresence {
     store
         .get_session(&status.pubkey)
         .ok()
         .flatten()
         .filter(|session| session.is_running())
         .map(|session| crate::session_presence::local(store, &session, Some(status)))
-        .unwrap_or_else(|| crate::session_presence::remote(status, now))
+        .unwrap_or_else(|| crate::session_presence::remote(status))
 }
 
 fn channel_subtree(
@@ -258,24 +250,33 @@ mod tests {
         let store = Store::open_memory().unwrap();
         let pk1 = Keys::generate().public_key().to_hex();
         let pk2 = Keys::generate().public_key().to_hex();
-        store.upsert_channel("root", "proj", "", "", 1).unwrap();
-        store
-            .upsert_channel("child", "planning", "", "root", 2)
-            .unwrap();
-        store
-            .upsert_channel("grandchild", "review", "", "child", 3)
-            .unwrap();
-        store.upsert_channel("other", "other", "", "", 4).unwrap();
-        store
-            .upsert_profile(&pk1, "coder@laptop", "coder", "laptop", false, 1)
-            .unwrap();
-        store.upsert_status(&status(&pk1, "root", 100)).unwrap();
-        store
-            .upsert_status(&status(&pk1, "grandchild", 101))
-            .unwrap();
-        store.upsert_status(&status(&pk2, "other", 102)).unwrap();
+        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            crate::state::TestGroup::new("root").metadata("proj", "", "", 1),
+            crate::state::TestGroup::new("child").metadata("planning", "", "root", 2),
+            crate::state::TestGroup::new("grandchild").metadata("review", "", "child", 3),
+            crate::state::TestGroup::new("other").metadata("other", "", "", 4),
+        ]));
+        store.install_test_nmp_relay_delivery(
+            crate::state::TestRelayDelivery::new()
+                .profiles([crate::state::Profile {
+                    pubkey: pk1.clone(),
+                    name: "coder@laptop".into(),
+                    slug: "coder".into(),
+                    agent_slug: "coder".into(),
+                    host: "laptop".into(),
+                    is_backend: false,
+                    agents: Vec::new(),
+                    workspaces: Vec::new(),
+                    updated_at: 1,
+                }])
+                .statuses([
+                    status(&pk1, "root", 100),
+                    status(&pk1, "grandchild", 101),
+                    status(&pk2, "other", 102),
+                ]),
+        );
 
-        let rows = session_summaries_from_store(&store, Some("root"), 110).unwrap();
+        let rows = session_summaries_from_store(&store, Some("root")).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].pubkey, pk1);
         assert_eq!(rows[0].npub, crate::idref::npub(&pk1).unwrap());

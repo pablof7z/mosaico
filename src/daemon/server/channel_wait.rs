@@ -59,7 +59,7 @@ pub(super) async fn rpc_channel_wait(
     let own_pubkeys = own_pubkeys(&rec);
     let backend_pubkey = state.backend_pubkey().unwrap_or_default();
 
-    // The rowid cursor is captured before subscribing. A message inserted in
+    // The arrival cursor is captured before subscribing. A message observed in
     // that tiny gap is recovered by the immediate post-subscribe drain.
     let mut rx = state.tail_subscribe();
     for scope in &scopes {
@@ -121,7 +121,7 @@ fn timeout_result(timeout_secs: u64, channels: &[String]) -> serde_json::Value {
 /// giving up on it. The message was published through NMP, which injects the
 /// accepted write into the subscription this daemon already holds (#1182), so
 /// the round trip is local and sub-millisecond -- but it is asynchronous, and
-/// `channel_send` returning is acceptance rather than materialization. Spending
+/// `channel_send` returning is acceptance rather than observed delivery. Spending
 /// a slice of the wait's own budget on it is honest; failing on a race is not.
 const REPLY_ORIGIN_GRACE: Duration = Duration::from_secs(5);
 
@@ -130,7 +130,7 @@ async fn wait_scope_and_cursor(
     rec: &Session,
     params: &WaitParams,
     deadline: tokio::time::Instant,
-) -> Result<(Vec<String>, i64, Option<String>)> {
+) -> Result<(Vec<String>, u64, Option<String>)> {
     if let Some(reply_to) = params.reply_to.as_deref().filter(|id| !id.is_empty()) {
         if !params.channels.is_empty() || params.from.is_some() {
             anyhow::bail!("reply waits cannot also set channels or --from");
@@ -143,17 +143,13 @@ async fn wait_scope_and_cursor(
             anyhow::bail!("can only wait for replies to a message authored by this session");
         }
         let cursor = state
-            .with_store(|store| store.message_rowid(&original.message_id))?
+            .with_store(|store| store.message_arrival_sequence(&original.message_id))?
             .context("outbound message has no local arrival cursor")?;
-        return Ok((
-            vec![original.channel_h],
-            cursor,
-            original.native_event_id.or(Some(original.message_id)),
-        ));
+        return Ok((vec![original.channel_h], cursor, Some(original.message_id)));
     }
 
     let scopes = resolve_joined_scopes(state, rec, &params.channels)?;
-    let cursor = state.with_store(|store| store.latest_message_rowid())?;
+    let cursor = state.with_store(|store| store.latest_message_arrival_sequence())?;
     Ok((scopes, cursor, None))
 }
 
@@ -243,7 +239,7 @@ fn own_pubkeys(rec: &Session) -> HashSet<String> {
 
 fn drain_matching(
     state: &Arc<DaemonState>,
-    cursor: &mut i64,
+    cursor: &mut u64,
     scopes: &[String],
     reply_to: Option<&str>,
     author_filter: &AuthorFilter,
@@ -251,13 +247,14 @@ fn drain_matching(
     backend_pubkey: &str,
 ) -> Result<Option<Message>> {
     loop {
-        let rows = state.with_store(|store| store.messages_after_rowid(*cursor, MESSAGE_BATCH))?;
+        let rows = state
+            .with_store(|store| store.messages_after_arrival_sequence(*cursor, MESSAGE_BATCH))?;
         if rows.is_empty() {
             return Ok(None);
         }
         let full_batch = rows.len() == MESSAGE_BATCH as usize;
-        for (rowid, message) in rows {
-            *cursor = rowid;
+        for (arrival_sequence, message) in rows {
+            *cursor = arrival_sequence;
             if !scopes.contains(&message.channel_h) || own_pubkeys.contains(&message.author_pubkey)
             {
                 continue;

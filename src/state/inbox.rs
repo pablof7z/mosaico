@@ -18,7 +18,7 @@ use super::*;
 
 const COLS: &str = "inbox.event_id, inbox.target_pubkey, inbox.state, inbox.from_pubkey, \
      inbox.channel_h, inbox.body, inbox.created_at, inbox.delivered_at, \
-     COALESCE(messages.attachment_dir, '')";
+     COALESCE(message_attachments.directory, '')";
 mod delivery;
 mod prefix_lookup;
 
@@ -37,9 +37,9 @@ fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
 }
 
 impl Store {
-    /// Atomically park one direct mention and its recipient edge. The target
-    /// pubkey has already been classified as daemon-owned by the caller; no
-    /// runtime, route, or channel-membership fact participates in persistence.
+    /// Atomically park one observed direct mention. The target pubkey has
+    /// already been classified as daemon-owned by the caller; recipient tags
+    /// remain owned by the active NMP message projection.
     pub fn park_direct_mention(
         &self,
         event_id: &str,
@@ -66,13 +66,6 @@ impl Store {
                 created_at
             ],
         )? > 0;
-        transaction.execute(
-            "INSERT INTO message_recipients
-                 (message_id, recipient_pubkey, delivered_at)
-             VALUES (?1, ?2, 0)
-             ON CONFLICT(message_id, recipient_pubkey) DO NOTHING",
-            params![event_id, target_pubkey],
-        )?;
         if inserted {
             transaction.execute(
                 "UPDATE sessions SET idle_since=0, idle_deadline=0
@@ -147,7 +140,7 @@ impl Store {
     pub fn peek_pending_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.target_pubkey=?1 AND inbox.state='pending'
              ORDER BY inbox.created_at ASC"
         ))?;

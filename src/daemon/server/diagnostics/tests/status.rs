@@ -14,9 +14,13 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     // the cache rather than scripting a bounded read that no longer happens.
     state
         .with_store(|store| {
-            store.upsert_channel("project", "project", "", "", 1)?;
-            store.replace_channel_admins("project", std::slice::from_ref(&management), 2)?;
-            store.replace_channel_members("project", std::slice::from_ref(&pubkey), 3)
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("project")
+                    .metadata("project", "", "", 1)
+                    .admins(vec![management.clone()])
+                    .members(vec![pubkey.clone()]),
+            ]));
+            Ok::<_, anyhow::Error>(())
         })
         .unwrap();
 
@@ -27,6 +31,7 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
         &keys,
         crate::presence_publisher::DriveMeta {
             trigger: "doctor-corpus",
+            confirmed_scope: None,
         },
         |status| {
             status.open(

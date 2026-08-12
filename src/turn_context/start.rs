@@ -223,7 +223,6 @@ pub(crate) fn assemble_turn_start(
             },
         )
     }?;
-    let missing_profiles = crate::fabric_context::missing_profile_pubkeys(&inputs);
     let outcome = super::render_hook_context(
         hook_contexts,
         &rec.pubkey,
@@ -237,6 +236,5 @@ pub(crate) fn assemble_turn_start(
         receipt: outcome.receipt,
         transaction_id: outcome.transaction_id,
         revision: outcome.revision,
-        missing_profiles,
     })
 }

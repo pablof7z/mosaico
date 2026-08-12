@@ -21,7 +21,6 @@ fn advisory_updates_the_exact_emitted_text_and_receipt() {
         ),
         transaction_id: 1,
         revision: 1,
-        missing_profiles: Vec::new(),
     };
     turn.append_advisory("<channel-topology-nudge />", "channel-topology-nudge");
 

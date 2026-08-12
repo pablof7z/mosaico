@@ -81,12 +81,11 @@ pub(super) fn untagged_agent_prefix(
     channel: &str,
     self_pubkey: &str,
     backend_pubkey: &str,
-    now: u64,
 ) -> Result<Option<CoachingNotice>> {
     let Some(typed_label) = leading_label(message) else {
         return Ok(None);
     };
-    let candidates = participant_candidates(store, channel, self_pubkey, backend_pubkey, now)?;
+    let candidates = participant_candidates(store, channel, self_pubkey, backend_pubkey)?;
     let exact = matching_candidates(&typed_label, &candidates, true);
     let matched = if exact.is_empty() {
         matching_candidates(&typed_label, &candidates, false)
@@ -197,7 +196,6 @@ fn participant_candidates(
     channel: &str,
     self_pubkey: &str,
     backend_pubkey: &str,
-    now: u64,
 ) -> Result<Vec<Candidate>> {
     let mut candidates = Vec::new();
     for member in store.list_channel_members(channel)? {
@@ -243,7 +241,7 @@ fn participant_candidates(
             (Some(session), published) => {
                 crate::session_presence::local(store, session, published).state
             }
-            (None, Some(status)) => crate::session_presence::remote(status, now).state,
+            (None, Some(status)) => crate::session_presence::remote(status).state,
             (None, None) => SessionState::Offline,
         };
         candidates.push(Candidate { handle, state });

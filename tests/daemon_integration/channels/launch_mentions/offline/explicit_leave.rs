@@ -38,12 +38,17 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
             .expect("create child")
     });
     assert_eq!(created["joined"], true);
-    let child_h = Store::open(&home.store_path())
-        .unwrap()
-        .channel_id_for_name(&root, &child_name)
-        .unwrap()
-        .expect("child channel id");
-    wait_for_group_member(&home, &child_h, &original.pubkey);
+    let mut child_h = None;
+    assert!(
+        wait_until(Duration::from_secs(25), || {
+            child_h = observed_channel_h(&root, &child_name);
+            child_h.is_some()
+        }),
+        "child {child_path} was not delivered by NMP; daemon_log={}",
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+    );
+    let child_h = child_h.expect("NMP-observed child channel id");
+    wait_for_group_member(&home, &child_path, &original.pubkey);
 
     rt().block_on(async {
         let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
@@ -62,16 +67,15 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
         }
     });
 
+    let root_path = format!("#{root}");
     assert!(wait_until(Duration::from_secs(15), || {
-        refresh_channel_members(&format!("#{root}"));
-        refresh_channel_members(&child_path);
         let store = Store::open(&home.store_path()).unwrap();
         store
             .list_session_routes(&original.pubkey)
             .unwrap()
             .is_empty()
-            && !store.is_channel_member(&root, &original.pubkey).unwrap()
-            && !store.is_channel_member(&child_h, &original.pubkey).unwrap()
+            && observed_channel_excludes(&root_path, &original.pubkey)
+            && observed_channel_excludes(&child_path, &original.pubkey)
     }));
     assert_absent(&home, &original.pubkey, &root);
     assert_absent(&home, &original.pubkey, &child_h);
@@ -226,13 +230,12 @@ fn assert_memberships_still_absent(
     child_h: &str,
     child_path: &str,
 ) {
+    let root_path = format!("#{root}");
     assert!(wait_until(Duration::from_secs(15), || {
-        refresh_channel_members(&format!("#{root}"));
-        refresh_channel_members(child_path);
         let store = Store::open(&home.store_path()).unwrap();
         store.list_session_routes(pubkey).unwrap().is_empty()
-            && !store.is_channel_member(root, pubkey).unwrap()
-            && !store.is_channel_member(child_h, pubkey).unwrap()
+            && observed_channel_excludes(&root_path, pubkey)
+            && observed_channel_excludes(child_path, pubkey)
     }));
     assert_absent(home, pubkey, root);
     assert_absent(home, pubkey, child_h);

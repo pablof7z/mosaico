@@ -30,9 +30,10 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
     // The relay-signed group records ride ONE retained observation rather than
     // the per-entity refcount, because their branch count is set by the host
     // set and not by how many groups are named.
+    let trusted_operators = state.whitelisted_pubkeys();
     super::group_records::sync(
         state,
-        super::group_records::GroupRecordsCoverage::from_snapshot(&snapshot),
+        super::group_records::GroupRecordsCoverage::from_snapshot(&snapshot, &trusted_operators),
     )?;
     // Compute the plan under the policy lock, then drop it before handing the
     // effects to NMP's engine.
@@ -107,8 +108,8 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     state.nmp().apply(effect)
 }
 
-/// Reopen the channel observation so NMP re-emits its canonical cached rows to a
-/// session that became running after a mention was first materialized.
+/// Reopen the channel observation so NMP re-emits its canonical current rows to
+/// a session that became running after a mention was first observed.
 pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonState>, h: &str) {
     tracing::debug!(
         channel = h,
@@ -120,6 +121,7 @@ pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonSta
             group: h.to_string(),
             kinds: BTreeSet::from([
                 crate::fabric::nip29::wire::KIND_CHAT,
+                crate::fabric::nip29::wire::KIND_REACTION,
                 crate::fabric::nip29::wire::KIND_STATUS,
             ]),
         },
@@ -141,9 +143,9 @@ pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonSta
 ///   owning session leaves.
 /// - `addressed_pubkeys`: selected session pubkeys and the backend identity.
 ///   Owned by the daemon scope.
-/// - `profile_pubkeys`: the backend identity plus current root-channel admins.
-///   Each gets a narrow exact-author kind:0 observation so host snapshots stay
-///   current without a global profile feed.
+/// - `profile_pubkeys`: the backend identity plus every current group member.
+///   Each gets a narrow exact-author kind:0 observation, so profile reads are
+///   answered by retained NMP state rather than an app-owned cache.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
         .subscriptions
@@ -181,14 +183,10 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
                 continue;
             }
             group_state_channels.insert(channel.channel_h.clone());
-            if !channel.parent.is_empty() {
-                continue;
-            }
             profile_pubkeys.extend(
                 s.list_channel_members(&channel.channel_h)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|member| member.role == "admin")
                     .map(|member| member.pubkey),
             );
         }

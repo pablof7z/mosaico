@@ -213,7 +213,7 @@ fn sub_id((space, entity): &SubKey) -> String {
 }
 
 fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
-    use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_METADATA, KIND_STATUS};
+    use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_METADATA, KIND_REACTION, KIND_STATUS};
     match space {
         Space::GlobalKind => {
             let kind: u16 = entity.parse().expect("global kind is numeric");
@@ -227,7 +227,7 @@ fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
         }
         Space::ChannelH => SubscriptionQuery::GroupContents {
             group: entity.clone(),
-            kinds: BTreeSet::from([KIND_CHAT, KIND_STATUS]),
+            kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS]),
         },
         Space::PubkeyP => SubscriptionQuery::Mentions {
             pubkey: entity.clone(),

@@ -8,17 +8,23 @@ mod cross_project_guard;
 mod hooks;
 #[path = "process/statusline.rs"]
 mod statusline;
+#[path = "process/version_skew.rs"]
+mod version_skew;
 #[path = "process/who.rs"]
 mod who;
 
 #[test]
 fn sixteen_concurrent_writers_no_corruption_single_writer() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
-    Store::open(&home.store_path())
-        .unwrap()
-        .upsert_channel("mosaico", "mosaico", "", "", 1)
-        .unwrap();
+    let home = Home::new();
+    crate::channels::write_config(&home, false);
+    crate::channels::initialize_workspace_root("tmp", "/tmp");
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            observed_channel_members("#tmp").is_some()
+        }),
+        "concurrent RPC fixture requires an NMP-observed #tmp root"
+    );
 
     // Start one session, then 16 concurrent clients hammer write-RPCs
     // (turn_start/turn_end flip turn state; this is the corruption repro path,
@@ -34,6 +40,12 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
             .unwrap();
         started["pubkey"].as_str().unwrap().to_string()
     });
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            observed_channel_has_role("#tmp", &pubkey, "member")
+        }),
+        "concurrent RPC load must start only after NMP delivers the session roster"
+    );
 
     let n = 16;
     let iters = 25;
@@ -51,7 +63,7 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
                         c.call("turn_end", serde_json::json!({"session": &pubkey}))
                             .await
                             .expect("turn_end");
-                        c.call("who", serde_json::json!({"all": true}))
+                        c.call("who", serde_json::json!({"workspace": "tmp"}))
                             .await
                             .expect("who");
                     }
@@ -303,35 +315,6 @@ fn claude_user_prompt_submit_reasserts_missing_session() {
     stop_daemon(&home);
 }
 
-#[test]
-fn version_skew_client_detects_and_respawns() {
-    // A daemon spawned at protocol 1, then a NEWER client (protocol 2) running
-    // the real `connect_or_spawn` must detect the skew, make the old daemon
-    // exit, and respawn the (now "newer") daemon — transparently succeeding.
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new().with_backend_key();
-
-    // Start a daemon pinned to protocol 1 via a normal subprocess CLI call.
-    let out = run_cli_proto(&home, &["who", "--all-workspaces"], Some("1"));
-    assert!(
-        out.status.success(),
-        "proto-1 who failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(home.sock().exists(), "daemon should be up at proto 1");
-
-    // A "newer" client (protocol 2): connect_or_spawn must re-exec the daemon
-    // and the call must still succeed.
-    let out = run_cli_proto(&home, &["who", "--all-workspaces"], Some("2"));
-    assert!(
-        out.status.success(),
-        "proto-2 client failed to respawn+succeed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    stop_daemon(&home);
-}
-
 /// Harness-owned ids remain typed locators; lifecycle RPCs operate on the
 /// resolved public session identity.
 #[test]
@@ -436,23 +419,4 @@ fn turn_lifecycle_drives_pubkey_row_resolved_from_harness_locator() {
     );
 
     stop_daemon(&home);
-}
-
-fn run_cli_proto(home: &Home, args: &[&str], proto: Option<&str>) -> std::process::Output {
-    let mut cmd = std::process::Command::new(bin());
-    cmd.args(args)
-        .env_remove("MOSAICO_AGENT")
-        .env_remove("MOSAICO_PUBKEY")
-        .env_remove("MOSAICO_PTY_SESSION")
-        .env_remove("MOSAICO_PTY_SOCKET")
-        .env_remove("MOSAICO_CHANNEL")
-        .env_remove("MOSAICO_EPHEMERAL")
-        .env("MOSAICO_HOME", home.dir.path())
-        .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
-        .env("MOSAICO_BIN", bin())
-        .env("MOSAICO_DAEMON_GRACE_S", "30");
-    if let Some(p) = proto {
-        cmd.env("MOSAICO_PROTOCOL", p);
-    }
-    cmd.output().expect("run mosaico")
 }

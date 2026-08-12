@@ -248,8 +248,8 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
     );
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
-        store.get_channel("tmp").unwrap().is_some(),
-        "the durable agent's root channel must have public metadata"
+        observed_channel_members("#tmp").is_some(),
+        "the durable agent's root channel must be visible through the daemon's NMP view"
     );
     for pubkey in [&first_id, &third_id] {
         let session = store.get_session(pubkey).unwrap().unwrap();

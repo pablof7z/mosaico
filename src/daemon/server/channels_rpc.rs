@@ -128,7 +128,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         expect_member,
         parent_hint: Some(&parent),
         // Operator-chosen name rides on the create publish; the relay's
-        // kind:39000 echo lands it in the cache (no local fabrication).
+        // kind:39000 echo reaches NMP's retained observation (no local fabrication).
         name: Some(&name),
     });
     let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
@@ -160,37 +160,20 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     drop(standing_lane);
     let _ = ensure_subscription(state, &child_h).await;
 
-    // Publish the durable `about` as kind:9002 edit-metadata so it reaches the
-    // relay's kind:39000 (not just the local cache), signed by the management key
-    // exactly like the channel edit RPC does. Best-effort: the channel exists either
-    // way; an unset `about` skips the publish.
+    // Publish the durable `about` as kind:9002 edit-metadata. NMP's terminal
+    // result is the command boundary; the retained group observation will
+    // project the resulting kind:39000 independently when it arrives.
     if !p.about.trim().is_empty() {
         let builder = as_nostr(nmp_nip29::edit_metadata(nmp_nip29::GroupMetadataEdit {
             about: Some(p.about.clone()),
             ..nmp_nip29::GroupMetadataEdit::default()
         }));
-        let _ = state.nmp().publish_group(&child_h, builder, &mgmt_keys);
-        // Re-read the relay's now-updated kind:39000 so the `about` lands in the
-        // cache from relay truth, not a local write.
-        // The channel is already provisioned by the readiness gate. This
-        // optional refresh may update `about`, but a failed acquisition must
-        // not alter the confirmed channel result.
-        let _ = state
-            .provider()
-            .fetch_and_materialize_channel(&child_h)
-            .await;
+        state
+            .nmp()
+            .publish_group_and_wait(&child_h, builder, &mgmt_keys)
+            .await
+            .context("publishing the new channel description")?;
     }
-
-    // The confirmed admin roster, read back from the local cache the shared
-    // primitive just populated (parent admins + whitelist + backend pubkey).
-    let granted: Vec<String> = state.with_store(|s| {
-        s.list_channel_members(&child_h)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|m| m.role == "admin")
-            .map(|m| m.pubkey)
-            .collect()
-    });
 
     // Build + publish ONE kind:9 orchestration event into the parent (the
     // coordination group), but ONLY when agents were named — `--agent` is
@@ -223,7 +206,6 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         state.with_store(|store| super::channel_resolve::channel_reference_for(store, &child_h))?;
     Ok(serde_json::json!({
         "channel": channel,
-        "admins": granted,
         "creator": creator.unwrap_or_default(),
         "joined": joined,
         "orchestration_event_id": orchestration_event_id,

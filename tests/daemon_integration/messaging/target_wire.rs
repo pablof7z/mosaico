@@ -14,10 +14,6 @@ pub(super) fn redirected_stdin_body_for_session(
     )
 }
 
-pub(super) fn redirected_stdin_rendered_body(codename: &str) -> String {
-    format!("@{codename}: hello from redirected stdin")
-}
-
 pub(super) fn target_npub_for_session(store: &Store, pubkey: &str, row: &Session) -> String {
     let pubkey = store
         .session_identity(pubkey)

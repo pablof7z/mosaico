@@ -1,41 +1,43 @@
 use super::*;
+use crate::state::{RelayEvent, TestRelayDelivery};
 
-fn record(id: &str) -> RecordMessage {
-    RecordMessage {
-        message_id: id.into(),
-        thread_id: "channel".into(),
-        channel_h: "channel".into(),
-        author_pubkey: "author".into(),
-        body: id.into(),
+fn event(id: &str, tags_json: &str) -> RelayEvent {
+    RelayEvent {
+        id: id.to_string(),
+        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
+        pubkey: "author".to_string(),
         created_at: 1,
-        sync_state: "accepted".into(),
-        native_event_id: Some(id.into()),
-        error: None,
+        channel_h: "channel".to_string(),
+        d_tag: String::new(),
+        content: id.to_string(),
+        tags_json: tags_json.to_string(),
     }
 }
 
 #[test]
-fn reply_target_prefers_marked_reply_and_falls_back_to_last_e_tag() {
-    assert_eq!(
-        reply_target_from_tags_json(r#"[["e","root","","root"],["e","parent","","reply"]]"#)
-            .as_deref(),
-        Some("parent")
+fn wait_cursor_follows_nmp_arrival_order() {
+    let store = Store::open_memory().unwrap();
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([event("first", "[]")]));
+    let cursor = store.latest_message_arrival_sequence().unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().events([event("first", "[]"), event("second", "[]")]),
     );
-    assert_eq!(
-        reply_target_from_tags_json(r#"[["e","root"],["e","parent"]]"#).as_deref(),
-        Some("parent")
-    );
-    assert_eq!(reply_target_from_tags_json("[]"), None);
+
+    let rows = store.messages_after_arrival_sequence(cursor, 10).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].1.message_id, "second");
 }
 
 #[test]
-fn rowid_cursor_returns_messages_in_local_arrival_order() {
+fn reply_target_comes_from_the_observed_message_tags() {
     let store = Store::open_memory().unwrap();
-    store.record_message(&record("first")).unwrap();
-    let cursor = store.latest_message_rowid().unwrap();
-    store.record_message(&record("second")).unwrap();
-
-    let rows = store.messages_after_rowid(cursor, 10).unwrap();
-    assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].1.message_id, "second");
+    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([event(
+        "reply",
+        r#"[["e","root","","root"],["e","parent","","reply"]]"#,
+    )]));
+    let message = store.get_message("reply").unwrap().unwrap();
+    assert_eq!(
+        store.message_reply_target(&message).unwrap().as_deref(),
+        Some("parent")
+    );
 }

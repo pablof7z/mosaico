@@ -75,7 +75,6 @@ struct OnlineAgent {
 }
 
 fn online_agents_in_channel(state: &Arc<DaemonState>, channel: &str) -> Result<Vec<OnlineAgent>> {
-    let now = crate::util::now_secs();
     let backend = state.backend_pubkey().unwrap_or_default();
     state.with_store(|store| {
         let members = store
@@ -85,7 +84,7 @@ fn online_agents_in_channel(state: &Arc<DaemonState>, channel: &str) -> Result<V
             .collect::<BTreeSet<_>>();
         let mut seen = BTreeSet::new();
         let mut online = Vec::new();
-        for status in store.live_status_for_channel(channel, now)? {
+        for status in store.statuses_in_channel(channel)? {
             if !members.contains(&status.pubkey) {
                 continue;
             }
@@ -98,7 +97,7 @@ fn online_agents_in_channel(state: &Arc<DaemonState>, channel: &str) -> Result<V
             {
                 continue;
             }
-            let presence = session_presence::remote(&status, now);
+            let presence = session_presence::remote(&status);
             if presence.state == SessionState::Offline || !presence.state.is_live() {
                 continue;
             }
@@ -183,17 +182,15 @@ mod tests {
     fn live_status_projection_excludes_offline_state() {
         let store = Store::open_memory().expect("store");
         let now = 1_700_000_000u64;
-        store
-            .upsert_status(&status("agent-pk", "coder", SessionState::Idle, now))
-            .unwrap();
-        store
-            .upsert_status(&status("offline-pk", "gone", SessionState::Offline, now))
-            .unwrap();
+        store.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().statuses([
+            status("agent-pk", "coder", SessionState::Idle, now),
+            status("offline-pk", "gone", SessionState::Offline, now),
+        ]));
         let live = store
-            .live_status_for_channel("chan", now)
+            .statuses_in_channel("chan")
             .unwrap()
             .into_iter()
-            .filter(|s| session_presence::remote(s, now).state.is_live())
+            .filter(|s| session_presence::remote(s).state.is_live())
             .map(|s| s.pubkey)
             .collect::<Vec<_>>();
         assert_eq!(live, vec!["agent-pk".to_string()]);

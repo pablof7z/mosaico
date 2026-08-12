@@ -4,13 +4,9 @@ const CHANNEL_MEMBER_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 // ── root_channels ────────────────────────────────────────────────────────────
 
-/// List the NIP-29 root channels this daemon knows, from the read model alone.
-///
-/// There is no fetch here on purpose. `relay_channels` is kept current by the
-/// standing kind:39000 observation and by the retained group-records
-/// observation, so asking the relay again on every call would re-derive state
-/// the daemon is already holding — and would do it with a bound and a timeout
-/// that make the answer worse, not better.
+/// List the NIP-29 root channels currently delivered by the retained NMP group
+/// observation. Asking the relay again on every call would create a second
+/// acquisition path for state NMP already owns.
 pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
     let channels: Vec<serde_json::Value> = state
         .with_store(|s| s.list_root_channels())
@@ -29,10 +25,7 @@ pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> 
 
 // ── channel_members ──────────────────────────────────────────────────────────
 
-/// Return the cached NIP-29 membership roster for a channel. Before reading the
-/// cache, refresh admin/member snapshots from the relay so interactive
-/// membership edits start from relay state rather than only local optimistic
-/// state.
+/// Return the membership roster currently delivered by NMP for a channel.
 pub async fn rpc_channel_members(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -53,15 +46,13 @@ pub async fn rpc_channel_members(
                 )
             }
         };
-    refresh_channel_members_cache(state, &channel_h).await;
-
     let member_pubkeys = state
         .with_store(|s| s.list_channel_members(&channel_h))
         .unwrap_or_default()
         .into_iter()
         .map(|m| m.pubkey)
         .collect::<Vec<_>>();
-    crate::profile::warm(state, &member_pubkeys).await;
+    let resolved_names = crate::profile::resolve_names(state, &member_pubkeys).await;
 
     let members = state
         .with_store(|s| s.list_channel_members(&channel_h))
@@ -70,6 +61,7 @@ pub async fn rpc_channel_members(
         .map(|m| {
             let slug = state
                 .with_store(|s| s.resolve_slug_for_pubkey(&m.pubkey).ok().flatten())
+                .or_else(|| resolved_names.get(&m.pubkey).cloned())
                 .unwrap_or_default();
             serde_json::json!({ "pubkey": m.pubkey, "slug": slug, "role": m.role })
         })

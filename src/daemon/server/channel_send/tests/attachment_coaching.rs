@@ -30,18 +30,18 @@ fn attachment_labels_survive_tag_normalization_and_ack_uses_display_text() {
 }
 
 #[test]
-fn attachment_persistence_failure_does_not_skip_direct_delivery() {
-    let delivered = std::cell::Cell::new(false);
-    let result = persist_attachment_directory_then_deliver(
-        "published-event",
-        || Err(anyhow::anyhow!("state write failed")),
-        || {
-            delivered.set(true);
-            Ok("delivered")
-        },
-    )
-    .unwrap();
+fn accepted_publish_persists_files_without_creating_delivery() {
+    let store = crate::state::Store::open_memory().unwrap();
+    persist_attachment_directory("published-event", || {
+        store.set_message_attachment_dir(
+            "published-event",
+            std::path::Path::new("/tmp/mosaico-files/published-event"),
+        )
+    });
 
-    assert!(delivered.get());
-    assert_eq!(result, "delivered");
+    assert!(store.get_message("published-event").unwrap().is_none());
+    assert!(store
+        .peek_pending_for_pubkey("recipient")
+        .unwrap()
+        .is_empty());
 }

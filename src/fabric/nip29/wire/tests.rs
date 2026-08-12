@@ -232,8 +232,7 @@ fn status_private_runtime_id_d_is_rejected() {
 }
 #[test]
 fn bare_reaction_without_e_tag_decodes_to_none() {
-    // A kind:7 with no `e` tag is not a domain reaction: it has no target, so it
-    // falls through to the verbatim relay_events cache (decode → None).
+    // A kind:7 with no `e` tag is not a domain reaction: it has no target.
     let keys = Keys::generate();
     let reaction = EventBuilder::new(Kind::from(7u16), "+")
         .sign_with_keys(&keys)
@@ -245,8 +244,7 @@ fn reaction_with_oversized_or_textual_content_decodes_to_none() {
     // TRUST BOUNDARY: an adversarial member could e-tag one of the target's
     // messages with a kind:7 whose `content` is a large or multi-line
     // natural-language payload (prompt injection / token bloat). Such an event
-    // must NOT decode to a domain Reaction; it falls through to the verbatim
-    // relay_events cache and is never surfaced as turn-start awareness.
+    // must NOT decode to a domain Reaction or surface as turn-start awareness.
     let keys = Keys::generate();
     let target = "cc".repeat(32);
     for bad in [

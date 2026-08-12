@@ -60,7 +60,7 @@ pub enum TailEvent {
         session: String,
         rel_cwd: String,
     },
-    /// Peer session went offline (prune / expiry / rpc_session_end).
+    /// Peer session went offline (NMP Row departure / rpc_session_end).
     Leave {
         ts: u64,
         channel: String,

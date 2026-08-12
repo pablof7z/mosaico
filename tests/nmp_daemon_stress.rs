@@ -9,21 +9,22 @@ mod relay;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use mosaico::state::Store;
-use nostr::Keys;
+use nostr::{Event, EventBuilder, Keys, Kind, Tag};
 use process::{sample, DaemonProcess};
 use relay::{CountingRelay, RelaySnapshot};
 
 const PROFILE_OBSERVATIONS: usize = 207;
-const MANAGED_OBSERVATIONS: usize = PROFILE_OBSERVATIONS + 3;
+// One retained group-record discovery, one group-content observation, and two
+// daemon-lifetime management observations surround the narrow profile set.
+const MANAGED_OBSERVATIONS: usize = PROFILE_OBSERVATIONS + 4;
 const STEADY_WINDOW: Duration = Duration::from_secs(3);
 
 #[test]
 fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
-    let relay = CountingRelay::start();
+    let relay = CountingRelay::start(group_snapshots());
     let home = tempfile::tempdir().expect("disposable Mosaico home");
     let config = home.path().join("config.json");
-    seed_product_shape(home.path(), &config, &relay.url());
+    seed_product_shape(&config, &relay.url());
 
     let mut daemon = DaemonProcess::spawn(&binary(), home.path(), &config);
     daemon.wait_ready(Duration::from_secs(30));
@@ -36,8 +37,12 @@ fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
         "the product emitted no relay request"
     );
     assert!(
-        before_relay.requests < 32,
-        "207 compatible profile observations were not coalesced: {before_relay:?}"
+        before_relay.active_requests <= 40,
+        "207 compatible profile observations exceeded the live wire bound: {before_relay:?}"
+    );
+    assert!(
+        before_relay.requests <= before_relay.active_requests + 2,
+        "group discovery churned more than its two predecessor requests: {before_relay:?}"
     );
 
     let pid = daemon.pid();
@@ -112,7 +117,7 @@ fn binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mosaico"))
 }
 
-fn seed_product_shape(home: &std::path::Path, config: &std::path::Path, relay: &str) {
+fn seed_product_shape(config: &std::path::Path, relay: &str) {
     const BACKEND_SECRET: &str = "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422";
     let body = serde_json::json!({
         "whitelistedPubkeys": [],
@@ -122,20 +127,36 @@ fn seed_product_shape(home: &std::path::Path, config: &std::path::Path, relay: &
         "indexerRelay": relay,
     });
     std::fs::write(config, serde_json::to_vec(&body).unwrap()).expect("write stress config");
-    let store = Store::open(&home.join("state.db")).expect("open disposable Mosaico store");
-    store
-        .upsert_channel("stress-root", "stress-root", "", "", 1)
-        .expect("seed root channel");
+}
+
+/// One complete relay-authored group delivery that makes the whole profile
+/// demand visible through NMP. The backend plus 206 additional admins produce
+/// the exact 207-profile shape without a test-only Mosaico roster writer.
+fn group_snapshots() -> [Event; 2] {
+    const BACKEND_SECRET: &str = "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422";
+    let backend = Keys::parse(BACKEND_SECRET).expect("deterministic backend key");
+    let relay = Keys::generate();
+    let mut tags = vec![Tag::identifier("stress-root")];
+    tags.push(Tag::public_key(backend.public_key()));
     for ordinal in 1..PROFILE_OBSERVATIONS {
         let secret = format!("{:064x}", ordinal + 1);
         let pubkey = Keys::parse(&secret)
             .expect("deterministic stress key")
-            .public_key()
-            .to_hex();
-        store
-            .upsert_channel_member("stress-root", &pubkey, "admin", ordinal as u64 + 1)
-            .expect("seed profile-owning admin");
+            .public_key();
+        tags.push(Tag::public_key(pubkey));
     }
+    let metadata = EventBuilder::new(Kind::from(39_000), "")
+        .tags([
+            Tag::identifier("stress-root"),
+            Tag::parse(["name", "stress-root"]).expect("group name tag"),
+        ])
+        .sign_with_keys(&relay)
+        .expect("sign relay-authored group metadata");
+    let admins = EventBuilder::new(Kind::from(39_001), "")
+        .tags(tags)
+        .sign_with_keys(&relay)
+        .expect("sign relay-authored group admins");
+    [metadata, admins]
 }
 
 fn wait_for_product_shape(daemon: &DaemonProcess, timeout: Duration) -> serde_json::Value {

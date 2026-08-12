@@ -16,6 +16,7 @@ pub(in crate::daemon::server) async fn drive_turn_started(
         &session.pubkey,
         session.runtime_generation,
         "turn_started",
+        None,
     )
     .await;
     Ok(())
@@ -48,6 +49,7 @@ pub(in crate::daemon::server) async fn drive_turn_ended(
         &session.pubkey,
         session.runtime_generation,
         "turn_ended",
+        None,
     )
     .await;
     Ok(())

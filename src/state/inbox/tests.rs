@@ -32,8 +32,6 @@ fn inbox_event_prefix_lookup_can_filter_target_pubkey() {
 fn claim_pending_event_ids_claims_only_the_planned_rows() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk-1", 1);
-    insert_chat(&s, "evt-1", 10);
-    insert_chat(&s, "evt-2", 11);
     s.enqueue_inbox("evt-1", "pk-1", "pk", "room", "one", 10)
         .unwrap();
     s.enqueue_inbox("evt-2", "pk-1", "pk", "room", "two", 11)
@@ -57,7 +55,6 @@ fn claim_pending_event_ids_claims_only_the_planned_rows() {
 fn pending_event_survives_runtime_replacement() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk-agent", 10);
-    insert_chat(&s, "evt", 11);
     s.enqueue_inbox("evt", "pk-agent", "sender", "room", "hello", 11)
         .unwrap();
     s.mark_runtime_stopped("pk-agent", StopReason::Unknown, 11)
@@ -77,19 +74,6 @@ fn offline_inbox_rows_join_attachment_directory_after_reopen() {
     let path = directory.path().join("state.db");
     {
         let store = Store::open(&path).unwrap();
-        store
-            .record_message(&RecordMessage {
-                message_id: "evt-files".into(),
-                thread_id: "room".into(),
-                channel_h: "room".into(),
-                author_pubkey: "human".into(),
-                body: "see [report.md]".into(),
-                created_at: 10,
-                sync_state: "accepted".into(),
-                native_event_id: Some("evt-files".into()),
-                error: None,
-            })
-            .unwrap();
         store
             .set_message_attachment_dir("evt-files", Path::new("/tmp/mosaico-files/evt-fi"))
             .unwrap();
@@ -114,7 +98,6 @@ fn offline_inbox_rows_join_attachment_directory_after_reopen() {
 fn hook_claim_stages_one_work_start_reaction() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
-    insert_chat(&s, "evt", 10);
     s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
         .unwrap();
 
@@ -127,7 +110,6 @@ fn hook_claim_stages_one_work_start_reaction() {
 fn injected_delivery_stages_work_start_for_a_later_hook() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
-    insert_chat(&s, "evt", 10);
     s.enqueue_inbox("evt", "pk", "human", "room", "start", 10)
         .unwrap();
     s.claim_pending_event_ids_for_pubkey(&["evt".into()], "pk", 11)
@@ -143,7 +125,6 @@ fn injected_delivery_stages_work_start_for_a_later_hook() {
 fn pty_submission_requires_prompt_corroboration_before_injected() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
-    insert_chat(&s, "abcdef1234567890", 10);
     s.enqueue_inbox(
         "abcdef1234567890",
         "pk",
@@ -176,7 +157,6 @@ fn pty_submission_requires_prompt_corroboration_before_injected() {
 fn unconfirmed_pty_submission_requeues_for_hook_delivery() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
-    insert_chat(&s, "evt-unconfirmed", 10);
     s.enqueue_inbox("evt-unconfirmed", "pk", "human", "room", "hello", 10)
         .unwrap();
     s.claim_pending_event_ids_for_pubkey(&["evt-unconfirmed".into()], "pk", 11)
@@ -201,7 +181,6 @@ fn unconfirmed_pty_submission_requeues_for_hook_delivery() {
 fn direct_message_survives_route_removal_and_rejoin() {
     let s = Store::open_memory().unwrap();
     upsert_runtime(&s, "pk", 1);
-    insert_chat(&s, "old-membership", 10);
     s.enqueue_inbox("old-membership", "pk", "human", "room", "queued", 10)
         .unwrap();
 
@@ -251,21 +230,6 @@ fn upsert_runtime(store: &Store, pubkey: &str, now: u64) {
             work_root: "room".into(),
             child_pid: None,
             now,
-        })
-        .unwrap();
-}
-
-fn insert_chat(store: &Store, event_id: &str, created_at: u64) {
-    store
-        .insert_event(&RelayEvent {
-            id: event_id.into(),
-            kind: 9,
-            pubkey: "human".into(),
-            created_at,
-            channel_h: "room".into(),
-            d_tag: String::new(),
-            content: event_id.into(),
-            tags_json: "[]".into(),
         })
         .unwrap();
 }

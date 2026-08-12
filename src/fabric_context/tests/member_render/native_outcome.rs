@@ -18,12 +18,15 @@ fn semantic_status_change_is_a_delta_without_resetting_state_age() {
         updated_at: 90,
         expiration: 240,
     };
-    store.upsert_status(&peer).unwrap();
     peer.title = "Updated title".into();
     peer.last_seen = 150;
     peer.updated_at = 150;
     peer.expiration = 300;
-    store.upsert_status(&peer).unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([peer]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("status-change delta should render");

@@ -55,6 +55,7 @@ pub(super) async fn track(
         &rec.pubkey,
         rec.runtime_generation,
         "managed_turn_started",
+        None,
     )
     .await;
     crate::daemon::server::turns::work_start_reaction::publish_for_started_events(
@@ -176,6 +177,7 @@ async fn finish_lifecycle(state: Arc<DaemonState>, pubkey: String, generation: u
                 &pubkey,
                 generation,
                 "managed_turn_ended",
+                None,
             )
             .await;
             crate::session_host::ring_doorbells(state)

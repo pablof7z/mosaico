@@ -175,9 +175,8 @@ pub fn opaque_group_id() -> String {
 ///
 /// The id does NOT prefix the work-root channel name: a session channel is
 /// already nested under its channel via the NIP-29 `parent` tag, so repeating
-/// the channel in the id is redundant. The child→parent link is the relay's
-/// kind:39000 `parent` tag, materialized into `relay_channels.parent` — never
-/// inferred from the id's shape.
+/// the channel in the id is redundant. The child-to-parent link is read from
+/// NMP's delivered kind:39000 `parent` tag, never inferred from the id's shape.
 ///
 /// The short hash keeps the room id readable while the `session-` prefix makes
 /// the scope explicit in prompts, status lines, and injected mentions.

@@ -118,18 +118,6 @@ fn pending_inbox_fences_idle_eviction() {
         )
         .unwrap();
     store
-        .insert_event(&RelayEvent {
-            id: "event".into(),
-            kind: 9,
-            pubkey: "human".into(),
-            created_at: 20,
-            channel_h: "room".into(),
-            d_tag: String::new(),
-            content: "hello".into(),
-            tags_json: "[]".into(),
-        })
-        .unwrap();
-    store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)
         .unwrap();
     let due = 10 + HEADLESS_IDLE_TIMEOUT_SECS;
@@ -159,18 +147,6 @@ fn completed_turn_consumes_injected_fence_and_rearms_true_idle() {
             PresentationState::Headless,
             10,
         )
-        .unwrap();
-    store
-        .insert_event(&RelayEvent {
-            id: "event".into(),
-            kind: 9,
-            pubkey: "human".into(),
-            created_at: 20,
-            channel_h: "room".into(),
-            d_tag: String::new(),
-            content: "hello".into(),
-            tags_json: "[]".into(),
-        })
         .unwrap();
     store
         .enqueue_inbox("event", "pk", "human", "room", "hello", 20)

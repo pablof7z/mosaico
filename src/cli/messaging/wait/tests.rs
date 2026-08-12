@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::{TestGroup, TestGroupDelivery};
 use clap::{error::ErrorKind, Parser};
 
 #[test]
@@ -80,7 +81,9 @@ fn agent_native_wait_renderers_use_one_mosaico_envelope() {
 #[test]
 fn direct_delivery_omits_for_while_wait_keeps_recipients() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.upsert_channel("x", "x", "", "", 1).unwrap();
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("x").metadata("x", "", "", 1)
+    ]));
     let row = crate::state::InboxRow {
         event_id: "abcdef123".into(),
         target_pubkey: "pk-target".into(),
@@ -92,7 +95,15 @@ fn direct_delivery_omits_for_while_wait_keeps_recipients() {
         delivered_at: 0,
         attachment_dir: "/tmp/mosaico-files/abcdef".into(),
     };
-    let direct = crate::injection::render_terminal_mention(&store, &[row], &[], 160, true).unwrap();
+    let direct = crate::injection::render_terminal_mention(
+        &store,
+        &[row],
+        &Default::default(),
+        &[],
+        160,
+        true,
+    )
+    .unwrap();
     let waited = render_wait_message(
         &serde_json::json!({
             "channel": "#x",

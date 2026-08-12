@@ -139,7 +139,6 @@ async fn ensure_live_session_member(
     if channel.is_empty() {
         anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
     }
-    refresh_channel_members_cache(state, channel_h).await;
     let is_member =
         state.with_store(|s| s.is_channel_member(channel_h, &rec.pubkey).unwrap_or(false));
     if is_member {
@@ -154,7 +153,6 @@ async fn ensure_live_session_member(
         "joining session {} to channel {}",
         rec.pubkey, channel
     ))?;
-    refresh_channel_members_cache(state, channel_h).await;
     Ok(())
 }
 

@@ -133,42 +133,12 @@ fn enrich_panes_from_store_path(
                 .ok()
                 .flatten()
                 .unwrap_or(session.agent_slug);
-        }
-        enrich_pane_scope_from_store(pane, &store)?;
-    }
-    Ok(())
-}
-
-fn enrich_pane_scope_from_store(
-    pane: &mut SessionPane,
-    store: &crate::state::Store,
-) -> anyhow::Result<()> {
-    let Ok(channels) = store.list_session_routes(&pane.session) else {
-        return Ok(());
-    };
-    if channels.is_empty() {
-        return Ok(());
-    }
-    let public_channels = channels
-        .iter()
-        .filter_map(|(channel, _)| public_channel_path(store, channel))
-        .collect::<Vec<_>>();
-    if !public_channels.is_empty() {
-        pane.channels = public_channels;
-    }
-    if let Some((channel, _)) = channels.first() {
-        let workspace = crate::daemon::workspace_path::WorkspacePathResolver::new(store)
-            .root_for_channel(channel)?;
-        if let Some(path) = public_channel_path(store, &workspace) {
-            pane.root = path;
+            if pane.root.is_empty() && !session.work_root.is_empty() {
+                pane.root = crate::channel_ref::format_channel_ref(&session.work_root, &[]);
+            }
         }
     }
     Ok(())
-}
-
-fn public_channel_path(store: &crate::state::Store, channel_h: &str) -> Option<String> {
-    let path = crate::channel_ref::full_channel_ref(store, channel_h);
-    (!path.is_empty()).then_some(path)
 }
 
 fn non_empty_str(v: &Value) -> Option<String> {
@@ -431,7 +401,7 @@ mod tests {
     use super::*;
     use crate::state::RegisterSession;
     #[test]
-    fn enriches_pane_agent_with_public_session_handle() {
+    fn enriches_local_session_identity_without_reconstructing_nmp_channel_state() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.db");
         let store = crate::state::Store::open(&path).unwrap();
@@ -450,8 +420,6 @@ mod tests {
         store
             .allocate_custom_handle("pk", "haiku", "pearl-cliff-395", 1)
             .unwrap();
-        store.upsert_channel("aaa", "aaa", "", "", 1).unwrap();
-        store.upsert_channel("dev-h", "dev", "", "aaa", 1).unwrap();
         store.grant_session_route("pk", "dev-h", 2).unwrap();
         store
             .grant_session_route("pk", "unknown-internal-id", 3)
@@ -467,6 +435,6 @@ mod tests {
         enrich_panes_from_store_path(&mut panes, &path).unwrap();
         assert_eq!(panes["pk"].agent, "pearl-cliff-395-haiku");
         assert_eq!(panes["pk"].root, "#aaa");
-        assert_eq!(panes["pk"].channels, vec!["#aaa", "#aaa/dev"]);
+        assert!(panes["pk"].channels.is_empty());
     }
 }

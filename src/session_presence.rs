@@ -1,6 +1,6 @@
 //! Canonical projection from lifecycle or relay facts to public presence.
 
-use crate::session_state::{semantic_change_at, SessionState};
+use crate::session_state::SessionState;
 use crate::state::{Session, Status, Store};
 use std::collections::BTreeSet;
 
@@ -92,44 +92,19 @@ pub(crate) fn publication(
     }
 }
 
-/// Project a signed remote lease. Expiry is an observer fact and therefore can
-/// make a remote session offline without rewriting the owner's semantic state.
-pub(crate) fn remote(status: &Status, now: u64) -> PublicPresence {
-    observed(
-        status.state,
-        status.state_since,
-        &status.title,
-        &status.activity,
-        status.last_seen,
-        Some(status.expiration),
-        now,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn observed(
-    reported_state: SessionState,
-    state_since: u64,
-    title: &str,
-    activity: &str,
-    observed_at: u64,
-    expiration: Option<u64>,
-    now: u64,
-) -> PublicPresence {
-    let live = expiration.is_none_or(|expires_at| expires_at >= now);
-    let state = reported_state.observed(live);
+/// Project a current signed remote status Row. NMP has already applied NIP-40
+/// expiry; absence, rather than a second Mosaico clock, represents offline.
+pub(crate) fn remote(status: &Status) -> PublicPresence {
     PublicPresence {
-        state,
-        state_since: expiration
-            .map(|expires_at| semantic_change_at(reported_state, state_since, expires_at, now))
-            .unwrap_or(state_since),
-        title: title.to_string(),
-        activity: if state.is_working() {
-            activity.to_string()
+        state: status.state,
+        state_since: status.state_since,
+        title: status.title.clone(),
+        activity: if status.state.is_working() {
+            status.activity.clone()
         } else {
             String::new()
         },
-        observed_at,
+        observed_at: status.last_seen,
     }
 }
 
@@ -192,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_expiry_changes_state_time_without_using_observation_time() {
+    fn current_remote_row_preserves_the_reported_semantic_state() {
         let status = Status {
             pubkey: "peer".into(),
             channel_h: "room".into(),
@@ -207,10 +182,10 @@ mod tests {
             updated_at: 90,
             expiration: 120,
         };
-        let projected = remote(&status, 121);
-        assert_eq!(projected.state, SessionState::Offline);
-        assert_eq!(projected.state_since, 121);
+        let projected = remote(&status);
+        assert_eq!(projected.state, SessionState::Working);
+        assert_eq!(projected.state_since, 90);
         assert_eq!(projected.observed_at, 115);
-        assert!(projected.activity.is_empty());
+        assert_eq!(projected.activity, "Working");
     }
 }

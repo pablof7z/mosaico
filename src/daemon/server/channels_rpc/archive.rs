@@ -21,13 +21,16 @@ pub(in crate::daemon::server) async fn archive_channel(
 ) -> Result<serde_json::Value> {
     let channel_ref = state
         .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
-    let current = state
-        .with_store(|s| s.get_channel(channel))?
+    let delivered = state.provider().group_snapshot(channel).await?;
+    let snapshots = [delivered];
+    let groups = crate::nmp_views::GroupProjection::new(&snapshots);
+    let current = groups
+        .get_channel(channel)
         .with_context(|| format!("resolved channel {channel_ref} has no metadata row"))?;
     let archived_about = crate::state::archived_channel_about(&current.about);
 
-    let event_id = if current.about == archived_about {
-        String::new()
+    let (event_id, metadata_confirmed) = if current.about == archived_about {
+        (String::new(), true)
     } else {
         let mgmt_keys = state.management_keys()?;
         let builder = crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::edit_metadata(
@@ -36,21 +39,15 @@ pub(in crate::daemon::server) async fn archive_channel(
                 ..nmp_nip29::GroupMetadataEdit::default()
             },
         ));
-        state
+        let event_id = state
             .nmp()
-            .publish_group(channel, builder, &mgmt_keys)?
-            .to_hex()
+            .publish_group_and_wait(channel, builder, &mgmt_keys)
+            .await
+            .context("publishing archived channel metadata")?;
+        (event_id.to_hex(), true)
     };
-    // Best-effort refresh only: `metadata_confirmed` below stays false when
-    // current relay acquisition fails, so cached state cannot claim success.
-    let _ = state
-        .provider()
-        .fetch_and_materialize_channel(channel)
-        .await;
-    let metadata_confirmed = state.with_store(|s| s.is_archived_channel(channel))?;
 
-    refresh_channel_members_cache(state, channel).await;
-    let members = state.with_store(|s| s.list_channel_members(channel))?;
+    let members = groups.list_channel_members(channel);
     let admins = members.iter().filter(|m| m.role == "admin").count();
     let remove_targets = archive_removal_targets(&members);
     if !remove_targets.is_empty() {

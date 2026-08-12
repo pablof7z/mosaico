@@ -206,10 +206,11 @@ stream: {"item": {"category": "…", "channel": "#root/child", …}} // repeated
         … until client disconnects (Ctrl-C)
 ```
 The daemon resolves the requested full path, ensures NMP observation coverage,
-then forwards structured events emitted by the materializer and daemon
-lifecycle. Backfill comes from the canonical store; live events come from the
-daemon's bounded tail broadcast. Every streamed `channel` is a full public path;
-opaque protocol identifiers remain inside the daemon.
+then forwards structured events from the current NMP-delivered view and daemon
+lifecycle. Initial rows and live changes share that retained observation; there
+is no SQLite event backfill. NMP removals therefore cannot remain visible as a
+local relay cache. Every streamed `channel` is a full public path; opaque
+protocol identifiers remain inside the daemon.
 
 ### Channels
 The channel addressing contract (every public `"channel"` argument is a full
@@ -221,7 +222,7 @@ and the channel lifecycle/membership RPCs — `root_channels`, `channel_edit`,
 [daemon-rpc-channels.md](daemon-rpc-channels.md).
 
 ### Channel messaging
-The streaming read, local-cache search, send, reply, and blocking wait
+The streaming read, current-observation search, send, reply, and blocking wait
 contracts live in
 [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 

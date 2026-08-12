@@ -62,8 +62,8 @@ pub(in crate::daemon::server) fn rpc_who(
     let now = now_secs();
     let host = state.host().clone();
     // This daemon's own management pubkey, excluded from every rendered roster so
-    // the backend key never appears as a channel member (its kind:0 is absent on a
-    // cold cache, so identity — not a fetched profile — is the reliable signal).
+    // the backend key never appears as a channel member (its kind:0 may be absent,
+    // so identity — not profile-row availability — is the reliable signal).
     let backend_pk = state.backend_pubkey().unwrap_or_default();
     let mut snapshot = state.with_store(|s| {
         crate::who_snapshot::load_who_snapshot(s, current_root.as_deref(), now, &host)
@@ -146,10 +146,10 @@ fn publicize_snapshot(
 /// bound workspace — the set `who --all-workspaces` fans its unified fabric
 /// render across.
 ///
-/// Deliberately "everything cached", because that is what the operator asked
-/// to see. It is NOT the set this backend manages, and must not be reused as
-/// one: that question is answered by the relay-signed admin lists
-/// (`backend_profile::managed_roots`), not by what happens to be cached.
+/// Deliberately every currently projected root, because that is what the
+/// operator asked to see. It is NOT the set this backend manages, and must not
+/// be reused as one: that question is answered by the relay-signed admin lists
+/// (`backend_profile::managed_roots`), not by current projection availability.
 fn all_known_roots(store: &crate::state::Store) -> Result<Vec<String>> {
     let mut roots = store
         .reader()

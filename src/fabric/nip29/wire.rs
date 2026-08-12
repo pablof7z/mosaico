@@ -238,7 +238,8 @@ impl Nip29WireCodec {
                 }))
             }
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {
-                // Slug is NOT on the wire; resolved by the materializer.
+                // Slug is not on the wire; product decoding resolves it from
+                // the current NMP profile view.
                 from: AgentRef::new(pubkey, String::new()),
                 channel: channel_from_tags(event)?,
                 body: event.content.clone(),
@@ -247,16 +248,15 @@ impl Nip29WireCodec {
             })),
             KIND_REACTION => {
                 // A reaction MUST reference a target message via an `e` tag. A
-                // bare kind:7 (no `e`) is not a domain reaction — returning None
-                // lets it fall through to the verbatim relay_events cache.
+                // bare kind:7 (no `e`) is not a domain reaction.
                 let target_event_id = first_tag(event, "e")?.to_string();
                 // TRUST BOUNDARY: the content of an inbound kind:7 is untrusted —
                 // an adversarial member could e-tag one of the target's messages
                 // with a large or multi-line natural-language payload that would
                 // otherwise land verbatim in the target's turn-start awareness
                 // (prompt injection / token bloat). Reject anything that is not a
-                // bounded emoji here; an invalid reaction falls through to the
-                // verbatim relay_events cache and is never surfaced as awareness.
+                // bounded emoji here; an invalid reaction is never surfaced as
+                // product awareness.
                 if !Reaction::emoji_is_valid(&event.content) {
                     return None;
                 }

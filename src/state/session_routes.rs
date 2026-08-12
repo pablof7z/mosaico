@@ -18,6 +18,7 @@ impl Store {
         lifecycle_epoch: u64,
         now: u64,
     ) -> Result<ConfirmedAdmissionCommit> {
+        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
@@ -45,10 +46,9 @@ impl Store {
         transaction.execute(
             "INSERT INTO session_channels
                  (pubkey, channel_h, joined_at, joined_event_seq)
-             VALUES (?1, ?2, ?3,
-                     (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(pubkey, channel_h) DO NOTHING",
-            params![pubkey, channel_h, now],
+            params![pubkey, channel_h, now, joined_event_seq],
         )?;
         transaction.execute(
             "INSERT INTO session_standing
@@ -161,12 +161,12 @@ impl Store {
         if channel_h.trim().is_empty() {
             return Ok(());
         }
+        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
         self.conn.execute(
             "INSERT OR IGNORE INTO session_channels
                  (pubkey, channel_h, joined_at, joined_event_seq)
-             VALUES (?1, ?2, ?3,
-                     (SELECT COALESCE(MAX(rowid), 0) FROM relay_events))",
-            params![pubkey, channel_h, joined_at],
+             VALUES (?1, ?2, ?3, ?4)",
+            params![pubkey, channel_h, joined_at, joined_event_seq],
         )?;
         Ok(())
     }
@@ -194,20 +194,27 @@ impl Store {
         channel_h: &str,
         event_id: &str,
     ) -> Result<bool> {
-        Ok(self.conn.query_row(
-            "SELECT EXISTS(
-                 SELECT 1
-                   FROM session_channels membership
-                   JOIN relay_events event ON event.id=?3
-                  WHERE membership.pubkey=?1
-                    AND membership.channel_h=?2
-                    AND event.channel_h=?2
-                    AND event.rowid > membership.joined_event_seq
-                    AND event.created_at >= membership.joined_at
-             )",
-            params![pubkey, channel_h, event_id],
-            |row| row.get(0),
-        )?)
+        let membership = self
+            .conn
+            .query_row(
+                "SELECT joined_at, joined_event_seq FROM session_channels
+                 WHERE pubkey=?1 AND channel_h=?2",
+                params![pubkey, channel_h],
+                |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)),
+            )
+            .optional()?;
+        let Some((joined_at, joined_event_seq)) = membership else {
+            return Ok(false);
+        };
+        let Some(event) = self.nmp_views.event(event_id) else {
+            return Ok(false);
+        };
+        let Some(arrival_sequence) = self.nmp_arrival_sequence(event_id)? else {
+            return Ok(false);
+        };
+        Ok(event.channel_h == channel_h
+            && arrival_sequence > joined_event_seq
+            && event.created_at >= joined_at)
     }
 
     pub fn list_session_routes(&self, pubkey: &str) -> Result<Vec<(String, u64)>> {

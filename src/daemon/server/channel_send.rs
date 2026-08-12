@@ -63,20 +63,15 @@ fn prepare_outbound_message(
     crate::attachment::prepare_message(message, attachments)
 }
 
-fn persist_attachment_directory_then_deliver<T>(
-    event_id: &str,
-    persist: impl FnOnce() -> Result<bool>,
-    deliver: impl FnOnce() -> Result<T>,
-) -> Result<T> {
+fn persist_attachment_directory(event_id: &str, persist: impl FnOnce() -> Result<bool>) {
     if let Err(error) = persist() {
         tracing::warn!(
             event_id,
             %error,
             "local attachments were copied but their directory could not be persisted; \
-             delivering ordinary message"
+             continuing without a local attachment directory"
         );
     }
-    deliver()
 }
 
 fn chat_publish_scope(
@@ -151,8 +146,8 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .iter()
         .map(|target| target.label.clone())
         .collect::<Vec<_>>();
-    let recipient_reminders = state
-        .with_store(|store| recipient_notice::suspension_reminders(store, &tagged, now_secs()))?;
+    let recipient_reminders =
+        state.with_store(|store| recipient_notice::suspension_reminders(store, &tagged))?;
     let publish_scope = chat_publish_scope(
         &destination,
         pinned_destination.as_deref(),
@@ -167,7 +162,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 &publish_scope,
                 &rec.pubkey,
                 &backend_pubkey,
-                now_secs(),
             )
         }) {
             Ok(notice) => notice,
@@ -184,19 +178,12 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // first upload, so an overlong/unsafe request cannot orphan a Blossom blob.
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
-    let from_pubkey = instance.pubkey.clone();
     let relays = &state.config().relays;
     let uploaded_attachments =
         crate::attachment::upload_all(&p.attachments, relays, &state.nmp(), &chat_signing_keys)
             .await?;
     let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
     let body_to_send = formatted.wire;
-    // Local visibility and inbox routing must use the same channel as the signed
-    // event's `h` tag. Otherwise relay readback of our own event can disagree
-    // with the locally-seeded row and the primary-key de-dupe preserves the wrong
-    // scope.
-    let deliver_scope = publish_scope.clone();
-
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: publish_scope.clone(),
@@ -207,15 +194,13 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // Keep the exact lifecycle fence through local publish acceptance. A
     // concurrent forget cannot delete the route/signing authority after this
     // check and still let the retained key publish before relay cleanup.
-    let _standing_lane =
+    let publish_fence =
         super::managed_lifecycle::lock_session_route_for_publish(state, &rec, &publish_scope)
             .await?;
-    let published = state
-        .provider()
-        .publish_chat_checked(&chat, &chat_signing_keys)
+    let published = publish_fence
+        .publish_chat(state, &chat, &chat_signing_keys)
         .await?;
     let event_id = published.event_id;
-    let created_at = published.created_at;
     let local_directory = match crate::attachment_receive::copy_local(
         &state.config().attachment_receive_directory,
         &event_id,
@@ -226,53 +211,18 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
             tracing::warn!(
                 event_id,
                 %error,
-                "local attachment copy failed; delivering ordinary message without files"
+                "local attachment copy failed; continuing without a local attachment directory"
             );
             None
         }
     };
-    // Relays need not echo a successful publish to this connection. Use the
-    // same ownership router as inbound events so local direct delivery is
-    // durable even when the target is stopped or has no channel route.
-    persist_attachment_directory_then_deliver(
-        &event_id,
-        || match local_directory.as_ref() {
-            Some(directory) => {
-                state.with_store(|store| store.set_message_attachment_dir(&event_id, directory))
-            }
-            None => Ok(false),
-        },
-        || {
-            super::direct_mentions::route(
-                state,
-                super::direct_mentions::DirectMention {
-                    event_id: &event_id,
-                    from_pubkey: &from_pubkey,
-                    channel_h: &deliver_scope,
-                    body: &body_to_send,
-                    created_at,
-                    target_pubkeys: &mentioned_pubkeys,
-                    attachments: &uploaded_attachments,
-                },
-            )
-        },
-    )?;
-
-    let from_label = instance.display_slug();
-    state.emit_tail(TailEvent::Msg {
-        ts: created_at,
-        channel: deliver_scope.clone(),
-        from: from_label,
-        to: if mentioned_pubkeys.is_empty() {
-            "channel-chat".to_string()
-        } else {
-            mentioned_pubkeys
-                .iter()
-                .map(|pubkey| pubkey_short(pubkey))
-                .collect::<Vec<_>>()
-                .join(",")
-        },
-        body: body_to_send.chars().take(200).collect(),
+    // Publish acceptance is not observation. Keep only the product-local file
+    // path here; the NMP Added row is the sole trigger for message routing.
+    persist_attachment_directory(&event_id, || match local_directory.as_ref() {
+        Some(directory) => {
+            state.with_store(|store| store.set_message_attachment_dir(&event_id, directory))
+        }
+        None => Ok(false),
     });
 
     let channel_ref = state

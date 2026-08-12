@@ -1,21 +1,40 @@
 use super::projection::{build, ListMode};
 use super::*;
-use crate::state::{RecordMessage, Store};
-
-fn channel(store: &Store, id: &str, name: &str, about: &str, parent: &str, at: u64) {
-    store.upsert_channel(id, name, about, parent, at).unwrap();
-}
+use crate::state::{Profile, RelayEvent, Store, TestGroup, TestGroupDelivery, TestRelayDelivery};
 
 fn topology() -> Store {
+    topology_with_records(None, None, None)
+}
+
+fn topology_with_records(
+    own_admins: Option<Vec<String>>,
+    own_members: Option<Vec<String>>,
+    acquiring_alpha_members: Option<Vec<String>>,
+) -> Store {
     let store = Store::open_memory().unwrap();
-    channel(&store, "own", "general", "Primary workspace", "", 1);
-    channel(&store, "alpha-h", "alpha", "Alpha work", "own", 2);
-    channel(&store, "deep-h", "deep", "Deep work", "alpha-h", 3);
-    channel(&store, "joined", "general", "Peer workspace", "", 1);
-    channel(&store, "review-h", "review", "Review work", "joined", 2);
-    channel(&store, "dev2", "general", "Other workspace", "", 1);
-    channel(&store, "one-h", "one", "First", "dev2", 2);
-    channel(&store, "two-h", "two", "Second", "one-h", 3);
+    let mut own = TestGroup::new("own").metadata("general", "Primary workspace", "", 1);
+    if let Some(admins) = own_admins {
+        own = own.admins(admins);
+    }
+    if let Some(members) = own_members {
+        own = own.members(members);
+    }
+    let mut alpha = TestGroup::new("alpha-h").metadata("alpha", "Alpha work", "own", 2);
+    if let Some(members) = acquiring_alpha_members {
+        alpha = alpha
+            .members(members)
+            .availability(nmp::nip29::GroupAvailability::Acquiring);
+    }
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        own,
+        alpha,
+        TestGroup::new("deep-h").metadata("deep", "Deep work", "alpha-h", 3),
+        TestGroup::new("joined").metadata("general", "Peer workspace", "", 1),
+        TestGroup::new("review-h").metadata("review", "Review work", "joined", 2),
+        TestGroup::new("dev2").metadata("general", "Other workspace", "", 1),
+        TestGroup::new("one-h").metadata("one", "First", "dev2", 2),
+        TestGroup::new("two-h").metadata("two", "Second", "one-h", 3),
+    ]));
     store
 }
 
@@ -97,46 +116,66 @@ fn recursive_view_expands_unjoined_roots_without_opaque_ids() {
 }
 
 #[test]
-fn counts_named_agents_only_when_both_roster_snapshots_are_hydrated() {
-    let store = topology();
-    store
-        .upsert_profile_with_agent_slug(
-            "agent-pk", "reviewer", "reviewer", "reviewer", "laptop", false, 1,
-        )
-        .unwrap();
-    store
-        .upsert_profile("human-pk", "Pablo", "pablo", "laptop", false, 1)
-        .unwrap();
-    store
-        .upsert_profile("backend-pk", "backend", "backend", "laptop", true, 1)
-        .unwrap();
-    store
-        .replace_channel_members(
-            "own",
-            &["agent-pk".into(), "human-pk".into(), "backend-pk".into()],
-            2,
-        )
-        .unwrap();
-    store
-        .replace_channel_admins("own", &["backend-pk".into(), "unknown-admin".into()], 2)
-        .unwrap();
-    // Only one of the two relay-authored sets has arrived for alpha.
-    store
-        .replace_channel_members("alpha-h", &["agent-pk".into()], 2)
-        .unwrap();
-    store
-        .record_message(&RecordMessage {
-            message_id: "msg".into(),
-            thread_id: "msg".into(),
-            channel_h: "own".into(),
-            author_pubkey: "agent-pk".into(),
-            body: "hello".into(),
-            created_at: 40,
-            sync_state: "accepted".into(),
-            native_event_id: Some("event".into()),
-            error: None,
-        })
-        .unwrap();
+fn counts_named_agents_only_when_group_state_is_available() {
+    let store = topology_with_records(
+        Some(vec!["backend-pk".into(), "unknown-admin".into()]),
+        Some(vec![
+            "agent-pk".into(),
+            "human-pk".into(),
+            "backend-pk".into(),
+        ]),
+        Some(vec!["agent-pk".into()]),
+    );
+    // NMP reports the child group as still acquiring, so its member count is
+    // not yet a complete product fact.
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles([
+                Profile {
+                    pubkey: "agent-pk".into(),
+                    name: "reviewer".into(),
+                    slug: "reviewer".into(),
+                    agent_slug: "reviewer".into(),
+                    host: "laptop".into(),
+                    is_backend: false,
+                    agents: Vec::new(),
+                    workspaces: Vec::new(),
+                    updated_at: 1,
+                },
+                Profile {
+                    pubkey: "human-pk".into(),
+                    name: "Pablo".into(),
+                    slug: "pablo".into(),
+                    agent_slug: String::new(),
+                    host: "laptop".into(),
+                    is_backend: false,
+                    agents: Vec::new(),
+                    workspaces: Vec::new(),
+                    updated_at: 1,
+                },
+                Profile {
+                    pubkey: "backend-pk".into(),
+                    name: "backend".into(),
+                    slug: "backend".into(),
+                    agent_slug: "backend".into(),
+                    host: "laptop".into(),
+                    is_backend: true,
+                    agents: Vec::new(),
+                    workspaces: Vec::new(),
+                    updated_at: 1,
+                },
+            ])
+            .events([RelayEvent {
+                id: "msg".into(),
+                kind: 9,
+                pubkey: "agent-pk".into(),
+                created_at: 40,
+                channel_h: "own".into(),
+                d_tag: String::new(),
+                content: "hello".into(),
+                tags_json: "[]".into(),
+            }]),
+    );
 
     let view = build(&store, ListMode::Workspace("own".into()), 100, "backend-pk").unwrap();
     let root = &view.sections[0].channels[0];
@@ -154,7 +193,9 @@ fn counts_named_agents_only_when_both_roster_snapshots_are_hydrated() {
 #[test]
 fn compact_empty_root_has_no_zero_subchannel_suffix() {
     let store = Store::open_memory().unwrap();
-    channel(&store, "solo", "general", "No children", "", 1);
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        TestGroup::new("solo").metadata("general", "No children", "", 1)
+    ]));
     let view = build(&store, ListMode::All, 10, "").unwrap();
 
     let solo = &view.sections[0].channels[0];
@@ -164,11 +205,7 @@ fn compact_empty_root_has_no_zero_subchannel_suffix() {
 
 #[test]
 fn hydrated_roster_with_an_unclassified_identity_omits_the_agent_count() {
-    let store = topology();
-    store
-        .replace_channel_members("own", &["unknown-pk".into()], 2)
-        .unwrap();
-    store.replace_channel_admins("own", &[], 2).unwrap();
+    let store = topology_with_records(Some(Vec::new()), Some(vec!["unknown-pk".into()]), None);
 
     let view = build(&store, ListMode::Workspace("own".into()), 10, "").unwrap();
     assert_eq!(view.sections[0].channels[0].agents, None);

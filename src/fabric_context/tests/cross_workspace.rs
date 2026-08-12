@@ -2,42 +2,45 @@ use super::*;
 use crate::reconcile::hook_context::HookContextState;
 
 fn add_workspace(store: &Store) {
-    store
-        .upsert_channel("remote", "general", "Remote room", "", 1)
-        .unwrap();
-    store
-        .upsert_channel("review-h", "review", "Review room", "remote", 1)
-        .unwrap();
-    for channel in ["remote", "review-h"] {
-        store.replace_channel_members(channel, &[], 1).unwrap();
-        store.replace_channel_admins(channel, &[], 1).unwrap();
-    }
+    install_workspace_delivery(store, &[]);
 }
 
-fn put_status(
-    store: &Store,
+fn install_workspace_delivery(store: &Store, remote_members: &[&str]) {
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group(),
+        task_group(),
+        TestGroup::new("remote")
+            .metadata("general", "Remote room", "", 1)
+            .admins(Vec::new())
+            .members(pubkeys(remote_members)),
+        TestGroup::new("review-h")
+            .metadata("review", "Review room", "remote", 1)
+            .admins(Vec::new())
+            .members(Vec::new()),
+    ]));
+}
+
+fn projected_status(
     pubkey: &str,
     channel: &str,
     activity: &str,
     updated_at: u64,
     expiration: u64,
-) {
-    store
-        .upsert_status(&Status {
-            pubkey: pubkey.into(),
-            channel_h: channel.into(),
-            slug: "reviewer".into(),
-            title: "Reviewing".into(),
-            activity: activity.into(),
-            workspace: if channel == "root" { "root" } else { "remote" }.into(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Working,
-            state_since: updated_at,
-            last_seen: updated_at,
-            updated_at,
-            expiration,
-        })
-        .unwrap();
+) -> Status {
+    Status {
+        pubkey: pubkey.into(),
+        channel_h: channel.into(),
+        slug: "reviewer".into(),
+        title: "Reviewing".into(),
+        activity: activity.into(),
+        workspace: if channel == "root" { "root" } else { "remote" }.into(),
+        branch: String::new(),
+        state: crate::session_state::SessionState::Working,
+        state_since: updated_at,
+        last_seen: updated_at,
+        updated_at,
+        expiration,
+    }
 }
 
 #[test]
@@ -45,15 +48,20 @@ fn outside_workspace_is_a_compact_root_and_does_not_leak_presence_or_chatter() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    put_status(&store, OTHER_PK, "remote", "coordinating release", 250, 500);
-    put_status(&store, OTHER_PK, "review-h", "reviewing patch", 260, 500);
-    chat(
-        &store,
-        "remote-chat",
-        "review-h",
-        270,
-        "private unjoined chatter",
-        "[]",
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([
+                projected_status(OTHER_PK, "remote", "coordinating release", 250, 500),
+                projected_status(OTHER_PK, "review-h", "reviewing patch", 260, 500),
+            ])
+            .events([chat(
+                "remote-chat",
+                "review-h",
+                270,
+                "private unjoined chatter",
+                "[]",
+            )]),
     );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false));
@@ -94,14 +102,12 @@ fn outside_workspace_departures_do_not_expand_the_compact_root() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    store
-        .replace_channel_members("remote", &[OTHER_PK.into()], 150)
-        .unwrap();
+    install_workspace_delivery(&store, &[OTHER_PK]);
     let mut state = HookContextState::default();
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     state.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.replace_channel_members("remote", &[], 175).unwrap();
+    install_workspace_delivery(&store, &[]);
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     let outcome = state.render_context(&rec.pubkey, "turn_start", 200, 300, after);
 
@@ -117,7 +123,17 @@ fn unscoped_session_sees_known_roots_without_expanding_them() {
     let store = seed_store();
     let rec = session_record(&store, "unscoped", "");
     add_workspace(&store);
-    put_status(&store, OTHER_PK, "remote", "coordinating release", 250, 500);
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([projected_status(
+                OTHER_PK,
+                "remote",
+                "coordinating release",
+                250,
+                500,
+            )]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "", 0, 300, true))
         .expect("full briefing should orient an unscoped session");
@@ -132,10 +148,16 @@ fn current_workspace_delta_omits_outside_workspace_statuses() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    put_status(&store, OTHER_PK, "remote", "old work", 150, 500);
-    put_status(&store, OTHER_PK, "remote", "expired work", 250, 299);
-    put_status(&store, SELF_PK, "remote", "self work", 250, 500);
-    put_status(&store, OTHER_PK, "root", "current workspace work", 250, 500);
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([
+                projected_status(OTHER_PK, "remote", "old work", 150, 500),
+                projected_status(OTHER_PK, "remote", "newer outside work", 250, 500),
+                projected_status(SELF_PK, "remote", "self work", 250, 500),
+                projected_status(OTHER_PK, "root", "current workspace work", 250, 500),
+            ]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("current workspace activity should render");
@@ -143,6 +165,6 @@ fn current_workspace_delta_omits_outside_workspace_statuses() {
     assert!(!text.contains("<channel name=\"/remote\""), "{text}");
     assert!(!text.contains("old work"), "{text}");
     assert!(!text.contains("state=\"offline\""), "{text}");
-    assert!(!text.contains("expired work"), "{text}");
+    assert!(!text.contains("newer outside work"), "{text}");
     assert!(!text.contains("self work"), "{text}");
 }

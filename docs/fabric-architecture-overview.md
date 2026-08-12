@@ -1,85 +1,80 @@
 # mosaico — Fabric Architecture (overview)
 
-> The one-page version. For the schema and implementation boundaries, see
+> The one-page version. For the full ownership and provider boundaries, see
 > [`fabric-architecture.md`](./fabric-architecture.md).
 
 ## The one idea
 
-**Everything is read from a single local store. How the data got there is
-irrelevant to anyone reading it.**
+**NMP owns relay state. Mosaico owns product-local continuity.**
 
-That's the whole design. The current *fabric* is NIP-29 groups over Nostr. A
-future provider may use another protocol, but readers never see that choice.
+NMP retained observations are the sole authority for current groups, profiles,
+statuses, events, messages, recipients, and reactions. Mosaico may adapt an
+observation into a process-local product view, but it does not copy that state
+into SQLite, choose replacement winners, invent freshness, or preserve a row
+after NMP removes it.
 
 ```mermaid
 flowchart LR
-    FABRICS["fabric<br/>NIP-29 over Nostr"]
-    PROVIDER["Provider<br/>(write side)"]
-    STORE[("local store")]
-    READERS["readers<br/>CLI · hooks · adapters"]
-    FABRICS --> PROVIDER -- writes --> STORE -- reads --> READERS
+    RELAYS["Nostr relays"]
+    NMP["NMP<br/>retained observations · signing<br/>durable writes · receipts · retries"]
+    VIEWS["process-local product views"]
+    LOCAL[("Mosaico state.db<br/>sessions · routes · inbox · claims<br/>arrival cursor · attachment directories")]
+    READERS["CLI · hooks · adapters"]
+    INTENTS["product intents"]
+
+    RELAYS <--> NMP
+    NMP -- current delivered state --> VIEWS --> READERS
+    LOCAL --> READERS
+    INTENTS --> NMP
 ```
 
-- **Readers** ask plain questions: *which projects exist, who's in them, who's
-  online, what are they doing, which threads, which messages, who do I reply to.*
-  Every one is a query against the store. None of them know or care which fabric
-  is in play.
-- **A Provider** is the swap-seam. It declares acquisition demand to the wire
-  substrate, decodes canonical events, decides what's allowed in, and writes
-  canonical rows. For Nostr, NMP owns the live queries, signing, durable writes,
-  receipts, retries, and connection lifecycle. Swapping fabrics means swapping
-  the Provider — nothing a reader touches changes.
+Readers combine two explicitly different sources:
 
-## Two faces, one contract
-
-The seam has two sides, and only one is ever in a reader's path:
-
-| | What it is | Who depends on it |
+| Source | Owns | Lifetime |
 |---|---|---|
-| **Read face** | the store's shape (projects, agents, membership, presence, threads, messages, recipients) | every reader — this is *the* contract |
-| **Write face** | the Provider — materializes inbound, publishes outbound | nobody reads through it |
+| NMP retained observations | Relay-derived groups, profiles, statuses, events, messages, recipients, and reactions | Present only while delivered by the active observation; removal or observation loss removes the view |
+| Mosaico `state.db` | Sessions, routes and join fences, inbox and delivery claims, signer/locator authority, local operational ledgers, event-arrival order, and downloaded attachment directories | Durable across daemon restart until product policy changes it |
 
-So there are two kinds of verb: **reads** (query the store, identical for every
-fabric) and **intents** (send a message, open a project — the only things that
-touch a Provider).
+The distinction is part of every read contract. A missing NMP value cannot be
+filled from a stale Mosaico cache, and a host-local route or inbox claim must not
+be presented as relay membership or delivery evidence.
 
-## Why this shape
+## Reads and intents
 
-Three things fall out of it, and they're the reason it's worth the seam:
-
-1. **The read contract is provider-independent.** Today every workspace uses
-   NIP-29. A future provider can populate the same tables without changing any
-   reader.
-2. **Every per-fabric quirk hides behind the write side.** Who counts as a
-   "member," whether a description is authoritative or local, whether the project
-   list is enumerated or merely *observed* — all of that is *how the Provider
-   fills a cell*. The reader sees a value or a blank, never the reason. When a
-   fabric has no shared truth for something, the store says so honestly (a blank,
-   not a lie).
-3. **The store can have a single writer.** One daemon owns the store and does all
-   the materializing; every session and CLI is a read-only client. That's also
-   the direct fix for the multi-writer corruption we hit when many processes
-   wrote at once.
+- **Reads** use the current NMP observation for shared relay facts and the local
+  store for host-owned continuity. Public DTOs may join those sources, but must
+  preserve their meaning.
+- **Intents** ask the active provider to create a group, change membership,
+  publish chat, or publish status. NMP owns signing, routing, custody, retries,
+  and terminal receipts.
+- **Observation is the state transition.** Publish acceptance means NMP accepted
+  responsibility for the write. It does not create a message, recipient,
+  membership, inbox item, or route. Those effects begin only when the event is
+  delivered by the relevant NMP observation.
 
 ## The membership hinge
 
-One decision recurs everywhere: *is this pubkey allowed?* — shown in the roster,
-gating whether a message is delivered. Its **answer** is uniform; its **source**
-is the Provider's secret (a NIP-29 member list, an MLS roster, a local
-whitelist). And because some fabrics enforce nothing server-side, the check
-always lives on our side, over store rows — never delegated to the wire.
+For NIP-29, the relay enforces writes and NMP's current group observation is the
+membership authority. Mosaico's `session_channels` and `session_standing` rows
+record local routing and reconciliation obligations only. They may survive a
+restart, but they never prove that a pubkey is currently admitted by the relay.
 
-## The reply address
+A direct observed message explicitly p-tagging a daemon-owned pubkey may create
+a durable inbox row for that local identity. Runtime availability then selects
+an executor. Publish acceptance alone and remote p-tags create no local inbox
+work.
 
-A surfaced message has to say *who to reply to*. The event author's pubkey is
-that durable return address, and a current public handle is only its read-side
-alias. Runtime incarnations may change between the original message and the
-reply, so they are selected only at delivery time and never stored on the
-message.
+## Restart behavior
+
+Restart reopens `state.db`, preserving local route fences, inbox/claim state,
+and attachment-directory paths. Relay-derived views start from no local copy and
+repopulate only as NMP delivers the active observations. This makes absence and
+retraction honest: if NMP no longer delivers a relay fact, Mosaico no longer
+shows it.
 
 ## Boundary to preserve
 
-Derived entities such as threads belong in the read model, while provider-specific
-identity hand-offs stay in provider lifecycle code. Outbound rows become canonical
-only after the fabric accepts the write. The spine is unchanged: *read from the
-store, hide the fabric on the write side*.
+Provider-specific encoding and lifecycle reactions stay behind the provider.
+NMP owns protocol truth and transport guarantees. Mosaico owns product policy,
+local execution, and local durability. Neither side reimplements the other's
+state machine.

@@ -190,7 +190,7 @@ fn channel_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
     state.with_store(|s| channel_read_scopes_for_store(s, scope))
 }
 
-/// Render chat JSON, resolving the author from materialized caches and rewriting
+/// Render chat JSON, resolving the author from NMP views and rewriting
 /// `nostr:npub1…`/`nostr:nprofile1…` mentions in the body to `@name`, matching
 /// the hook-injected fabric snapshot (`fabric_context::capture`).
 pub(in crate::daemon::server) fn chat_row_to_json(

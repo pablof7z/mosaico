@@ -1,14 +1,14 @@
 # Message search
 
-Use `mosaico channel search` to find messages already materialized in the
-daemon's local database. Search never queries or backfills from the relay, so a
-missing result means only that no matching message is present in this local
-cache.
+Use `mosaico channel search` to find messages in the daemon's current retained
+NMP observation. Search never opens a second query or backfills from the relay,
+so a missing result means only that no matching message is present in the
+currently delivered rows.
 
 ## Scope
 
 Omitting `--channel` and passing `--channel '#'` are equivalent: both search
-every channel currently represented in the local database. A narrower channel
+every channel currently represented in those rows. A narrower channel
 path includes that channel and every descendant:
 
 ```bash
@@ -19,9 +19,9 @@ There is no workspace filter. A workspace root is an ordinary channel path, so
 `--channel '#nmp'` searches that root and its descendants.
 
 Do not add a local permission check before searching. NIP-29 relay policy owns
-admission and authorization. Once messages have been accepted and materialized
-by the current backend, channel and workspace paths are query scopes rather
-than separate local visibility boundaries.
+admission and authorization. Once messages have been delivered by NMP to the
+current backend, channel and workspace paths are query scopes rather than
+separate local visibility boundaries.
 
 ## Filters
 
@@ -48,7 +48,7 @@ mosaico channel search \
   --since 7d
 ```
 
-This finds locally cached messages authored by Pablo **or** reviewer whose body
+This finds currently observed messages authored by Pablo **or** reviewer whose body
 contains `commit`, within `#nmp/research` or any descendant, during the last
 seven days.
 

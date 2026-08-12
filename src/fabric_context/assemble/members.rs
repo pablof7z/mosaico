@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use super::projected_presence;
 use crate::fabric_context::capture::{MembersInput, StatusCap, ViewInputs};
@@ -12,7 +12,7 @@ use crate::util::relative_time;
 /// lifecycle fact, and a peer we have merely seen talking has no lifecycle we
 /// can vouch for. Nameable roster members remain visible even without activity;
 /// their row simply omits state, status, and since. Only an unaddressable member
-/// is withheld while its profile is fetched.
+/// is withheld until a current profile row gives it a usable name.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
     inputs
         .members
@@ -46,10 +46,10 @@ pub(in crate::fabric_context) fn member_row(
         .get(channel)
         .map(Vec::as_slice)
         .unwrap_or_default();
-    let status_map = live_status_map(statuses, now);
+    let status_map = status_map(statuses);
     let is_self = pubkey == inputs.meta.self_pubkey;
     let status = status_map.get(pubkey);
-    let presence = status.map(|status| projected_presence(status, now));
+    let presence = status.map(|status| projected_presence(status));
     // A live heartbeat owns both the state label and its `since`; without one,
     // the most recent thing the member said stands in for liveness.
     let (state, since) = match presence.as_ref() {
@@ -144,40 +144,19 @@ fn member_origin(
 }
 
 /// Whether the member has a name an agent could actually address. A kind:0
-/// handle is the durable answer; a live status carries its own public slug and
-/// stands in when the profile has not been fetched yet. With neither, the only
+/// handle is the durable answer; a current status carries its own public slug
+/// and stands in when no profile row is currently available. With neither, the only
 /// thing [`reference`] can produce is a truncated pubkey — a row that costs the
 /// agent attention and gives it nothing to act on.
 fn addressable(members: &MembersInput, pk: &str, status: Option<&&StatusCap>) -> bool {
     members.has_handle(pk) || status.is_some_and(|s| !s.slug.trim().is_empty())
 }
 
-/// Roster pubkeys with no resolvable kind:0 handle, across every captured
-/// channel. The daemon turns this into a debounced profile refetch, so a roster
-/// that had to withhold or improvise a name repairs itself on a later turn
-/// instead of staying degraded. Self and this daemon's own backend key are never
-/// included.
-pub(crate) fn missing_profile_pubkeys(inputs: &ViewInputs) -> Vec<String> {
-    let members = &inputs.members;
-    let self_pubkey = &inputs.meta.self_pubkey;
-    members
-        .roster
-        .values()
-        .flat_map(BTreeMap::keys)
-        .filter(|pk| *pk != self_pubkey && !members.backend.contains(*pk))
-        .filter(|pk| !members.has_handle(pk))
-        .cloned()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
-}
-
-/// Live statuses keyed by pubkey, preserving the updated_at DESC last insert.
-fn live_status_map(statuses: &[StatusCap], now: u64) -> BTreeMap<String, &StatusCap> {
+/// NMP-current statuses keyed by pubkey, preserving delivery order.
+fn status_map(statuses: &[StatusCap]) -> BTreeMap<String, &StatusCap> {
     statuses
         .iter()
-        .filter(|s| s.expiration.is_none_or(|expiration| expiration >= now))
-        .map(|s| (s.pubkey.clone(), s))
+        .map(|status| (status.pubkey.clone(), status))
         .collect()
 }
 

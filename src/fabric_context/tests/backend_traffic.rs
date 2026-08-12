@@ -1,26 +1,32 @@
 use crate::fabric_context::{
     assemble, capture_inputs, render_fabric_context, render_view_text, FabricContextInput,
 };
-use crate::state::{RelayEvent, Store};
+use crate::state::RelayEvent;
 
-use super::{publish_idle_status, seed_store, session, OTHER_PK, SELF_PK};
+use super::{
+    idle_status, profile, root_group_with_roster, seed_profiles, seed_store, session, task_group,
+    TestGroupDelivery, TestRelayDelivery, OTHER_PK, SELF_PK,
+};
 
 /// The daemon's own management pubkey is excluded from the roster by identity,
-/// even when it has no cached kind:0 profile.
+/// even when its kind:0 profile is absent from the current NMP view.
 #[test]
-fn backend_pubkey_excluded_from_roster_without_cached_profile() {
+fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
     const MGMT_PK: &str = "backend-mgmt-pubkey";
     let store = seed_store();
-    store
-        .replace_channel_members(
-            "root",
-            &[SELF_PK.into(), OTHER_PK.into(), MGMT_PK.into()],
-            2,
-        )
-        .unwrap();
-    publish_idle_status(&store, SELF_PK, "coder", "Coding");
-    publish_idle_status(&store, OTHER_PK, "reviewer", "Reviewing");
-    publish_idle_status(&store, MGMT_PK, "backend", "Managing relay");
+    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        root_group_with_roster(&[SELF_PK, OTHER_PK, MGMT_PK], &[]),
+        task_group(),
+    ]));
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([
+                idle_status(SELF_PK, "coder", "Coding"),
+                idle_status(OTHER_PK, "reviewer", "Reviewing"),
+                idle_status(MGMT_PK, "backend", "Managing relay"),
+            ]),
+    );
     let rec = session(&store);
 
     let excluded = |backend_pubkey: &str| -> String {
@@ -79,46 +85,39 @@ fn backend_traffic_excluded_from_chatter() {
     const MGMT_PK: &str = "backend-mgmt-pubkey";
     const REMOTE_BACKEND_PK: &str = "remote-backend-pubkey";
     let store = seed_store();
-    store
-        .upsert_profile(REMOTE_BACKEND_PK, "hub", "hub", "tower", true, 1)
-        .unwrap();
+    let mut profiles = seed_profiles();
+    profiles.push(profile(REMOTE_BACKEND_PK, "hub", "hub", "", "tower", true));
     let rec = session(&store);
 
-    chat_from(
-        &store,
-        "human-msg",
-        "root",
-        OTHER_PK,
-        900,
-        "normal chatter",
-        "[]",
-    );
-    chat_from(
-        &store,
-        "mgmt-msg",
-        "root",
-        MGMT_PK,
-        910,
-        "backend announcement",
-        "[]",
-    );
-    chat_from(
-        &store,
-        "remote-msg",
-        "root",
-        REMOTE_BACKEND_PK,
-        920,
-        "remote backend note",
-        "[]",
-    );
-    chat_from(
-        &store,
-        "to-mgmt",
-        "root",
-        OTHER_PK,
-        930,
-        "hey daemon",
-        &format!("[[\"p\",\"{MGMT_PK}\"]]"),
+    let events = [
+        chat_from("human-msg", "root", OTHER_PK, 900, "normal chatter", "[]"),
+        chat_from(
+            "mgmt-msg",
+            "root",
+            MGMT_PK,
+            910,
+            "backend announcement",
+            "[]",
+        ),
+        chat_from(
+            "remote-msg",
+            "root",
+            REMOTE_BACKEND_PK,
+            920,
+            "remote backend note",
+            "[]",
+        ),
+        chat_from(
+            "to-mgmt",
+            "root",
+            OTHER_PK,
+            930,
+            "hey daemon",
+            &format!("[[\"p\",\"{MGMT_PK}\"]]"),
+        ),
+    ];
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new().profiles(profiles).events(events),
     );
 
     let render = |backend_pubkey: &str| -> String {
@@ -189,24 +188,21 @@ fn backend_traffic_excluded_from_chatter() {
 }
 
 fn chat_from(
-    store: &Store,
     id: &str,
     channel: &str,
     pubkey: &str,
     at: u64,
     body: &str,
     tags_json: &str,
-) {
-    store
-        .insert_event(&RelayEvent {
-            id: id.into(),
-            kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
-            pubkey: pubkey.into(),
-            created_at: at,
-            channel_h: channel.into(),
-            d_tag: String::new(),
-            content: body.into(),
-            tags_json: tags_json.into(),
-        })
-        .unwrap();
+) -> RelayEvent {
+    RelayEvent {
+        id: id.into(),
+        kind: crate::fabric::nip29::wire::KIND_CHAT as u32,
+        pubkey: pubkey.into(),
+        created_at: at,
+        channel_h: channel.into(),
+        d_tag: String::new(),
+        content: body.into(),
+        tags_json: tags_json.into(),
+    }
 }

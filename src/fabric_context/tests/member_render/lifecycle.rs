@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn local_lifecycle_overrides_an_expired_offline_relay_echo() {
+fn local_lifecycle_overrides_an_offline_relay_row() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -15,22 +15,24 @@ fn local_lifecycle_overrides_an_expired_offline_relay_echo() {
             now: 95,
         })
         .unwrap();
-    store
-        .upsert_status(&Status {
-            pubkey: OTHER_PK.into(),
-            channel_h: "root".into(),
-            slug: "reviewer".into(),
-            title: "Recovered session".into(),
-            activity: String::new(),
-            workspace: "root".into(),
-            branch: String::new(),
-            state: crate::session_state::SessionState::Offline,
-            state_since: 100,
-            last_seen: 100,
-            updated_at: 100,
-            expiration: 100,
-        })
-        .unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([Status {
+                pubkey: OTHER_PK.into(),
+                channel_h: "root".into(),
+                slug: "reviewer".into(),
+                title: "Recovered session".into(),
+                activity: String::new(),
+                workspace: "root".into(),
+                branch: String::new(),
+                state: crate::session_state::SessionState::Offline,
+                state_since: 100,
+                last_seen: 100,
+                updated_at: 100,
+                expiration: 100,
+            }]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 101, true))
         .expect("context should render");
@@ -43,7 +45,7 @@ fn local_lifecycle_overrides_an_expired_offline_relay_echo() {
 }
 
 #[test]
-fn suspended_and_offline_deltas_match_both_render_paths() {
+fn suspended_and_working_deltas_follow_the_current_row() {
     let store = seed_store();
     let rec = session(&store);
     let mut peer = Status {
@@ -60,7 +62,11 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
         updated_at: 90,
         expiration: 120,
     };
-    store.upsert_status(&peer).unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([peer.clone()]),
+    );
 
     let suspended = render_fabric_context(&store, input(Some(&rec), "root", 80, 100, true))
         .expect("suspended delta should render");
@@ -81,14 +87,18 @@ fn suspended_and_offline_deltas_match_both_render_paths() {
     peer.activity = "stale live activity".into();
     peer.last_seen = 110;
     peer.updated_at = 110;
-    store.upsert_status(&peer).unwrap();
-    let offline = render_fabric_context(&store, input(Some(&rec), "root", 120, 130, true))
-        .expect("expiry delta should render");
-    assert!(offline.contains("state=\"offline\""), "got: {offline}");
-    assert!(!offline.contains("stale live activity"), "got: {offline}");
-    let captured = capture_inputs(&store, &input(Some(&rec), "root", 120, 130, true)).unwrap();
+    store.install_test_nmp_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([peer]),
+    );
+    let working = render_fabric_context(&store, input(Some(&rec), "root", 100, 130, true))
+        .expect("current status delta should render");
+    assert!(working.contains("state=\"working\""), "got: {working}");
+    assert!(working.contains("stale live activity"), "got: {working}");
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 130, true)).unwrap();
     assert_eq!(
-        render_view_text(&assemble::assemble_view(&captured, 120, 130)),
-        offline
+        render_view_text(&assemble::assemble_view(&captured, 100, 130)),
+        working
     );
 }

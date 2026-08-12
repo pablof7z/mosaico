@@ -33,7 +33,7 @@ impl Store {
             }
             let mut stmt = transaction.prepare(&format!(
                 "SELECT {COLS} FROM inbox
-                 LEFT JOIN messages ON messages.message_id=inbox.event_id
+                 LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
                  WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2"
             ))?;
             let rows = stmt.query_map(params![event_id, target_pubkey], row_to_inbox)?;
@@ -68,7 +68,7 @@ impl Store {
             if changed > 0 {
                 let mut stmt = transaction.prepare(&format!(
                     "SELECT {COLS} FROM inbox
-                     LEFT JOIN messages ON messages.message_id=inbox.event_id
+                     LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
                      WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2"
                 ))?;
                 let rows = stmt.query_map(params![id, target_pubkey], row_to_inbox)?;
@@ -102,7 +102,7 @@ impl Store {
     ) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.target_pubkey=?1
                AND inbox.state IN ('delivered', 'submitted', 'injected', 'echo_consumed')
                AND inbox.delivered_at>=?2
@@ -155,7 +155,7 @@ impl Store {
         for id in event_ids {
             let mut stmt = transaction.prepare(&format!(
                 "SELECT {COLS} FROM inbox
-                 LEFT JOIN messages ON messages.message_id=inbox.event_id
+                 LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
                  WHERE inbox.event_id=?1 AND inbox.target_pubkey=?2
                    AND inbox.state='injected'"
             ))?;
@@ -170,7 +170,7 @@ impl Store {
     pub fn submitted_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.target_pubkey=?1 AND inbox.state='submitted'
              ORDER BY inbox.delivered_at ASC, inbox.created_at ASC"
         ))?;
@@ -181,7 +181,7 @@ impl Store {
     pub fn injected_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {COLS} FROM inbox
-             LEFT JOIN messages ON messages.message_id=inbox.event_id
+             LEFT JOIN message_attachments ON message_attachments.event_id=inbox.event_id
              WHERE inbox.target_pubkey=?1 AND inbox.state='injected'
              ORDER BY inbox.delivered_at ASC, inbox.created_at ASC"
         ))?;

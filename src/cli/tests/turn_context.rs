@@ -8,7 +8,10 @@ mod delivery;
 mod envelope;
 #[path = "turn_context/fixtures.rs"]
 mod fixtures;
-use fixtures::{pub_status, seed_channel, test_session, BACKEND};
+use fixtures::{
+    install_channel_delivery, install_relay_delivery, observed_status, seed_channel, test_session,
+    BACKEND,
+};
 
 /// A quiet headed turn emits no context merely to announce ordinary visibility.
 #[test]
@@ -55,9 +58,7 @@ fn first_turn_renders_awareness_snapshot_not_session_code() {
 fn first_turn_snapshot_uses_bound_instance_identity() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    store
-        .replace_channel_members("proj", &["pk-coder1".to_string()], 2)
-        .unwrap();
+    install_channel_delivery(&store, ["pk-coder1".to_string()]);
     store
         .reserve_hook_session_for_test(&RegisterSession {
             pubkey: "pk-coder1".to_string(),
@@ -76,15 +77,18 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
         .allocate_custom_handle("pk-coder1", "coder", "willow-vale-071", 2)
         .unwrap();
     let now = crate::util::now_secs();
-    pub_status(
+    install_relay_delivery(
         &store,
-        "pk-coder1",
-        "willow-vale-071-coder",
-        "Session instance",
-        "checking hook context",
-        true,
-        now,
-        now,
+        [observed_status(
+            "pk-coder1",
+            "willow-vale-071-coder",
+            "Session instance",
+            "checking hook context",
+            true,
+            now,
+            now,
+        )],
+        [],
     );
     let rec = store.get_session("pk-coder1").unwrap().unwrap();
     let m = Mutex::new(store);
@@ -105,8 +109,10 @@ fn first_turn_snapshot_uses_bound_instance_identity() {
 fn ended_turn_with_cursor_uses_delta_not_snapshot() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    store
-        .insert_event(&crate::state::RelayEvent {
+    install_relay_delivery(
+        &store,
+        [],
+        [crate::state::RelayEvent {
             id: "chat-after-cursor".to_string(),
             kind: 9,
             pubkey: "pk-chat".to_string(),
@@ -115,8 +121,8 @@ fn ended_turn_with_cursor_uses_delta_not_snapshot() {
             d_tag: String::new(),
             content: "new message after prior turn".to_string(),
             tags_json: "[]".to_string(),
-        })
-        .unwrap();
+        }],
+    );
     let mut rec = test_session("sess-ended-turn");
     rec.seen_cursor = 150;
     let m = Mutex::new(store);
@@ -192,18 +198,15 @@ fn turn_check_context_returns_none_when_nothing_due() {
     );
 }
 
-/// Mid-turn delta: a sibling's relay_status change in the same channel surfaces
+/// Mid-turn delta: a sibling's observed status change in the same channel surfaces
 /// with its activity line; the viewer's own status (same pubkey) is excluded.
 #[test]
 fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    store
-        .replace_channel_members("proj", &["pk-coder".into(), "pk-sib".into()], 2)
-        .unwrap();
+    install_channel_delivery(&store, ["pk-coder".into(), "pk-sib".into()]);
     // Sibling changed after the cursor (50) and is still live at now=200.
-    pub_status(
-        &store,
+    let sibling = observed_status(
         "pk-sib",
         "sib",
         "Refactor PTY hosting",
@@ -213,16 +216,8 @@ fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
         200,
     );
     // The viewer's own status also changed — must NOT echo back.
-    pub_status(
-        &store,
-        "pk-coder",
-        "coder",
-        "My own work",
-        "typing",
-        true,
-        180,
-        200,
-    );
+    let own = observed_status("pk-coder", "coder", "My own work", "typing", true, 180, 200);
+    install_relay_delivery(&store, [sibling, own], []);
     let m = Mutex::new(store);
 
     let text = assemble_turn_check_context(&m, &test_session("sess-me"), "laptop", Some(50), 200)
@@ -247,15 +242,18 @@ fn turn_check_delta_shows_siblings_with_activity_excludes_self() {
 fn turn_check_delta_suppressed_when_not_due() {
     let store = Store::open_memory().unwrap();
     seed_channel(&store);
-    pub_status(
+    install_relay_delivery(
         &store,
-        "pk-sib",
-        "sib",
-        "Refactor PTY hosting",
-        "",
-        true,
-        180,
-        200,
+        [observed_status(
+            "pk-sib",
+            "sib",
+            "Refactor PTY hosting",
+            "",
+            true,
+            180,
+            200,
+        )],
+        [],
     );
     let m = Mutex::new(store);
 

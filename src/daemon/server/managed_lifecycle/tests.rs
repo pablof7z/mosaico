@@ -32,9 +32,13 @@ async fn publish_fence_blocks_forget_and_rejects_the_forgotten_generation() {
     let session = reserve_running(&state, "publish-fence");
     state
         .with_store(|store| {
-            store.upsert_channel("room", "room", "", "", 1)?;
-            store.replace_channel_admins("room", &[], 1)?;
-            store.replace_channel_members("room", std::slice::from_ref(&session.pubkey), 1)?;
+            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+                crate::state::TestGroup::new("room")
+                    .metadata("room", "", "", 1)
+                    .admins(Vec::new())
+                    .members(vec![session.pubkey.clone()])
+                    .availability(nmp::nip29::GroupAvailability::SourceUnavailable),
+            ]));
             store
                 .mark_session_standing_member_if_running(
                     &session.pubkey,

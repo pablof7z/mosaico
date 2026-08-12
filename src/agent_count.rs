@@ -90,6 +90,21 @@ pub(crate) fn count_agents(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{Profile, TestRelayDelivery};
+
+    fn profile(pubkey: &str, name: &str, slug: &str, agent_slug: &str) -> Profile {
+        Profile {
+            pubkey: pubkey.into(),
+            name: name.into(),
+            slug: slug.into(),
+            agent_slug: agent_slug.into(),
+            host: "host".into(),
+            is_backend: false,
+            agents: Vec::new(),
+            workspaces: Vec::new(),
+            updated_at: 1,
+        }
+    }
 
     fn facts(
         is_admin: bool,
@@ -160,21 +175,16 @@ mod tests {
     #[test]
     fn normalized_store_matrix_is_shared_by_both_projection_surfaces() {
         let store = Store::open_memory().unwrap();
-        store
-            .upsert_profile_with_agent_slug("agent", "Agent", "agent", "codex", "host", false, 1)
-            .unwrap();
-        store
-            .upsert_profile("human", "Human", "human", "host", false, 1)
-            .unwrap();
-        store
-            .upsert_profile("empty-human", "Human", "", "host", false, 1)
-            .unwrap();
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([
+            profile("agent", "Agent", "agent", "codex"),
+            profile("human", "Human", "human", ""),
+            profile("empty-human", "Human", "", ""),
+        ]));
         let index = MemberFactIndex::capture(&store, "backend").unwrap();
         let member = |pubkey: &str, role: &str| ChannelMember {
             channel_h: "room".into(),
             pubkey: pubkey.into(),
             role: role.into(),
-            updated_at: 1,
         };
         let cases = [
             (

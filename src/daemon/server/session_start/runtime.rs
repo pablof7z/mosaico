@@ -90,10 +90,6 @@ pub(super) fn bind_workspace(
         return Ok(());
     };
     state.with_store(|store| {
-        // A configured work root is itself the durable root channel. Project
-        // it locally before asynchronous relay readiness so full-path commands
-        // issued by the newly launched session can resolve `/root` immediately.
-        store.upsert_channel(work_root, work_root, "", "", now_secs())?;
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bind_root_path(
             work_root,
             &root_path,

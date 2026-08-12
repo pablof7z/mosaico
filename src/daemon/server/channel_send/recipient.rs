@@ -13,11 +13,11 @@ pub(super) struct TaggedRecipient {
 }
 
 /// Resolve a recipient to a wire pubkey under the canonical scheme:
-///   - `agent@backend-label` resolves through the backend profile cache.
+///   - `agent@backend-label` resolves through current backend profile rows.
 ///   - 64-hex / npub selects the permanent session identity directly.
 ///   - an exact current local handle resolves through the lease authority.
-///   - an exact remote handle resolves only with session-status history.
-///   - a bare local agent label may resolve through the local profile cache.
+///   - an exact remote handle resolves through a current session profile row.
+///   - a bare local agent label may resolve through current local profile rows.
 ///
 /// Runtime locators and prefixes are never accepted as chat targets.
 pub(in crate::daemon::server) fn resolve_recipient(
