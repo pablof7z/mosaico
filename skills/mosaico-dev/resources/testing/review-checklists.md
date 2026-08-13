@@ -129,6 +129,9 @@ declaring the change complete.
 
 ## Completion
 
+- [ ] Requested product behavior is active on the normal runtime path; no
+      unrequested runtime, environment, config, rollout, or experimental gate
+      leaves it dormant.
 - [ ] Focused red-before/green-after evidence exists.
 - [ ] Every owning deterministic suite ran.
 - [ ] Adjacent suites sharing the changed authority boundary ran.

@@ -13,6 +13,17 @@ architecture under `docs/fabric-architecture*.md` and the other design docs in
 
 Expand: `skills/mosaico-dev/resources/authority-and-orientation.md`.
 
+## Requested behavior is active
+
+Ship requested product behavior on the normal runtime path. Do not hide it
+behind an environment variable, config boolean, rollout toggle, experimental
+switch, or undocumented opt-in unless the user or settled product design
+explicitly requires staged or genuinely optional behavior. This rule is about
+runtime activation gates, not Cargo features or ordinary configuration that
+selects required resources such as relays or providers.
+
+Expand: `skills/mosaico-dev/resources/authority-and-orientation.md`.
+
 ## Launch and config
 
 Care when you touch how sessions start or how agents/harnesses are declared.

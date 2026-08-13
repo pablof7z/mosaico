@@ -22,16 +22,25 @@ second queue; correct durable docs in place when they drift.
    stale plans.
 2. **No backwards compatibility.** Remove dead surfaces completely in the same
    change. No aliases, legacy flags, fallback JSON keys, or dual names.
-3. **One tactical queue.** Open or update a GitHub issue; do not create
+3. **Requested behavior is active.** A requested product change ships on the
+   normal runtime path. Do not put it behind `ENABLE_X=1`, an environment
+   variable, config boolean, rollout toggle, experimental switch, or
+   undocumented opt-in unless the user or settled product design explicitly
+   requires staged or genuinely optional behavior. Developer caution and
+   incomplete confidence are not exceptions: keep the work incomplete instead
+   of merging dormant behavior. This rule does not govern Cargo features or
+   ordinary configuration that selects required resources such as relays,
+   providers, credentials, or endpoints.
+4. **One tactical queue.** Open or update a GitHub issue; do not create
    `TODO.md` / `PLAN-*.md` / scattered roadmaps. Retire executed plans.
-4. **File size.** Soft 300 LOC, hard 500 LOC for hand-authored source. Split on
+5. **File size.** Soft 300 LOC, hard 500 LOC for hand-authored source. Split on
    domain boundaries; keep extracted visibility narrow.
-5. **Daemon safety.** Never kill live PTY supervisors by bare binary name.
+6. **Daemon safety.** Never kill live PTY supervisors by bare binary name.
    Restart only the daemon process (`pkill -f 'mosaico daemon'`); see the repo
    root `AGENTS.md`.
-6. **Secrets.** Never print provider credentials, Nostr secrets, `userNsec`,
+7. **Secrets.** Never print provider credentials, Nostr secrets, `userNsec`,
    `mosaicoPrivateKey`, or agent private keys.
-7. **Prove the right layer.** Unit/contract for pure rules; hermetic or local
+8. **Prove the right layer.** Unit/contract for pure rules; hermetic or local
    relay for process boundaries; live lab only for real-provider transport and
    auth. See `skills/mosaico-dev/resources/testing/INDEX.md`.
 
