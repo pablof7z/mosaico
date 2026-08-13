@@ -15,6 +15,8 @@ declaring the change complete.
 - [ ] A separate implementation agent was used, or claim and implementation
       phases were explicitly separated.
 - [ ] No assertion was weakened merely to obtain green.
+- [ ] A user correction changes the owning claim and adds contrast cases; it
+      is not left only in chat or appended as a contradictory claim.
 
 ## Cucumber admission and BDD
 
@@ -50,6 +52,15 @@ declaring the change complete.
 - [ ] Internal call order is not frozen without a contract reason.
 - [ ] Temporary state cannot touch host Mosaico or provider data.
 - [ ] A refactor preserving the rule would not require rewriting the test.
+
+## Fixtures and test setup
+
+- [ ] Each fixture stages a real input or declared starting state, not the
+      internal result the test claims Mosaico derived.
+- [ ] The review question was answered: is this input a cause, or the
+      conclusion being proved?
+- [ ] Direct state insertion is used only when that state is the declared input
+      to the narrower rule under test.
 
 ## Integration and contract
 
@@ -105,6 +116,16 @@ declaring the change complete.
 - [ ] The check proves transport/fabric behavior, not model quality.
 - [ ] Versions, public event ids, and cleanup are reported.
 - [ ] Stable findings are converted into deterministic evidence where possible.
+
+## Repository and quality gates
+
+- [ ] The gate scans an explicit reproducible corpus, normally tracked files.
+- [ ] Ignored and generated artifacts are excluded unless explicitly tested.
+- [ ] Every required tool and input exists in clean CI without workstation
+      state.
+- [ ] A mutation or self-test proves the named defect turns the gate red and
+      its removal turns the gate green.
+- [ ] A check that cannot fail for its named defect is repaired or deleted.
 
 ## Completion
 

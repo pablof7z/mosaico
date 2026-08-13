@@ -32,6 +32,22 @@ When a config field, CLI surface, or feature is deliberately removed, delete
 its fixtures along with its tests. Do not keep a rejection fixture whose only
 purpose is to prove the dead surface remains absent.
 
+## Stage causes, not conclusions
+
+A fixture must stage inputs that the real product receives, then let Mosaico
+derive the state or decision under test. Do not inject the internal conclusion
+and then assert that Mosaico exposes it. Such a test proves its setup, not the
+claimed behavior.
+
+For example, a discovery test should publish the relay event from which
+Mosaico discovers a peer. Directly inserting that peer into Mosaico's derived
+state bypasses discovery and cannot prove it.
+
+At review, ask: **is this `Given` or test input a real input, or is it the
+internal result being proved?** If it is the result, move the fixture outward
+to the causal boundary. Direct state insertion is valid only when that state
+itself is the declared input to the narrower rule under test.
+
 ## Isolated homes and environment
 
 Process tests give each backend separate:

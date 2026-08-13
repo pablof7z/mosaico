@@ -56,6 +56,20 @@ consequence for the product claim. The implementation agent may initiate that
 discussion, but does not edit the oracle first and present the weaker result as
 success.
 
+## User corrections
+
+When the user distinguishes cases that the current claim treats as equivalent,
+the correction changes the contract. State the semantic difference, add
+contrasting examples that would fail if the cases were conflated again, and
+correct or split the existing claim. Do not leave the distinction only in chat
+or append a second claim that contradicts the first.
+
+The correction follows the normal evidence lifecycle. Future behavior stays in
+the owning GitHub Issue and, once implementation starts, in a failing oracle on
+that implementation branch. Committed Cucumber on `master` remains executable
+current behavior; do not add planning statuses or non-executing future
+scenarios to preserve the correction.
+
 ## New product behavior
 
 Start with examples that distinguish the rule:
