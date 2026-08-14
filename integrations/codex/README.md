@@ -8,5 +8,5 @@ mosaico setup --harness codex
 
 The installer owns Mosaico hook groups under `~/.codex/hooks.json`, including
 `PreToolUse` for cooperative cross-project guidance. It preserves unrelated
-hook groups. Run `mosaico doctor --json` to inspect the installed integration
-or `mosaico doctor --fix --json` when the user has asked to repair it.
+hook groups. Run `mosaico setup --status` to inspect the installation; rerun
+setup with the same explicit harness selection to repair it.

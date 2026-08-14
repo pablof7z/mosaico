@@ -125,14 +125,6 @@ impl DaemonState {
             .cloned()
             .collect()
     }
-    fn keys_for(&self, pubkey: &str) -> Option<Keys> {
-        self.runtime
-            .hosted
-            .lock()
-            .unwrap()
-            .get(pubkey)
-            .map(|h| h.keys.clone())
-    }
     /// The pubkey-owned read-side identity for a hosted session.
     pub(in crate::daemon) fn session_instance(
         &self,
@@ -188,7 +180,7 @@ use channels_rpc::{
     ensure_session_room, rpc_channel_archive, rpc_channel_create, rpc_channel_delete,
     rpc_channel_edit, rpc_channel_list,
 };
-use diagnostics::{log_nip29_role_decision, rpc_doctor, rpc_explain, rpc_local_backend};
+use diagnostics::{log_nip29_role_decision, rpc_explain, rpc_local_backend};
 use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, spawn_session};
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
@@ -232,7 +224,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "turn_check" => rpc_turn_check(state, &req.params).await,
         "turn_end" => rpc_turn_end(state, &req.params).await,
         "cross_project_path_classify" => cross_project_boundary::rpc_classify(state, &req.params),
-        "doctor" => rpc_doctor(state).await,
         "explain" => rpc_explain(state, &req.params),
         "local_backend" => rpc_local_backend(state),
         "root_channels" => rpc::rpc_root_channels(state),

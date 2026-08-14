@@ -54,33 +54,29 @@ profile cannot remove or replace it.
 
 ## Verify both sides independently
 
-Run setup status and doctor with the selector repeated explicitly:
+Run setup status with the selector repeated explicitly:
 
 ```console
 $ MOSAICO=relay1 mosaico setup --status
-$ MOSAICO=relay1 mosaico doctor --json
 $ MOSAICO=relay2 mosaico setup --status
-$ MOSAICO=relay2 mosaico doctor --json
 ```
 
-For each doctor result, confirm `storage.instance` has the expected name and
-the relay list contains only that instance's intended relay. Then launch one
-harness per instance and inspect `mosaico my session` inside each session. The
-visible agents, channels, messages, and session history should belong only to
-that instance.
+Confirm each status names only its intended configuration and integrations.
+Then launch one harness per instance and inspect `mosaico my session` inside
+each session. The visible agents, channels, messages, and session history
+should belong only to that instance.
 
 ## Keep lifecycle operations selected
 
-Repeat `MOSAICO=<name>` for diagnostics and daemon lifecycle commands:
+Repeat `MOSAICO=<name>` for daemon lifecycle commands:
 
 ```console
-$ MOSAICO=relay1 mosaico doctor
 $ MOSAICO=relay1 mosaico daemon stop
 ```
 
-Stopping, restarting, diagnosing, or removing state targets only the selected
-instance. The integration installation remains device-global: setup or doctor
-repair from any instance may refresh the same stateless hooks, plugins, skill,
-and wrappers. A global uninstall removes those shared integrations for every
-instance, even though its daemon stop and optional state removal remain scoped
-to the selected instance.
+Stopping, restarting, or removing state targets only the selected instance.
+The integration installation remains device-global: setup from any instance
+may refresh the same stateless hooks, plugins, skill, and wrappers. A global
+uninstall removes those shared integrations for every instance, even though
+its daemon stop and optional state removal remain scoped to the selected
+instance.

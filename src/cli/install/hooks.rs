@@ -83,37 +83,6 @@ fn is_json_harness_installed(h: &Harness) -> bool {
     })
 }
 
-fn is_json_harness_present(h: &Harness) -> bool {
-    let Ok(content) = std::fs::read_to_string(&h.config_path) else {
-        return false;
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return false;
-    };
-    let host = config::host_for_harness(h);
-    value
-        .get("hooks")
-        .and_then(serde_json::Value::as_object)
-        .is_some_and(|hooks| {
-            hooks.values().any(|groups| {
-                groups
-                    .as_array()
-                    .is_some_and(|groups| groups.iter().any(|group| group_is_ours(group, host)))
-            })
-        })
-}
-
-pub fn is_present(h: &Harness) -> bool {
-    match h.id {
-        "opencode" => h.config_path.exists(),
-        "claude-code" | "codex" | "grok" => is_json_harness_present(h),
-        "goose" => super::goose::is_present(h),
-        "hermes" => super::hermes::is_present(h),
-        "kimi" => super::kimi::is_present(h),
-        _ => false,
-    }
-}
-
 pub fn is_installed(h: &Harness) -> bool {
     match h.id {
         "opencode" => {

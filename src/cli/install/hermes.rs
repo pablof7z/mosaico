@@ -96,12 +96,6 @@ pub(super) fn is_installed(harness: &Harness) -> bool {
     })
 }
 
-pub(super) fn is_present(harness: &Harness) -> bool {
-    profile_homes(harness)
-        .into_iter()
-        .any(|home| home.join("plugins/mosaico").exists())
-}
-
 fn run_plugin_command(home: &Path, action: &str) -> Result<()> {
     let mut command = command_for_home(home);
     command.args(["plugins", action, "mosaico"]);

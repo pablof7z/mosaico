@@ -7,10 +7,6 @@ pub(super) fn is_installed(_harness: &Harness) -> bool {
     crate::goose_integration::is_installed()
 }
 
-pub(super) fn is_present(_harness: &Harness) -> bool {
-    crate::goose_integration::is_present()
-}
-
 pub(super) fn install(harness: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     crate::goose_integration::validate_runtime()?;
     let files = crate::goose_integration::plugin_files()?;

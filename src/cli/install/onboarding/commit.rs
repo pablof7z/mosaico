@@ -65,7 +65,7 @@ pub(super) async fn commit(state: Onboarding) -> Result<()> {
 
     println!(
         "\n{}",
-        "✓ Mosaico is ready. Restart open harness sessions, then run `mosaico doctor`."
+        "✓ Mosaico is ready. Restart open harness sessions."
             .green()
             .bold()
     );
@@ -91,7 +91,7 @@ async fn wait_for_relay(url: &str) {
         if tokio::time::Instant::now() >= deadline {
             println!(
                 "\n  {}",
-                "still offline — start it later; `mosaico doctor` will confirm.".yellow()
+                "still offline — start it later and verify with a real handoff.".yellow()
             );
             return;
         }

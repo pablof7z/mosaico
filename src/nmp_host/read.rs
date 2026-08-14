@@ -47,32 +47,6 @@ impl NmpHost {
             .await
     }
 
-    /// Read the relay-signed metadata for EVERY group these hosts describe.
-    pub(crate) async fn fetch_all_group_metadata(
-        &self,
-        max_rows: usize,
-        timeout: Duration,
-    ) -> Result<BoundedRead> {
-        self.fetch_query(self.all_group_metadata_query()?, max_rows, timeout)
-            .await
-    }
-
-    /// Read an app-chosen selection from INSIDE one group (`#h`-scoped).
-    pub(crate) async fn fetch_in_group(
-        &self,
-        group: &str,
-        filter: nmp::Filter,
-        max_rows: usize,
-        timeout: Duration,
-    ) -> Result<BoundedRead> {
-        self.fetch_query(
-            self.group_contents_query(group, strip_limit(filter))?,
-            max_rows,
-            timeout,
-        )
-        .await
-    }
-
     /// Read bounded profile state from the configured app and indexer hosts.
     ///
     /// Deliberately provenance-agnostic: kind:0 is self-authenticating, the

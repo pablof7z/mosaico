@@ -9,7 +9,7 @@ use super::*;
 
 /// A store whose marker this build cannot read. This is the incident's shape:
 /// the 1.05 GB store carried a marker at an address a superseded epoch owned,
-/// so the current probe found nothing and said so — literally true, and
+/// so the current engine found nothing and said so — literally true, and
 /// indistinguishable from an unreadable file to anyone holding only the string.
 fn superseded_epoch_store(path: &Path) {
     use redb::{Database, TableDefinition};
@@ -25,13 +25,20 @@ fn superseded_epoch_store(path: &Path) {
     write.commit().expect("epoch fixture must commit");
 }
 
+fn condition_for(path: &Path) -> StoreCondition {
+    let error = super::super::NmpHost::open(&[], None, Some(path), &nostr::Keys::generate())
+        .err()
+        .expect("fixture must make NMP refuse the store");
+    StoreCondition::of_open_error(&error).expect("refusal must remain a typed store condition")
+}
+
 #[test]
 fn a_superseded_epoch_is_the_one_condition_that_names_a_full_reset() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
 
-    let condition = probe(&path).expect("a superseded-epoch store must be a reported condition");
+    let condition = condition_for(&path);
     let StoreCondition::SupersededEpoch {
         path: named,
         expected,
@@ -76,7 +83,7 @@ fn damaged_bytes_are_a_condition_that_offers_no_reset() {
     let path = fixture.path().join("damaged.redb");
     std::fs::write(&path, b"not a redb database").expect("damaged fixture must write");
 
-    let condition = probe(&path).expect("damaged bytes must be a reported condition");
+    let condition = condition_for(&path);
     assert!(
         matches!(condition, StoreCondition::Unusable { .. }),
         "damaged bytes must never be reported as a resettable epoch: {condition:?}"
@@ -100,15 +107,14 @@ fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
 
     reset(&path).expect("a closed superseded store must be resettable");
     assert!(!path.exists(), "NMP's reset must remove the complete store");
-    assert!(
-        probe(&path).is_none(),
-        "the path an operator was told to clear must open afterwards"
-    );
+    let reopened = super::super::NmpHost::open(&[], None, Some(&path), &nostr::Keys::generate())
+        .expect("the path an operator was told to clear must open afterwards");
+    drop(reopened);
     reset(&path).expect("a missing store is already reset");
 }
 
-/// The daemon's own door, not just the probe: a refusal `NmpHost::open` returns
-/// must still be classifiable after `anyhow` has carried it.
+/// A refusal `NmpHost::open` returns must still be classifiable after `anyhow`
+/// has carried it.
 #[test]
 fn the_condition_survives_the_host_open_door_as_a_type_not_a_message() {
     let fixture = tempfile::tempdir().expect("temporary directory");

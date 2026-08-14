@@ -48,7 +48,6 @@ Claude channel adapter shell out to these verbs and parse their stdout).
  (one-shot)   │   │ (CLI verb)  │ ◀─────── │                                  │  │
               │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
               │                            │  • owns NMP reads + writes ──────┼──┼──▶ relays
-              │                            │  • doctor probe through NMP     │  │
               │                            │  • per-session async tasks       │  │
               │                            │  • local delivery / lifecycle    │  │
               │                            │  • retained NMP observations     │  │
@@ -62,8 +61,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
   construction) and one NMP engine for acquisition, account signing, and every
   runtime/profile write. Those writes enter NMP through the durable
   publish queue, which owns routing, receipts, and retries. Bounded
-  resolution reads and the doctor publish/readback use that same engine; the
-  daemon has no second relay client.
+  resolution reads use that same engine; the daemon has no second relay client.
 - Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
   by a private run key.
 
@@ -248,7 +246,6 @@ Walking each verb's true I/O shape:
 | `channel_search`      | one-shot             | daemon searches the current NMP-delivered message view |
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
-| `doctor`           | one-shot             | daemon does the relay round-trip, returns result     |
 | `tail`             | **stream**           | daemon pushes decoded fabric events until disconnect |
 
 `tail` forces the protocol beyond simple req/resp: the client cannot open its own relay
@@ -313,7 +310,7 @@ construction — that is the whole point. Concurrency model inside the daemon:
   local account capabilities, and the durable publish queue for all runtime and
   profile writes. Its retained observations are the only group, profile, status,
   event, message, recipient, and reaction source. The daemon owns process-local
-  adapters and the doctor probe. No other component opens a relay connection.
+  adapters. No other component opens a relay connection.
 
 Because there is exactly one writer process, the
 multi-writer corruption class is eliminated regardless of WAL (WAL stays as
@@ -403,9 +400,9 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
 - **Identical standard-Nostr wire output** — the codec seam
   (`fabric::nip29::wire`) remains the event-shape authority; group writes route
   through NMP.
-- **One NMP relay plane** serves standing observations, bounded
-  diagnostic/resolution reads, the doctor probe, and every runtime or profile
-  write. Writes are durably accepted into the publish queue; no direct client,
+- **One NMP relay plane** serves standing observations, bounded resolution
+  reads, and every runtime or profile write. Writes are durably accepted into
+  the publish queue; no direct client,
   parallel relay pool, or SQLite relay cache may be reintroduced.
 - **NIP-29 membership semantics** — group creation, owner admin backfill, and
   agent member admission remain provider-owned and relay-authoritative. Local

@@ -13,7 +13,7 @@ tail -n 300 "${RELAY_LOG}"
 
 Mosaico no longer keeps its own log of outgoing events: NMP signs and publishes
 group writes, so the app never holds the bytes. What this daemon still owes is
-in NMP's durable publish queue, under `publish_queue` in `mosaico doctor`.
+in NMP's durable publish queue.
 
 Do not run another `containers/mosaico/run --profile <live-profile>` command,
 including a bare `mosaico` invocation, `channel`, `debug explain`, or `debug

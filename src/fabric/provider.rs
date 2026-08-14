@@ -2,7 +2,6 @@
 
 pub(crate) mod chat;
 mod decoding;
-mod doctor;
 mod group_management;
 mod group_state;
 mod group_topology;

@@ -89,7 +89,7 @@ coordination overhead.
 ## Use The Command Surface Deliberately
 
 The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
-`doctor`, and the read-only `agents list` discovery command.
+and the read-only `agents list` discovery command.
 
 - Use `mosaico my session` for a full briefing; use `my session status` and
   the self-lifecycle commands only as described in [Public Work
@@ -116,13 +116,6 @@ The agent-facing CLI is `my session`, `session`, `channel`, `wait`, `dispatch`,
 - Run `mosaico agents list` to list available agents. Read the result as
   capabilities rather than channel membership; `agent@backend` identifies a
   capability supplied by a remote backend.
-- Run `mosaico doctor --json` when Mosaico installation, configuration, hook,
-  skill, daemon, or relay health is in doubt. Run `mosaico doctor --fix --json`
-  when the user has asked you to repair Mosaico; it rewrites only
-  Mosaico-owned integration surfaces that were previously selected and
-  restarts the daemon without killing live PTY supervisors. It never opts the
-  user into a merely detected harness. Act on any remaining `error` check's
-  exact `repair` guidance, then re-run `mosaico doctor --json`.
 - When the user explicitly asks to configure or operate multiple completely
   isolated Mosaico instances on one host, read [Multiple Isolated
   Instances](references/multi-instance-setup.md) before running setup,

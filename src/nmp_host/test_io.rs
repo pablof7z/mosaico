@@ -91,22 +91,6 @@ impl NmpHost {
         })
     }
 
-    pub(crate) fn script_read_timed_out_events(&self, events: Vec<Event>) {
-        self.script_read(
-            events,
-            SourceStatus::Requesting,
-            BoundedReadTermination::TimedOut,
-        );
-    }
-
-    pub(crate) fn script_disconnected_read(&self) {
-        self.script_read(
-            Vec::new(),
-            SourceStatus::Disconnected,
-            BoundedReadTermination::SubscriptionClosed,
-        );
-    }
-
     fn script_read(
         &self,
         events: Vec<Event>,

@@ -27,10 +27,6 @@ pub(crate) fn plugin_files() -> Result<[(PathBuf, &'static str); 2]> {
     ])
 }
 
-pub(crate) fn is_present() -> bool {
-    plugin_root().is_ok_and(|path| path.exists())
-}
-
 pub(crate) fn is_installed() -> bool {
     plugin_files().is_ok_and(|files| {
         files.into_iter().all(|(path, expected)| {
