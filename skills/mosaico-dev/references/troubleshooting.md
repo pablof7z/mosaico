@@ -156,9 +156,9 @@ authorization.
 
 ## Daemon will not start and NMP refuses the store
 
-Run `mosaico doctor`. A refused store is a daemon that exits before it can
-answer an RPC, so `daemon: cannot connect or start` is the symptom; the
-`nmp.store` check is the cause and carries a `state`:
+Read the selected instance's `daemon.log`. A refused store is a daemon that
+exits before it can answer an RPC; its structured startup error carries the
+exact `condition`, `summary`, and `fix`:
 
 - `superseded-epoch` — the store is not this build's schema epoch. NMP migrates
   nothing across an epoch and reads **nothing** inside a store it refused, so no

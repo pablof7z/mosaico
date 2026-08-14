@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 mod config;
 #[cfg(test)]
 use config::parse_version;
-pub(crate) use config::{
-    enable_plugin, is_installed, is_present, plugin_files, plugin_root, validate_runtime,
-};
+pub(crate) use config::{enable_plugin, is_installed, plugin_files, plugin_root, validate_runtime};
 
 pub(crate) const PLUGIN_JSON: &str = include_str!("../integrations/goose/plugin.json");
 pub(crate) const HOOKS_JSON: &str = include_str!("../integrations/goose/hooks/hooks.json");

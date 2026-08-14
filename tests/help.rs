@@ -126,7 +126,6 @@ fn explicit_top_level_human_help_remains_contextual() {
     assert!(help.contains("  agents"));
     assert!(help.contains("  setup"));
     assert!(help.contains("  uninstall"));
-    assert!(help.contains("  doctor"));
     assert!(help.contains("without a command"));
     assert!(!help.contains("  mgmt"));
     assert!(!help.contains("  publish"));
@@ -137,7 +136,6 @@ fn agent_help_hides_operator_agent_management() {
     let help = contextual_help(&["--help"], true);
 
     assert!(help.contains("  my"));
-    assert!(help.contains("  doctor"));
     // `--yes-lets-move` is handed to an agent by the topology nudge at the
     // moment it applies, never discovered from help — hidden in both contexts.
     assert!(!help.contains("--yes-lets-move"));
@@ -148,68 +146,9 @@ fn agent_help_hides_operator_agent_management() {
 }
 
 #[test]
-fn doctor_json_reports_unconfigured_home_and_exits_unhealthy() {
-    let home = tempfile::tempdir().unwrap();
-    let output = isolated_command(home.path(), &["doctor", "--json"]);
-    assert!(
-        !output.status.success(),
-        "unconfigured home must be unhealthy"
-    );
-
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("doctor stdout is one JSON document");
-    assert_eq!(report["healthy"], false);
-    assert_eq!(report["fix_attempted"], false);
-    assert!(report["repairs"].is_array());
-    assert!(report["checks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|check| check["name"] == "config.document" && check["status"] == "error"));
-    let skill = report["checks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|check| check["name"] == "skill.agents")
-        .expect("canonical agent skill target is reported");
-    assert_eq!(skill["state"], "missing");
-    assert_eq!(
-        skill["path"],
-        home.path()
-            .join(".agents/skills/mosaico")
-            .display()
-            .to_string()
-    );
-}
-
-#[test]
-fn named_instance_doctor_reports_its_exact_isolated_storage() {
-    let home = tempfile::tempdir().unwrap();
-    let output = named_command(home.path(), "alternative1", &["doctor", "--json"]);
-    assert!(!output.status.success());
-
-    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let selected = home.path().join(".mosaico-instances/alternative1");
-    assert_eq!(report["storage"]["instance"], "alternative1");
-    assert_eq!(
-        report["storage"]["mosaico_home"],
-        selected.display().to_string()
-    );
-    assert_eq!(
-        report["storage"]["state_db_path"],
-        selected.join("state.db").display().to_string()
-    );
-    assert_eq!(
-        report["storage"]["socket_path"],
-        selected.join("daemon.sock").display().to_string()
-    );
-    assert!(!home.path().join(".mosaico").exists());
-}
-
-#[test]
 fn invalid_instance_name_fails_without_touching_any_instance_home() {
     let home = tempfile::tempdir().unwrap();
-    let output = named_command(home.path(), "../relay1", &["doctor", "--json"]);
+    let output = named_command(home.path(), "../relay1", &["setup", "--status"]);
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("invalid MOSAICO instance name"));
@@ -221,7 +160,7 @@ fn invalid_instance_name_fails_without_touching_any_instance_home() {
 fn named_selector_rejects_path_override_instead_of_choosing_precedence() {
     let home = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_mosaico"))
-        .args(["doctor", "--json"])
+        .args(["setup", "--status"])
         .env("HOME", home.path())
         .env("MOSAICO", "relay1")
         .env("MOSAICO_HOME", home.path().join("override"))
@@ -233,28 +172,4 @@ fn named_selector_rejects_path_override_instead_of_choosing_precedence() {
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("MOSAICO cannot be combined with MOSAICO_HOME"));
     assert!(!home.path().join(".mosaico-instances").exists());
-}
-
-#[test]
-fn doctor_fix_json_preserves_invalid_identity_and_emits_only_json() {
-    let home = tempfile::tempdir().unwrap();
-    let mosaico_home = home.path().join(".mosaico");
-    std::fs::create_dir_all(&mosaico_home).unwrap();
-    let config_path = mosaico_home.join("config.json");
-    let original = r#"{"mosaicoPrivateKey":"invalid","unknown":"preserved"}"#;
-    std::fs::write(&config_path, original).unwrap();
-
-    let output = isolated_command(home.path(), &["doctor", "--fix", "--json"]);
-
-    assert!(!output.status.success());
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("stdout is one JSON document");
-    assert_eq!(report["healthy"], false);
-    assert_eq!(report["fix_attempted"], true);
-    assert!(report["checks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|check| check["name"] == "repair" && check["status"] == "error"));
-    assert_eq!(std::fs::read_to_string(config_path).unwrap(), original);
 }

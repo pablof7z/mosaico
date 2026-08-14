@@ -187,8 +187,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
         // Durable acceptance is the reporting boundary: NMP has taken custody
         // of the add-agents directive and will keep delivering it. Whether each
-        // relay took it is settlement, and settlement is inspected -- through
-        // the publish queue `mosaico doctor` reads -- never awaited here.
+        // relay took it is settlement, which is deliberately never awaited here.
         //
         // The directive reaches THIS backend's own orchestration listener the
         // same way a peer's does: NMP injects the accepted row into the group

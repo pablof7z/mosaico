@@ -145,32 +145,12 @@ fn run_session_start_hook(root: &std::path::Path, instance: &str) -> std::proces
 }
 
 #[test]
-fn two_named_daemons_have_disjoint_relays_identity_storage_and_sessions() {
+fn two_named_daemons_have_disjoint_identity_and_sessions() {
     let root = tempfile::tempdir().unwrap();
     let relay1 = TestRelay::start();
     let relay2 = TestRelay::start();
     let daemon1 = NamedDaemon::start(root.path(), "relay1", &relay1.url, "backend-one");
     let daemon2 = NamedDaemon::start(root.path(), "relay2", &relay2.url, "backend-two");
-
-    let doctor1 = rpc(&daemon1.socket, "doctor", serde_json::json!({})).unwrap();
-    let doctor2 = rpc(&daemon2.socket, "doctor", serde_json::json!({})).unwrap();
-    assert_eq!(doctor1["storage"]["instance"], "relay1");
-    assert_eq!(doctor2["storage"]["instance"], "relay2");
-    assert_eq!(doctor1["relays"], serde_json::json!([relay1.url]));
-    assert_eq!(doctor2["relays"], serde_json::json!([relay2.url]));
-    for field in [
-        "mosaico_home",
-        "config_path",
-        "socket_path",
-        "lock_path",
-        "state_db_path",
-        "nmp_store_path",
-    ] {
-        assert_ne!(
-            doctor1["storage"][field], doctor2["storage"][field],
-            "{field}"
-        );
-    }
 
     let backend1 = rpc(&daemon1.socket, "local_backend", serde_json::json!({})).unwrap();
     let backend2 = rpc(&daemon2.socket, "local_backend", serde_json::json!({})).unwrap();

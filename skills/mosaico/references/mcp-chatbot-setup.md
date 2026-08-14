@@ -72,8 +72,7 @@ and both are read live, on every request:
 - `mcpRedirectOrigins` — the origins a hosted MCP client may register a
   callback under, for example `["https://chatgpt.com"]`. A client that runs
   beside Mosaico and calls back to loopback needs no entry here; a hosted
-  connector does, and its registration is refused without one. `mosaico doctor`
-  reports the approved count.
+  connector does, and its registration is refused without one.
 
 Set both, then start a standalone, localhost-only server:
 

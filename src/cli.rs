@@ -23,7 +23,6 @@ mod context;
 mod daemon_lifecycle;
 mod debug;
 mod dispatch;
-mod doctor;
 mod explain;
 mod harness;
 mod hooks;
@@ -124,7 +123,6 @@ pub async fn run(cli: Cli) -> Result<()> {
             None => crate::daemon::server::run().await,
         },
         Some(Cmd::Debug { action }) => debug::debug(action).await,
-        Some(Cmd::Doctor(args)) => doctor::doctor(args).await,
         Some(Cmd::PtySupervisor(args)) => pty::pty_supervisor(args),
         Some(Cmd::Setup(args)) => install::setup(args).await,
         Some(Cmd::Uninstall(args)) => uninstall::uninstall(args).await,

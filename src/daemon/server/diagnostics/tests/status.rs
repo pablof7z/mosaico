@@ -4,7 +4,7 @@ use crate::session_state::SessionState;
 use std::collections::BTreeSet;
 
 #[tokio::test]
-async fn status_receipt_reaches_actual_doctor_rpc_json() {
+async fn status_receipt_names_the_exact_write_nmp_froze() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
     let keys = Keys::generate();
     let pubkey = keys.public_key().to_hex();
@@ -30,7 +30,7 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
         &state.reconcilers.presence_publisher,
         &keys,
         crate::presence_publisher::DriveMeta {
-            trigger: "doctor-corpus",
+            trigger: "receipt-corpus",
             confirmed_scope: None,
         },
         |status| {
@@ -72,31 +72,9 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     .await
     .expect("presence publisher status receipt");
 
-    // This test is about the durable queue/status receipt, not a live relay.
-    // Refuse the doctor's active probe at NMP's publish door so it remains
-    // bounded instead of inventing a successful relay handoff.
-    state
-        .nmp()
-        .script_write_error("doctor test probe", "relay probe deliberately unavailable");
-    state.nmp().script_read_settled_events(Vec::new());
-    let response = super::super::super::dispatch(
-        &state,
-        &Request {
-            id: 705,
-            method: "doctor".into(),
-            params: serde_json::json!({}),
-        },
-    )
-    .await;
-    let json = response.ok.expect("doctor RPC response");
-    // The presence publisher recorded an id it got from NMP, and the doctor's
-    // account of what this daemon still owes names the SAME write. The two
-    // used to be able to disagree, because the id was derived by Mosaico and
-    // the evidence came from a process-local observer beside NMP's queue.
-    let queue = &json["publish_queue"];
-    assert!(queue["outstanding"].as_u64().unwrap() >= 1, "{queue}");
-    let stuck = queue["stuck"].as_array().unwrap();
-    assert!(stuck.is_empty(), "a status write needs nobody: {queue}");
+    // The presence publisher records the id NMP returned at durable
+    // acceptance. It must be the exact frozen queue entry, never a local
+    // recomputation of the Nostr event id.
     let entries = state
         .nmp()
         .publish_queue_entry_ids()
@@ -105,8 +83,5 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
         entries.contains(&source_ref),
         "the id the presence publisher recorded ({source_ref}) is not one NMP froze: {entries:?}"
     );
-    eprintln!(
-        "CORPUS_STATUS_DOCTOR_JSON={}",
-        serde_json::to_string(&json).unwrap()
-    );
+    eprintln!("CORPUS_STATUS_RECEIPT={source_ref}");
 }

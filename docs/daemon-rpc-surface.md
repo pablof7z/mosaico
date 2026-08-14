@@ -163,42 +163,6 @@ params: {"harness_session": "native-id"}
 result: {"ok": true}
 ```
 
-### `doctor`
-```jsonc
-params: {}
-result: {
-  "relays": [...],
-  "probe_pubkey": "hex"|null,
-  "write_probe": {
-    "publish": {
-      "status": "verified"|"skipped"|"failed",
-      "summary": "…",
-      "terminal": "Settled"|"…",
-      "relays": [{"relay": "wss://…", "state": "published"|"rejected"|"auth_failed"|"gave_up"|"waiting"|"sent", "reason": "…"|null}]
-    },
-    "readback": {
-      "status": "verified"|"failed",
-      "summary": "…",
-      "acquisition": {"termination": "relay_settled"|"coverage_proven"|"timed_out"|"subscription_closed", "branches": [...]}
-    }
-  },
-  "publish_queue": {...}
-}
-```
-The daemon's narrow direct edge waits up to five seconds for NMP's typed terminal
-signal, then asks NMP for the reduced terminal receipt and preserves every relay
-result. A write that does not finish inside the health bound stays in NMP's
-durable queue; doctor fails rather than hanging or calling custody a relay ACK.
-Publish verifies only when every configured destination reports `Published`.
-Readback verifies only after every planned source reaches end-of-stored-events;
-cached rows and coverage-proven cache remain visible but do not impersonate
-current relay I/O. With no authorized group, a relay-settled metadata query is
-the read-only connectivity proof. Product writes do not use this diagnostic path.
-
-Doctor writes share one replaceable `kind:30078` / `d=mosaico-doctor` coordinate
-per signing identity. Later runs supersede older unsent probes instead of
-accumulating obligations; the per-run `t` marker still proves current readback.
-
 ### `tail` (streaming)
 ```jsonc
 params: {"channel": "#root/child"|null}

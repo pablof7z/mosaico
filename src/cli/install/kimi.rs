@@ -52,12 +52,6 @@ pub(super) fn install(harness: &Harness, opts: &InstallOpts, render: bool) -> Re
     Ok(())
 }
 
-pub(super) fn is_present(harness: &Harness) -> bool {
-    std::fs::read_to_string(&harness.config_path)
-        .map(|body| body.contains(BLOCK_START) || body.contains(BLOCK_END))
-        .unwrap_or(false)
-}
-
 pub(super) fn is_installed(harness: &Harness) -> bool {
     let Ok(body) = read_optional(harness) else {
         return false;
@@ -217,7 +211,7 @@ mod tests {
         };
         install(&harness, &opts, false).unwrap();
         assert_eq!(std::fs::read_to_string(path).unwrap(), "");
-        assert!(!is_present(&harness));
+        assert!(!is_installed(&harness));
     }
 
     #[test]

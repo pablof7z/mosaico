@@ -80,7 +80,7 @@ The ownership boundary is:
   host session state.
 - [ ] Add runner commands, development-profile mappings, and environment
   overrides needed by the harness.
-- [ ] Add doctor checks for the exact executable, transport, configuration, and
+- [ ] Add validation for the exact executable, transport, configuration, and
   authentication requirements.
 
 ## Prove the integration

@@ -25,8 +25,22 @@ use super::NmpHost;
 
 mod compose;
 mod group_management;
-mod queue;
 use compose::draft_of;
+
+#[cfg(test)]
+impl NmpHost {
+    pub(crate) fn publish_queue_entry_ids(&self) -> Result<Vec<String>, String> {
+        self.engine
+            .publish_queue()
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .map(|entry| entry.event_id.to_hex())
+                    .collect()
+            })
+            .map_err(|error| error.to_string())
+    }
+}
 
 impl NmpHost {
     /// Sign an exact event through NMP's account registry. The facade's

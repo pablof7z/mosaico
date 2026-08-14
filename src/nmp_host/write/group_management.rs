@@ -1,9 +1,6 @@
 use anyhow::{Context, Result};
-use nmp::{
-    FifoRecvTimeoutError, ReceiptResult, ReceiptStream, RelayState, WriteFact, WriteOutcome,
-};
+use nmp::{ReceiptResult, ReceiptStream, RelayState, WriteOutcome};
 use nostr::{EventBuilder, EventId, Keys, PublicKey};
-use std::time::{Duration, Instant};
 
 use super::NmpHost;
 
@@ -23,8 +20,7 @@ impl NmpHost {
     }
 
     /// Publish one group draft and return NMP's unreduced per-relay terminal
-    /// truth. Product mutations normally use `publish_group_and_wait`; doctor
-    /// keeps this complete result so its report can name every relay outcome.
+    /// truth so callers can preserve every relay outcome.
     pub(crate) async fn publish_group_result(
         self: &std::sync::Arc<Self>,
         group: &str,
@@ -40,27 +36,6 @@ impl NmpHost {
         })
         .await
         .context("joining NMP group-publication result")?
-    }
-
-    /// Await NMP's terminal reducer only within a caller-owned health bound.
-    /// The accepted write remains in NMP's durable queue when that bound
-    /// expires; no delivery policy or receipt reduction is reimplemented here.
-    pub(crate) async fn publish_group_result_within(
-        self: &std::sync::Arc<Self>,
-        group: &str,
-        builder: EventBuilder,
-        keys: &Keys,
-        timeout: Duration,
-    ) -> Result<(EventId, ReceiptResult)> {
-        let host = std::sync::Arc::clone(self);
-        let group = group.to_string();
-        let keys = keys.clone();
-        tokio::task::spawn_blocking(move || {
-            let stream = host.publish_groups_receipt([group], builder, &keys)?;
-            await_group_publication_within(stream, timeout)
-        })
-        .await
-        .context("joining bounded NMP group-publication result")?
     }
 
     /// Add every named user in one kind:9000 event and await one result.
@@ -132,47 +107,6 @@ fn await_group_publication(stream: ReceiptStream) -> Result<(EventId, ReceiptRes
         .result()
         .context("awaiting NMP's terminal group-publication result")?;
     Ok((event_id, result))
-}
-
-fn await_group_publication_within(
-    stream: ReceiptStream,
-    timeout: Duration,
-) -> Result<(EventId, ReceiptResult)> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            anyhow::bail!(
-                "NMP write {} did not reach a terminal result within {timeout:?}; \
-                 it remains in NMP's durable queue",
-                stream.event_id
-            );
-        }
-        match stream.statuses.recv_timeout(remaining) {
-            Ok(WriteFact::Outcome(_)) => return await_group_publication(stream),
-            Ok(_) => {}
-            Err(FifoRecvTimeoutError::Timeout) => {
-                anyhow::bail!(
-                    "NMP write {} did not reach a terminal result within {timeout:?}; \
-                     it remains in NMP's durable queue",
-                    stream.event_id
-                );
-            }
-            Err(FifoRecvTimeoutError::Lagged) => {
-                anyhow::bail!(
-                    "NMP write {} receipt lagged before its terminal result; \
-                     durable queue state remains authoritative",
-                    stream.event_id
-                );
-            }
-            Err(FifoRecvTimeoutError::Closed) => {
-                anyhow::bail!(
-                    "NMP write {} receipt closed before its terminal result",
-                    stream.event_id
-                );
-            }
-        }
-    }
 }
 
 pub(super) fn require_every_group_host_published(result: &ReceiptResult) -> Result<()> {

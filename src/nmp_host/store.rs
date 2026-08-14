@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use nmp::{Engine, EngineConfig, EngineError};
+use nmp::{Engine, EngineError};
 
 /// What NMP said about the store when it refused to open it.
 ///
@@ -81,21 +81,12 @@ impl StoreCondition {
         }
     }
 
-    /// The slug a machine reader branches on, and the `state` `mosaico doctor`
-    /// reports.
+    /// The slug emitted in the daemon's structured startup log.
     pub(crate) fn state(&self) -> &'static str {
         match self {
             Self::SupersededEpoch { .. } => "superseded-epoch",
             Self::HeldByAnotherOwner { .. } => "held-by-another-owner",
             Self::Unusable { .. } => "unusable",
-        }
-    }
-
-    /// The store this condition is about, when NMP named one.
-    pub(crate) fn path(&self) -> Option<&str> {
-        match self {
-            Self::SupersededEpoch { path, .. } | Self::HeldByAnotherOwner { path } => Some(path),
-            Self::Unusable { .. } => None,
         }
     }
 
@@ -164,48 +155,6 @@ pub(crate) fn opening_refused(error: EngineError) -> anyhow::Error {
     }
 }
 
-/// Ask the store at `path` what condition it is in, and release it again.
-///
-/// `None` means there is nothing to report: no store exists yet (the daemon
-/// creates one on first boot), or it opened cleanly. This exists so
-/// `mosaico doctor` can name why a daemon will not start **without** a daemon
-/// — which is the whole situation, since a store NMP refuses is a daemon that
-/// exits before it can answer an RPC.
-///
-/// **The caller must hold the daemon startup lock for this instance.** Asking
-/// the question takes ownership of the store, and a daemon binds its socket
-/// *before* it opens NMP — so an unguarded probe can win the race against a
-/// daemon that is slow to start and make it exit with `StoreAlreadyOpen`. A
-/// store big enough to be slow is exactly the one someone runs `doctor` at.
-pub(crate) fn probe(path: &Path) -> Option<StoreCondition> {
-    if !path.exists() {
-        return None;
-    }
-    match Engine::new(probe_config(path)) {
-        Ok(engine) => {
-            // Hold it for as little as possible: a daemon may be starting.
-            engine.shutdown();
-            None
-        }
-        Err(EngineError::StoreUnsupportedSchema {
-            path,
-            expected,
-            found,
-        }) => Some(StoreCondition::SupersededEpoch {
-            path,
-            expected,
-            found,
-        }),
-        Err(EngineError::StoreAlreadyOpen { path }) => {
-            Some(StoreCondition::HeldByAnotherOwner { path })
-        }
-        Err(EngineError::StoreOpenFailed { reason }) => Some(StoreCondition::Unusable { reason }),
-        Err(error) => Some(StoreCondition::Unusable {
-            reason: error.to_string(),
-        }),
-    }
-}
-
 /// Remove one closed NMP store through NMP's owned destructive API.
 ///
 /// The caller owns the human confirmation and must hold the selected daemon's
@@ -215,13 +164,6 @@ pub(crate) fn probe(path: &Path) -> Option<StoreCondition> {
 pub(crate) fn reset(path: &Path) -> anyhow::Result<()> {
     Engine::reset_persistent_store(path)
         .map_err(|error| anyhow::anyhow!("resetting the NMP persistent store: {error}"))
-}
-
-fn probe_config(path: &Path) -> EngineConfig {
-    EngineConfig {
-        store_path: Some(path.to_string_lossy().into_owned()),
-        ..EngineConfig::default()
-    }
 }
 
 #[cfg(test)]

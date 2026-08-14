@@ -33,8 +33,10 @@ After setup, restart open harness sessions and verify the complete installation:
 
 ```console
 $ mosaico setup --status
-$ mosaico doctor
 ```
+
+Then start two selected agents in the same repository, inspect `mosaico my
+session` in each, and prove one addressed handoff and reply.
 
 ## Multiple isolated daemon instances
 
@@ -52,8 +54,7 @@ $ MOSAICO=relay2 codex --yolo
 Each selection has its own config, relay connection, backend and agent
 identities, database, NMP store and cursors, socket, logs, sessions, and PTY
 metadata. A selected command or hook never connects to or falls back to another
-instance. Run diagnostics and lifecycle commands with the same selector, for
-example `MOSAICO=relay1 mosaico doctor` or
+instance. Run lifecycle commands with the same selector, for example
 `MOSAICO=relay1 mosaico daemon stop`.
 
 Names must contain 1-63 lowercase letters, digits, hyphens, or underscores and

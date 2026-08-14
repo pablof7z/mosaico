@@ -113,9 +113,8 @@ tail -n 200 .container-state/claude-acp/mosaico/daemon.log
 ## Outgoing writes
 
 There is no app-side log of them. NMP signs and publishes every group write, so
-Mosaico never holds the bytes; what the daemon still owes is NMP's durable
-publish queue, reported as `publish_queue` by `mosaico doctor` and rendered as
-the `write.queue` check.
+Mosaico never holds the bytes; NMP's durable publish queue owns outstanding
+delivery obligations.
 
 For an earlier failure, search the full file with timestamps. Keep logs until
 the result has been reported.

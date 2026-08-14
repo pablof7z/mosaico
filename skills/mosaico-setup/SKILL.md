@@ -5,7 +5,7 @@ description: Install, configure, repair, verify, update, or uninstall Mosaico an
 
 # Set up Mosaico
 
-Treat setup as an inspect, explain, install, configure, and verify workflow. Keep the user informed about commands, credentials, and file changes. Do not claim success until `mosaico doctor` passes and a real two-agent handoff works.
+Treat setup as an inspect, explain, install, configure, and verify workflow. Keep the user informed about commands, credentials, and file changes. Do not claim success until setup status matches the intended installation and a real two-agent handoff works.
 
 ## Understand the product
 
@@ -42,8 +42,8 @@ printf 'KIMI_CODE_HOME=%s\n' "${KIMI_CODE_HOME-}"
 
 If `mosaico` exists, inspect `mosaico --help` and `mosaico setup --status`. A checkout-local or stale executable can differ from the current contract.
 
-When `MOSAICO` is set, keep that exact selector on every setup, doctor,
-lifecycle, harness-launch, and verification command. Unset selects
+When `MOSAICO` is set, keep that exact selector on every setup, lifecycle,
+harness-launch, and verification command. Unset selects
 `$HOME/.mosaico`; `default` explicitly selects the same root; other valid names
 select `$HOME/.mosaico-instances/<name>`. Never combine the selector with
 `MOSAICO_HOME` or `MOSAICO_CONFIG`, and never use another instance as a fallback
@@ -127,25 +127,22 @@ Setup preserves existing `mosaicoPrivateKey`, `userNsec`, and unknown JSON field
 
 ## Verify and repair
 
-Restart harness sessions that were already open, then run:
+Restart harness sessions that were already open, then inspect the installed
+configuration and explicitly selected integrations:
 
 ```bash
 mosaico setup --status
-mosaico doctor --json
 ```
 
-Treat an unselected detected harness as an opt-in warning, not permission to install it. If Doctor proposes repair, summarize the exact actions and ask before running:
-
-```bash
-mosaico doctor --fix --json
-mosaico doctor --json
-```
+Treat an unselected detected harness as an opt-in choice, not permission to
+install it. Repair a selected integration by rerunning `mosaico setup` with the
+same explicit choices; never infer consent for another detected harness.
 
 For the first useful loop, start two selected agents in the same repository. In each, inspect `mosaico my session`. Confirm both appear in the same workspace, send one addressed handoff, and wait for the reply. Files existing is not sufficient proof.
 
 ## Update
 
-Repeat the verified release download for the current target, replace the executable, run `mosaico setup` to review current configuration and integrations, then run `mosaico doctor --json`. Preserve the same state home and backend identity.
+Repeat the verified release download for the current target, replace the executable, run `mosaico setup` to review current configuration and integrations, then prove a real two-agent handoff. Preserve the same state home and backend identity.
 
 ## Uninstall
 

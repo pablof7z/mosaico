@@ -89,25 +89,6 @@ async fn concurrent_writes_each_get_their_own_frozen_id() {
     }
 }
 
-/// The durable half of write visibility: an accepted write is readable back
-/// out of NMP's own queue, with no receipt id kept and no stream held open.
-#[tokio::test]
-async fn an_accepted_write_is_visible_in_the_queue_snapshot_without_any_bookkeeping() {
-    let host = one_host();
-    assert_eq!(host.publish_queue_snapshot().outstanding, 0);
-
-    let keys = Keys::generate();
-    let builder = EventBuilder::new(Kind::TextNote, "outstanding");
-    host.publish_group("room-a", builder, &keys).unwrap();
-
-    let snapshot = host.publish_queue_snapshot();
-    assert!(snapshot.unreadable.is_none(), "{snapshot:?}");
-    assert_eq!(snapshot.outstanding, 1);
-    // A signer IS attached and the route is explicit, so nothing about this
-    // write needs a person -- it is in flight, not stuck.
-    assert!(snapshot.stuck.is_empty(), "{snapshot:?}");
-}
-
 /// `publish` returning `Ok` IS acceptance, and acceptance is not viability:
 /// nothing here waits for a relay, so an offline host still returns promptly.
 #[tokio::test]
@@ -124,28 +105,6 @@ async fn an_offline_relay_does_not_delay_acceptance() {
         "took {:?}",
         started.elapsed()
     );
-}
-
-#[tokio::test]
-async fn a_bounded_result_wait_does_not_turn_disconnection_into_an_unbounded_doctor() {
-    let host = Arc::new(one_host());
-    let started = std::time::Instant::now();
-    let error = host
-        .publish_group_result_within(
-            "room-a",
-            EventBuilder::new(Kind::TextNote, "bounded doctor"),
-            &Keys::generate(),
-            Duration::from_millis(20),
-        )
-        .await
-        .expect_err("an unreachable relay cannot produce a terminal result immediately");
-
-    assert!(started.elapsed() < Duration::from_secs(1));
-    assert!(
-        format!("{error:#}").contains("remains in NMP's durable queue"),
-        "{error:#}"
-    );
-    assert_eq!(host.publish_queue_snapshot().outstanding, 1);
 }
 
 /// A group write with no configured host cannot resolve, and says so at the

@@ -9,7 +9,6 @@ mod hooks;
 mod io;
 mod kimi;
 mod onboarding;
-mod repair;
 mod selection;
 mod shell;
 mod skill_api;
@@ -22,10 +21,8 @@ use owo_colors::OwoColorize;
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
 pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
-pub(super) use device_config::ConfigRepair;
-pub(super) use hooks::{is_installed, is_present, merge_hooks};
+pub(super) use hooks::{is_installed, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
-pub(super) use repair::{repair_device_config, repair_integration};
 use selection::{detected_list, preflight_selection, resolve_selection};
 pub(super) use skill_api::{
     repair_skill, skill_health, SkillHealth, SkillHealthState, SkillTargetHealth,
@@ -132,7 +129,7 @@ async fn apply_install(
         println!("\n{}", "(dry run; nothing was written)".dimmed());
     } else if !opts.uninstall {
         super::daemon_lifecycle::restart().await?;
-        println!("\nSetup complete. Restart open harness sessions, then run `mosaico doctor`.");
+        println!("\nSetup complete. Restart open harness sessions.");
     } else if let Some(harness) = opts.harness.as_deref() {
         println!("\nRemoved Mosaico-owned {harness} integration and shell wrapper.");
     } else {
