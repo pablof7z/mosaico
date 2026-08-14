@@ -45,6 +45,8 @@ impl SessionTransport for RpcTransport {
             "MOSAICO_OBSERVED_HARNESS".to_string(),
             resolved.harness.as_str().to_string(),
         ));
+        extra_env.push(("MOSAICO_TRANSPORT".to_string(), self.kind().as_str().into()));
+        extra_env.push(("MOSAICO_ENDPOINT_ID".to_string(), endpoint_id.clone()));
         if resolved.harness == crate::session::Harness::Goose {
             crate::goose_integration::prepare_launch_env(&mut extra_env, &endpoint_id)?;
         }

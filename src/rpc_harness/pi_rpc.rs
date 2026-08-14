@@ -30,7 +30,7 @@ impl PiRpcClient {
     }
 
     /// Prompt acceptance is not completion. Register before sending, then wait
-    /// for the authoritative `agent_end` event emitted by this process.
+    /// for the authoritative `agent_settled` event emitted by this process.
     pub async fn prompt(&self, text: &str) -> Result<(), RpcError> {
         let mut observer = self.handle.register_turn_waiter(PI_TURN_KEY)?;
         self.handle

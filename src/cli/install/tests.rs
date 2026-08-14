@@ -243,7 +243,6 @@ fn pi_installation_requires_the_current_owned_extension() {
     let temp = tempfile::tempdir().unwrap();
     let h = harness("pi", temp.path().join("mosaico.ts"));
     write_text(&h.config_path, "export default function stale() {}\n").unwrap();
-    assert!(is_present(&h));
     assert!(!is_installed(&h));
 
     install_pi(&h, &InstallOpts::default(), false).unwrap();

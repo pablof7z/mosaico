@@ -104,7 +104,7 @@ async fn dispatch_inbound(
                 );
             } else if method == "thread/status/changed" {
                 signal_turn(app_server_routing, &params, TurnSignal::Reconcile);
-            } else if method == "agent_end" {
+            } else if method == "agent_settled" {
                 app_server_routing.signal(PI_TURN_KEY, TurnSignal::Completed(params.clone()));
             }
             // Unbounded, non-blocking send: never drops an update (defect #15), and

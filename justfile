@@ -42,9 +42,13 @@ test-all-local: test-dev-scripts test-site test-unit test-hermetic-integration t
 # Test harnesses own exact temporary homes. Do not let the developer's selected
 # live instance conflict with those low-level isolation overrides.
 
-test-dev-scripts:
+test-dev-scripts: test-pi-extension
     env -u MOSAICO bash skills/mosaico-dev/tests/scripts.sh
     env -u MOSAICO bash scripts/tests/install-fleet.sh
+
+test-pi-extension:
+    npm --prefix integrations/pi ci
+    npm --prefix integrations/pi run check
 
 test-site:
     node site/build.mjs

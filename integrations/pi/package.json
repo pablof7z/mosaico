@@ -1,0 +1,40 @@
+{
+  "name": "pi-mosaico",
+  "version": "0.1.0",
+  "description": "Mosaico identity, awareness, and lifecycle integration for Pi",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "mosaico",
+    "coding-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pablof7z/mosaico.git",
+    "directory": "integrations/pi"
+  },
+  "files": [
+    "mosaico.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./mosaico.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.4"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@types/node": "22.18.3",
+    "typescript": "5.9.2"
+  }
+}

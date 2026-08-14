@@ -156,8 +156,9 @@ session. The CLI exits non-zero unless the refusal is `already_wrapped`.
 Managed RPC transports keep lifecycle `working` until their native protocol
 proves the turn terminal or the owned child exits. ACP uses the terminal
 `session/prompt` response. Pi RPC uses the accepted `prompt` command followed
-by its `agent_end` event. Codex app-server uses only the current generated
-contract: the `turn/start` response identifies the exact turn, and
+by its `agent_settled` event; `agent_end` is non-terminal because retries,
+compaction, or queued follow-ups may still run. Codex app-server uses the
+current generated contract: the `turn/start` response identifies the exact turn, and
 `turn/completed.params.turn.status` classifies it as `completed`, `failed`, or
 `interrupted`. An `inProgress`, malformed, mismatched, or missing notification
 is never completion.

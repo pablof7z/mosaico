@@ -47,7 +47,7 @@ RUN mkdir -p /opt/claude \
     && chmod +x /usr/local/bin/claude
 
 RUN npm install --global @moonshot-ai/kimi-code
-ARG PI_VERSION=0.74.2
+ARG PI_VERSION=0.84.2
 RUN npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
 
 # The runtime's Claude ACP driver invokes this adapter through npx. Install it

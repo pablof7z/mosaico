@@ -44,6 +44,8 @@ export default function mosaico(pi: ExtensionAPI) {
       resume_id: ctx.sessionManager.getSessionId(),
       cwd: ctx.cwd,
       pid: process.pid,
+      transport: process.env.MOSAICO_TRANSPORT ?? "",
+      endpoint_id: process.env.MOSAICO_ENDPOINT_ID ?? "",
     }
   }
 
@@ -103,8 +105,10 @@ export default function mosaico(pi: ExtensionAPI) {
     }
   })
 
-  pi.on("agent_end", async (_event, ctx) => {
-    await runHook("stop", session(ctx), 5_000)
+  pi.on("agent_settled", async (_event, ctx) => {
+    if ((process.env.MOSAICO_TRANSPORT ?? "") !== "pi-rpc") {
+      await runHook("stop", session(ctx), 5_000)
+    }
   })
 
   pi.on("session_shutdown", async (_event, ctx) => {

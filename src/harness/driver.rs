@@ -73,7 +73,7 @@ pub enum SteerPrimitive {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnModel {
     /// Request/notification RPC: ACP `session/prompt`->stopReason, Codex
-    /// `turn/start`->`turn/completed`, or Pi `prompt`->`agent_end`.
+    /// `turn/start`->`turn/completed`, or Pi `prompt`->`agent_settled`.
     RpcTurn,
     /// Long-lived TTY; a turn is "text pasted + Enter", no completion signal.
     InteractivePty,

@@ -66,7 +66,7 @@ impl AcpRuntime {
 
 /// True for the notifications that end an app-server turn.
 fn is_turn_end(method: &str) -> bool {
-    matches!(method, "turn/completed" | "agent_end")
+    matches!(method, "turn/completed" | "agent_settled")
 }
 
 /// Pull the turn id from the current app-server notification shapes.
