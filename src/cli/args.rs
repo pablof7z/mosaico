@@ -100,7 +100,7 @@ pub(super) enum Cmd {
     /// Show the human/operator fabric view.
     #[command(hide = true)]
     Who(WhoArgs),
-    /// Resume a session by its native Claude, Codex, Grok, Hermes, Kimi, or OpenCode id.
+    /// Resume a session by its native Claude, Codex, Grok, Hermes, Kimi, Pi, or OpenCode id.
     #[command(hide = true)]
     Resume(ResumeArgs),
     /// Find and list local agent sessions.
@@ -155,7 +155,7 @@ pub(super) enum Cmd {
     /// Manage the selected Mosaico daemon instance.
     #[command(name = "daemon")]
     Daemon(DaemonArgs),
-    /// Debug: drive a harness over the ACP / app-server transport end-to-end.
+    /// Debug: drive a harness over its managed RPC transport end-to-end.
     #[command(name = "__acp-smoke", hide = true)]
     AcpSmoke(super::acp_smoke::AcpSmokeArgs),
     /// Attach to a matching session or launch a matching agent.

@@ -13,7 +13,11 @@ pub enum Dialect {
     Acp,
     /// Codex `app-server` dialect.
     AppServer,
+    /// Pi's command/response/event JSONL protocol (not JSON-RPC 2.0).
+    PiRpc,
 }
+
+pub(crate) const PI_TURN_KEY: &str = "pi-agent-turn";
 
 /// Why a turn ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +84,13 @@ pub struct RpcErrorObject {
 
 /// Classify a decoded JSON value into an [`Inbound`].
 pub fn classify(v: serde_json::Value) -> Inbound {
+    classify_for(Dialect::Acp, v)
+}
+
+pub fn classify_for(dialect: Dialect, v: serde_json::Value) -> Inbound {
+    if dialect == Dialect::PiRpc {
+        return classify_pi(v);
+    }
     let obj = match v.as_object() {
         Some(o) => o,
         None => return Inbound::Other,
@@ -125,6 +136,46 @@ pub fn classify(v: serde_json::Value) -> Inbound {
         }
     } else {
         Inbound::Other
+    }
+}
+
+fn classify_pi(v: serde_json::Value) -> Inbound {
+    let Some(object) = v.as_object() else {
+        return Inbound::Other;
+    };
+    let kind = object.get("type").and_then(serde_json::Value::as_str);
+    if kind == Some("response") {
+        let Some(id) = object
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|id| id.parse::<i64>().ok())
+        else {
+            return Inbound::Other;
+        };
+        let result = if object.get("success").and_then(serde_json::Value::as_bool) == Some(true) {
+            Ok(object
+                .get("data")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null))
+        } else {
+            Err(RpcErrorObject {
+                code: -1,
+                message: object
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Pi RPC command failed")
+                    .to_string(),
+                data: None,
+            })
+        };
+        return Inbound::Response { id, result };
+    }
+    match kind {
+        Some(method) => Inbound::Notification {
+            method: method.to_string(),
+            params: v,
+        },
+        None => Inbound::Other,
     }
 }
 

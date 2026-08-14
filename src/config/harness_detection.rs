@@ -25,6 +25,7 @@ fn detect_matching(mut is_launchable: impl FnMut(&str) -> bool) -> Vec<Harness> 
         (Harness::Goose, "goose"),
         (Harness::Hermes, "hermes"),
         (Harness::Kimi, "kimi"),
+        (Harness::Pi, "pi"),
     ];
     candidates
         .into_iter()
@@ -52,7 +53,7 @@ mod tests {
         std::fs::create_dir(root.path().join(".codex")).unwrap();
         let bin = root.path().join("bin");
         std::fs::create_dir(&bin).unwrap();
-        for executable in ["codex", "opencode", "goose", "hermes", "kimi"] {
+        for executable in ["codex", "opencode", "goose", "hermes", "kimi", "pi"] {
             let path = bin.join(executable);
             std::fs::write(&path, "#!/bin/sh\n").unwrap();
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -66,6 +67,7 @@ mod tests {
                 Harness::Goose,
                 Harness::Hermes,
                 Harness::Kimi,
+                Harness::from_str("pi"),
             ]
         );
     }

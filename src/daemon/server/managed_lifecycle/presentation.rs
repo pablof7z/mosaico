@@ -50,7 +50,9 @@ fn has_live_rpc_locator(locators: &[crate::state::SessionLocator], generation: u
     locators.iter().any(|locator| {
         matches!(
             locator.locator_kind.as_str(),
-            crate::state::LOCATOR_ACP | crate::state::LOCATOR_APP_SERVER
+            crate::state::LOCATOR_ACP
+                | crate::state::LOCATOR_APP_SERVER
+                | crate::state::LOCATOR_PI_RPC
         ) && locator.runtime_generation == generation
     })
 }

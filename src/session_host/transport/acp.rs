@@ -1,6 +1,6 @@
 //! `RpcTransport`: stdio JSON-RPC backend over `crate::rpc_harness`. Does NOT
 //! use `src/pty/*`. ACP and app-server keep distinct persisted kinds while
-//! sharing process/framing machinery. RPC has no unix socket, so liveness = child alive; the
+//! sharing process/framing machinery with Pi RPC. RPC has no unix socket, so liveness = child alive; the
 //! per-session child lives in a process-global registry keyed by our endpoint
 //! id.
 //!
@@ -48,7 +48,10 @@ pub struct AcpOpen {
 impl RpcTransport {
     pub(super) fn new(kind: TransportKind) -> Self {
         assert!(
-            matches!(kind, TransportKind::Acp | TransportKind::AppServer),
+            matches!(
+                kind,
+                TransportKind::Acp | TransportKind::AppServer | TransportKind::PiRpc
+            ),
             "RPC transport cannot host {kind:?}"
         );
         Self { kind }
@@ -58,6 +61,7 @@ impl RpcTransport {
         match self.kind {
             TransportKind::Acp => Dialect::Acp,
             TransportKind::AppServer => Dialect::AppServer,
+            TransportKind::PiRpc => Dialect::PiRpc,
             TransportKind::Pty => unreachable!("RPC transport cannot host PTY"),
         }
     }

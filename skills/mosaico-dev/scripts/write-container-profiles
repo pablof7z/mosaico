@@ -117,6 +117,20 @@ profile_contract() {
       TRANSPORT=acp
       BUNDLE_ARGS_JSON="${MOSAICO_DEV_KIMI_ACP_ARGS_JSON:-[]}"
       ;;
+    pi)
+      AGENT_SLUG=pi
+      BUNDLE=pi
+      HARNESS=pi
+      TRANSPORT=pty
+      BUNDLE_ARGS_JSON="${MOSAICO_DEV_PI_ARGS_JSON:-[]}"
+      ;;
+    pi-rpc)
+      AGENT_SLUG=pi
+      BUNDLE=pi-rpc
+      HARNESS=pi
+      TRANSPORT=pi-rpc
+      BUNDLE_ARGS_JSON="${MOSAICO_DEV_PI_RPC_ARGS_JSON:-[]}"
+      ;;
     opencode)
       AGENT_SLUG=opencode
       BUNDLE=opencode
@@ -149,7 +163,7 @@ profile_contract() {
       BUNDLE_ARGS_JSON="${MOSAICO_DEV_OPENCODE_OLLAMA_ARGS_JSON:-${default_opencode_args}}"
       ;;
     *)
-      printf 'unsupported profile %s; expected claude|claude-acp|codex|codex-app-server|grok|goose|goose-acp|hermes|hermes-acp|kimi|kimi-acp|opencode|opencode-acp|codex-ollama|opencode-ollama\n' "${profile}" >&2
+      printf 'unsupported profile %s; expected claude|claude-acp|codex|codex-app-server|grok|goose|goose-acp|hermes|hermes-acp|kimi|kimi-acp|pi|pi-rpc|opencode|opencode-acp|codex-ollama|opencode-ollama\n' "${profile}" >&2
       exit 2
       ;;
   esac

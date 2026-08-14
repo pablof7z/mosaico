@@ -19,6 +19,7 @@ pub enum Harness {
     Goose,
     Hermes,
     Kimi,
+    Pi,
     Unknown,
 }
 
@@ -32,6 +33,7 @@ impl Harness {
             Harness::Goose => "goose",
             Harness::Hermes => "hermes",
             Harness::Kimi => "kimi",
+            Harness::Pi => "pi",
             Harness::Unknown => "unknown",
         }
     }
@@ -46,6 +48,7 @@ impl Harness {
             "goose" => Harness::Goose,
             "hermes" => Harness::Hermes,
             "kimi" => Harness::Kimi,
+            "pi" => Harness::Pi,
             _ => Harness::Unknown,
         }
     }
@@ -60,6 +63,7 @@ impl Harness {
             Harness::Goose => "goose",
             Harness::Hermes => "hermes",
             Harness::Kimi => "kimi",
+            Harness::Pi => "pi",
             Harness::Unknown => "unknown",
         }
     }

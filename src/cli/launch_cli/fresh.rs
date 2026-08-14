@@ -24,7 +24,8 @@ pub(super) async fn launch(request: FreshLaunchRequest) -> Result<()> {
         Some(crate::session_host::transport::TransportKind::Pty) => attach_pty(&spawned),
         Some(
             crate::session_host::transport::TransportKind::Acp
-            | crate::session_host::transport::TransportKind::AppServer,
+            | crate::session_host::transport::TransportKind::AppServer
+            | crate::session_host::transport::TransportKind::PiRpc,
         ) => report_headless(&spawned),
         None => bail!("pty_spawn returned unknown transport {transport:?}"),
     }

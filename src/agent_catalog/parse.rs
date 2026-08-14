@@ -152,7 +152,7 @@ fn parse_profile(
         Harness::ClaudeCode => Some(parse_claude(&body, path)?),
         Harness::Opencode => parse_opencode(&body, path)?,
         Harness::Kimi => parse_kimi(&body, path)?,
-        Harness::Grok | Harness::Goose | Harness::Hermes | Harness::Unknown => None,
+        Harness::Grok | Harness::Goose | Harness::Hermes | Harness::Pi | Harness::Unknown => None,
     };
     let Some((slug, use_criteria)) = parsed else {
         return Ok(None);

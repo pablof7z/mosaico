@@ -51,3 +51,20 @@ if (drainBoundaryWarnings(warnings) !== "") process.exit(13);
     assert!(source.contains("replaceMosaicoPart(message)"));
     assert!(source.contains("drainBoundaryWarnings(pendingBoundaryWarnings)"));
 }
+
+#[test]
+fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
+    let source = config::PI_EXTENSION_TS;
+    for contract in [
+        "session_start",
+        "before_agent_start",
+        "tool_call",
+        "tool_result",
+        "agent_end",
+        "session_shutdown",
+        "ctx.sessionManager.getSessionId()",
+        "return { block: true, reason: result.message }",
+    ] {
+        assert!(source.contains(contract), "missing Pi contract {contract}");
+    }
+}

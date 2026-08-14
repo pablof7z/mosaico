@@ -37,8 +37,8 @@ Expand: `skills/mosaico-dev/resources/build-and-quality.md` and
 ## Containers and live lab
 
 **Why it exists:** unit and hermetic tests cannot prove real provider auth,
-PTY/ACP wiring, host-auth staging, or end-to-end fabric delivery through Claude,
-Codex, Grok, Goose, Hermes, Kimi, or OpenCode. The live lab is the opt-in stack for
+PTY/managed-RPC wiring, host-auth staging, or end-to-end fabric delivery through Claude,
+Codex, Grok, Goose, Hermes, Kimi, Pi, or OpenCode. The live lab is the opt-in stack for
 that class of proof: host Croissant relay + isolated container profiles + real
 host credentials.
 

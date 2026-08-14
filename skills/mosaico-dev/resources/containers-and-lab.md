@@ -13,7 +13,7 @@ proof**, not model quality.
 Use it when the work depends on:
 
 - real provider authentication or plugin/hook install paths;
-- hosted PTY or ACP/app-server session lifecycle;
+- hosted PTY or managed-RPC session lifecycle;
 - delivery of fabric events to a live agent session;
 - multi-agent or multi-human traffic on a real NIP-29 relay;
 - containerized install/onboarding (`containers/mosaico/run onboard`).
@@ -29,7 +29,7 @@ cheapest sufficient evidence layer.
   host `~/.mosaico`.
 - Cheapest model that can run one command and report a result.
 - `direct` = provider auth/plugin only. `launch` = hosted lifecycle. Run
-  `__acp-smoke` before structured ACP/app-server launch.
+  `__acp-smoke` before structured managed-RPC launch.
 - **Never** start a second container against a profile whose agent is alive
   (shared socket eviction). Inspect bind-mounted logs and the relay from the
   host only while live.

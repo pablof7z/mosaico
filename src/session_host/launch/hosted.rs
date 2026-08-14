@@ -163,12 +163,21 @@ fn prepare_commands(
     extra_args: &[String],
     slug: &str,
 ) -> Result<(Vec<String>, crate::session_host::transport::PreparedLaunch)> {
+    let rpc_spawn_resume = matches!(resume, ResumeMechanism::RpcSpawnFlag(_))
+        && matches!(conversation, ConversationOpen::Resume { .. });
     command = match conversation {
         ConversationOpen::Fresh => command,
         ConversationOpen::Resume { native_id } => {
             build_driver_resume_command(&command, resume, native_id, slug)?
         }
     };
+    if rpc_spawn_resume {
+        let rpc = prepared
+            .rpc
+            .as_mut()
+            .context("RPC-spawn resume has no admitted RPC launch plan")?;
+        rpc.argv = command.clone();
+    }
     command.extend_from_slice(extra_args);
     if let Some(rpc) = prepared.rpc.as_mut() {
         rpc.argv.extend_from_slice(extra_args);
@@ -183,7 +192,7 @@ fn build_driver_resume_command(
     slug: &str,
 ) -> Result<Vec<String>> {
     match mechanism {
-        ResumeMechanism::AppendFlag(flag) => {
+        ResumeMechanism::AppendFlag(flag) | ResumeMechanism::RpcSpawnFlag(flag) => {
             let mut command = base.to_vec();
             command.extend([flag.to_string(), resume_id.to_string()]);
             Ok(command)

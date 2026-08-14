@@ -35,7 +35,7 @@ fn schema_twelve_backfills_semantic_state_time() {
 
     drop(Store::open(&path).expect("schema twelve upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 22);
+    assert_eq!(version(&conn), 23);
     assert!(!fixture::table_exists(&conn, "relay_status"));
     assert_eq!(
         conn.query_row(

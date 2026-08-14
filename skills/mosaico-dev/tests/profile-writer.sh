@@ -31,7 +31,7 @@ EOF
       MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON='["--strict-config"]' \
       bash "${SKILL}/scripts/write-container-profiles" "${writer_env}" \
         claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-        kimi kimi-acp codex-ollama opencode-ollama
+        kimi kimi-acp pi pi-rpc codex-ollama opencode-ollama
   )"
   assert_generated_profiles
   assert_regeneration_preserves_key "${writer_env}"
@@ -67,7 +67,7 @@ EOF
 assert_generated_profiles() {
   local profile harnesses agent config
   for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-    kimi kimi-acp codex-ollama opencode-ollama; do
+    kimi kimi-acp pi pi-rpc codex-ollama opencode-ollama; do
     harnesses="${TMP}/container-state/${profile}/mosaico/harnesses.json"
     agent="$(find "${TMP}/container-state/${profile}/mosaico/agents" \
       -type f -name '*.json')"
@@ -116,6 +116,12 @@ assert_generated_profiles() {
   assert_json 'has("profile") | not' \
     "${TMP}/container-state/kimi-acp/mosaico/agents/kimi.json" \
     'Kimi ACP omits unsupported named profiles'
+  assert_json '.["pi"] == {"harness":"pi","transport":"pty"}' \
+    "${TMP}/container-state/pi/mosaico/harnesses.json" \
+    'Pi profile emits its interactive PTY bundle'
+  assert_json '.["pi-rpc"] == {"harness":"pi","transport":"pi-rpc"}' \
+    "${TMP}/container-state/pi-rpc/mosaico/harnesses.json" \
+    'Pi RPC profile emits its native managed bundle'
   assert_json '.profile == "planner"' \
     "${TMP}/container-state/codex-app-server/mosaico/agents/codex.json" \
     'Codex named profile belongs to agent config'
@@ -128,12 +134,12 @@ assert_generated_profiles() {
   local key_count
   key_count="$(
     for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
-      kimi kimi-acp codex-ollama opencode-ollama; do
+      kimi kimi-acp pi pi-rpc codex-ollama opencode-ollama; do
       jq -r '.mosaicoPrivateKey' \
         "${TMP}/container-state/${profile}/mosaico/config.json"
     done | sort -u | wc -l | tr -d ' '
   )"
-  assert_eq 11 "${key_count}" 'each profile has a distinct backend key'
+  assert_eq 13 "${key_count}" 'each profile has a distinct backend key'
 }
 
 assert_regeneration_preserves_key() {

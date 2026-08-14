@@ -25,7 +25,7 @@ pub(super) async fn check(
 ) -> Option<String> {
     if !matches!(
         host.name,
-        "claude-code" | "codex" | "opencode" | "hermes" | "kimi"
+        "claude-code" | "codex" | "opencode" | "hermes" | "kimi" | "pi"
     ) {
         return None;
     }
@@ -99,7 +99,7 @@ fn render(host: &str, result: &Value) -> Option<String> {
             })
             .to_string(),
         ),
-        "opencode" | "hermes" if matches!(decision, "warn" | "deny") => Some(
+        "opencode" | "hermes" | "pi" if matches!(decision, "warn" | "deny") => Some(
             serde_json::json!({
                 "decision": decision,
                 "message": message,
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn plugin_hosts_receive_a_small_decision_object() {
-        for host in ["opencode", "hermes"] {
+        for host in ["opencode", "hermes", "pi"] {
             let rendered: Value = serde_json::from_str(
                 &render(
                     host,

@@ -28,6 +28,14 @@ pub(crate) fn discover(native_id: &str) -> Result<Vec<NativeSession>> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".kimi-code"));
+    let pi_agent_dir = std::env::var_os("PI_CODING_AGENT_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".pi/agent"));
+    let pi_sessions = std::env::var_os("PI_CODING_AGENT_SESSION_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| pi_agent_dir.join("sessions"));
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -42,6 +50,7 @@ pub(crate) fn discover(native_id: &str) -> Result<Vec<NativeSession>> {
         native_id,
         &mut found,
     )?;
+    discover_pi(&pi_sessions, native_id, &mut found)?;
     discover_opencode(
         &data_home.join("opencode/opencode.db"),
         native_id,
@@ -53,6 +62,29 @@ pub(crate) fn discover(native_id: &str) -> Result<Vec<NativeSession>> {
     });
     found.dedup();
     Ok(found)
+}
+
+fn discover_pi(root: &Path, native_id: &str, found: &mut Vec<NativeSession>) -> Result<()> {
+    let suffix = format!("_{native_id}.jsonl");
+    visit_files(root, &mut |path| {
+        let matches_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(&suffix));
+        if !matches_name {
+            return Ok(());
+        }
+        if let Some(cwd) = jsonl_cwd(path, |value| {
+            value.get("type").and_then(|kind| kind.as_str()) == Some("session")
+                && value.get("id").and_then(|id| id.as_str()) == Some(native_id)
+        })? {
+            found.push(NativeSession {
+                harness: crate::session::Harness::Pi,
+                cwd,
+            });
+        }
+        Ok(())
+    })
 }
 
 fn discover_claude(root: &Path, native_id: &str, found: &mut Vec<NativeSession>) -> Result<()> {

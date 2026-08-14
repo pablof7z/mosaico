@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     claimed_harness   TEXT NOT NULL DEFAULT '',
     admitted_bundle   TEXT NOT NULL DEFAULT '',
     admitted_transport TEXT NOT NULL DEFAULT ''
-        CHECK (admitted_transport IN ('', 'pty', 'acp', 'app-server')),
+        CHECK (admitted_transport IN ('', 'pty', 'acp', 'app-server', 'pi-rpc')),
     endpoint_provenance TEXT NOT NULL DEFAULT ''
         CHECK (endpoint_provenance IN ('', 'launch', 'hook', 'migration')),
     child_pid         INTEGER,
@@ -114,7 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_session_standing_state
 CREATE TABLE IF NOT EXISTS session_locators (
     harness        TEXT NOT NULL,
     locator_kind   TEXT NOT NULL
-        CHECK (locator_kind IN ('native_resume', 'pty', 'acp', 'app_server', 'pid')),
+        CHECK (locator_kind IN ('native_resume', 'pty', 'acp', 'app_server', 'pi_rpc', 'pid')),
     locator_value  TEXT NOT NULL,
     pubkey         TEXT NOT NULL,
     runtime_generation INTEGER NOT NULL DEFAULT 0,
@@ -129,7 +129,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_session_locators_native_resume
     ON session_locators(pubkey) WHERE locator_kind='native_resume';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_session_locators_runtime_endpoint
     ON session_locators(pubkey, harness, locator_kind)
-    WHERE locator_kind IN ('pty', 'acp', 'app_server', 'pid');
+    WHERE locator_kind IN ('pty', 'acp', 'app_server', 'pi_rpc', 'pid');
 
 CREATE TABLE IF NOT EXISTS session_signers (pubkey TEXT PRIMARY KEY, signer_salt TEXT NOT NULL);
 

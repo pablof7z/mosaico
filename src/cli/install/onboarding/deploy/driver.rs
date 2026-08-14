@@ -16,7 +16,7 @@ use super::transcript::DeployEvent;
 use super::{PermissionAsk, PermissionOption};
 use crate::rpc_harness::{
     spawn_config_from_driver, AcpClient, AppServerClient, Callbacks, Dialect, FsBridge,
-    PermissionPolicy, RpcHandle, StopReason,
+    PermissionPolicy, PiRpcClient, RpcHandle, StopReason,
 };
 
 /// Live channels the UI drains while the driver runs.
@@ -150,6 +150,7 @@ async fn run(
     match dialect {
         Dialect::Acp => run_acp(&rpc, &cwd, &prompt, &event_tx).await,
         Dialect::AppServer => run_app_server(&rpc, &cwd, &prompt, &event_tx).await,
+        Dialect::PiRpc => run_pi_rpc(&rpc, &prompt, &event_tx).await,
     }
 }
 
@@ -207,6 +208,27 @@ async fn run_app_server(
         .await
         .map_err(|e| anyhow::anyhow!("turn/start: {e}"))?;
     let _ = event_tx.send(DeployEvent::Notice(format!("agent turn: {outcome}")));
+    let _ = event_tx.send(DeployEvent::TurnEnded);
+    Ok(())
+}
+
+async fn run_pi_rpc(
+    rpc: &RpcHandle,
+    prompt: &str,
+    event_tx: &mpsc::Sender<DeployEvent>,
+) -> anyhow::Result<()> {
+    let client = PiRpcClient::new(rpc.clone());
+    let session_id = client
+        .session_id()
+        .await
+        .map_err(|error| anyhow::anyhow!("Pi get_state: {error}"))?;
+    let _ = event_tx.send(DeployEvent::Notice(format!(
+        "Pi RPC session {session_id} ready"
+    )));
+    client
+        .prompt(prompt)
+        .await
+        .map_err(|error| anyhow::anyhow!("Pi prompt: {error}"))?;
     let _ = event_tx.send(DeployEvent::TurnEnded);
     Ok(())
 }

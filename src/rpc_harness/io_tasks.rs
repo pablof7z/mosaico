@@ -10,7 +10,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 
 use super::callbacks::Callbacks;
-use super::protocol::{classify, Inbound, RpcErrorObject, SessionUpdate};
+use super::protocol::{classify_for, Dialect, Inbound, RpcErrorObject, SessionUpdate, PI_TURN_KEY};
 use super::transport::{AppServerRouting, PendingMap, TurnSignal};
 
 pub(super) async fn writer_task(
@@ -43,6 +43,7 @@ pub(super) async fn reader_task(
     callbacks: Callbacks,
     alive: Arc<AtomicBool>,
     exit_tx: watch::Sender<bool>,
+    dialect: Dialect,
 ) {
     let mut reader = BufReader::new(stdout).lines();
     // `while let Ok(Some(..))` exits on both EOF (`Ok(None)`) and read error.
@@ -56,7 +57,7 @@ pub(super) async fn reader_task(
             Err(_) => continue,
         };
         dispatch_inbound(
-            classify(value),
+            classify_for(dialect, value),
             &pending,
             &app_server_routing,
             &write_tx,
@@ -103,6 +104,8 @@ async fn dispatch_inbound(
                 );
             } else if method == "thread/status/changed" {
                 signal_turn(app_server_routing, &params, TurnSignal::Reconcile);
+            } else if method == "agent_end" {
+                app_server_routing.signal(PI_TURN_KEY, TurnSignal::Completed(params.clone()));
             }
             // Unbounded, non-blocking send: never drops an update (defect #15), and
             // cannot deadlock the reader (no backpressure). A closed receiver (drain

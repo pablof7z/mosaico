@@ -15,6 +15,8 @@ use crate::rpc_harness::{
     spawn_config_from_driver, AcpClient, AppServerClient, Callbacks, Dialect, RpcHandle, StopReason,
 };
 
+mod pi;
+
 #[derive(Args)]
 pub struct AcpSmokeArgs {
     /// Explicit RPC harness bundle from harnesses.json.
@@ -42,7 +44,10 @@ fn resolve_rpc(
     let bundle = cfg
         .get(name)
         .with_context(|| format!("no harness bundle {name:?} in harnesses.json"))?;
-    if !matches!(bundle.transport, Transport::Acp | Transport::AppServer) {
+    if !matches!(
+        bundle.transport,
+        Transport::Acp | Transport::AppServer | Transport::PiRpc
+    ) {
         anyhow::bail!(
             "harness bundle {name:?} uses {}, not an RPC transport",
             bundle.transport.as_str()
@@ -93,6 +98,7 @@ pub async fn acp_smoke(args: AcpSmokeArgs) -> Result<()> {
     match cfg.dialect {
         Dialect::Acp => run_acp(cfg, &cwd, &args.prompt, mk_cfg).await,
         Dialect::AppServer => run_app_server(cfg, &cwd, &args.prompt, mk_cfg).await,
+        Dialect::PiRpc => pi::run_pi_rpc(cfg, &args.prompt, mk_cfg).await,
     }
 }
 

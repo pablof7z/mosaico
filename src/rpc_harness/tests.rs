@@ -1,6 +1,9 @@
 use super::protocol::{classify, Inbound, StopReason};
 use super::*;
 
+#[path = "tests/pi_rpc.rs"]
+mod pi_rpc;
+
 #[test]
 fn classify_response_result() {
     let v = serde_json::json!({ "jsonrpc": "2.0", "id": 1, "result": { "sessionId": "ses_x" } });

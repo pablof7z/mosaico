@@ -4,11 +4,8 @@
 use super::*;
 use rusqlite::{Transaction, TransactionBehavior};
 
-pub(crate) const LOCATOR_NATIVE_RESUME: &str = "native_resume";
-pub(crate) const LOCATOR_PTY: &str = "pty";
-pub(crate) const LOCATOR_ACP: &str = "acp";
-pub(crate) const LOCATOR_APP_SERVER: &str = "app_server";
-pub(crate) const LOCATOR_PID: &str = "pid";
+mod kinds;
+pub(crate) use kinds::*;
 
 const COLS: &str = "harness, locator_kind, locator_value, pubkey, runtime_generation, created_at";
 
@@ -42,17 +39,18 @@ impl Store {
             )
             .optional()?
             .context("session locator has no session")?;
-        let adds_delivery_path =
-            matches!(locator_kind, LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER)
-                && !tx.query_row(
-                    "SELECT EXISTS(
+        let adds_delivery_path = matches!(
+            locator_kind,
+            LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER | LOCATOR_PI_RPC
+        ) && !tx.query_row(
+            "SELECT EXISTS(
                 SELECT 1 FROM session_locators
                  WHERE pubkey=?1 AND harness=?2 AND locator_kind=?3
                    AND runtime_generation=?4
             )",
-                    params![pubkey, harness, locator_kind, generation],
-                    |row| row.get::<_, bool>(0),
-                )?;
+            params![pubkey, harness, locator_kind, generation],
+            |row| row.get::<_, bool>(0),
+        )?;
         if locator_kind == LOCATOR_NATIVE_RESUME {
             if recovery == RecoveryState::Revoked.as_str() {
                 anyhow::bail!("pubkey {pubkey} recovery authority is revoked");
@@ -332,7 +330,12 @@ impl Store {
                AND harness=(SELECT observed_harness FROM sessions WHERE pubkey=?1)",
             params![pubkey, locator_kind, runtime_generation],
         )? > 0;
-        if removed && matches!(locator_kind, LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER) {
+        if removed
+            && matches!(
+                locator_kind,
+                LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER | LOCATOR_PI_RPC
+            )
+        {
             transaction.execute(
                 "UPDATE sessions SET state_changed_at=?3
                  WHERE pubkey=?1 AND runtime_generation=?2
@@ -357,15 +360,6 @@ impl Store {
             params![pubkey, harness, locator_kind],
         )?;
         Ok(())
-    }
-}
-
-fn validate_locator_kind(locator_kind: &str) -> Result<()> {
-    match locator_kind {
-        LOCATOR_NATIVE_RESUME | LOCATOR_PTY | LOCATOR_ACP | LOCATOR_APP_SERVER | LOCATOR_PID => {
-            Ok(())
-        }
-        _ => anyhow::bail!("unknown session locator kind {locator_kind:?}"),
     }
 }
 

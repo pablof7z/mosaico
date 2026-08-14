@@ -9,7 +9,7 @@ Spawns an in-daemon `SessionTask` (publishes profile and presence, declares its
 NMP live-query demand, and routes mentions — today's `runtime::run_session`).
 
 ```jsonc
-params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_bundle": "claude-pty"|null, "admitted_transport": "pty"|"acp"|"app-server"|null, "endpoint_provenance": "launch"|"hook", "pty_session": "endpoint-id"|null, "endpoint_kind": "pty"|"acp"|"app-server"|null, "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
+params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_bundle": "claude-pty"|null, "admitted_transport": "pty"|"acp"|"app-server"|"pi-rpc"|null, "endpoint_provenance": "launch"|"hook", "pty_session": "endpoint-id"|null, "endpoint_kind": "pty"|"acp"|"app-server"|"pi-rpc"|null, "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
 result: {"pubkey": "hex"}
 ```
 
@@ -38,7 +38,7 @@ set. Both then enter one hosted-open transaction that applies one-launch
 arguments, constructs the transport launch specification, selects fresh versus
 native reopen, starts the fabric runtime, and compensates a failed start by
 terminating the opened endpoint and releasing its runtime reservation. PTY,
-ACP, and app-server retain their distinct native open protocols behind the
+ACP, app-server, and Pi RPC retain their distinct native open protocols behind the
 transport boundary.
 
 The workspace and root channel are one entity with the public address
@@ -80,7 +80,7 @@ result: {"killed": true|false, "ended": true|false,
 Process-kill, the counterpart to `session_end`. The daemon's single termination
 coordinator stops a resolved hosted endpoint through its transport. A raw
 `SIGTERM` fallback is allowed only for an unhosted native process; a session
-admitted on PTY, ACP, or app-server without its exact endpoint locator fails
+admitted on PTY, ACP, app-server, or Pi RPC without its exact endpoint locator fails
 closed. The exact generation is marked stopped only after process termination
 is confirmed. `killed` reflects that confirmation; `reason` is populated on
 failure (including "no local session matched" when `session` doesn't resolve).
@@ -123,7 +123,7 @@ already-running process. A running non-PTY runtime refuses to double-spawn and
 directs explicit takeover to the bare `mosaico` operator home.
 
 An unmapped id is adopted only when authoritative local Claude, Codex, Grok,
-Kimi, or OpenCode storage identifies one harness. Its recorded cwd selects the
+Kimi, Pi, or OpenCode storage identifies one harness. Its recorded cwd selects the
 workspace unless `workspace` supplies an existing absolute directory. Mosaico then mints
 the generic per-session identity for that harness and atomically claims the
 native locator before opening the PTY. Missing and cross-harness-ambiguous ids
@@ -155,7 +155,8 @@ session. The CLI exits non-zero unless the refusal is `already_wrapped`.
 
 Managed RPC transports keep lifecycle `working` until their native protocol
 proves the turn terminal or the owned child exits. ACP uses the terminal
-`session/prompt` response. Codex app-server uses only the current generated
+`session/prompt` response. Pi RPC uses the accepted `prompt` command followed
+by its `agent_end` event. Codex app-server uses only the current generated
 contract: the `turn/start` response identifies the exact turn, and
 `turn/completed.params.turn.status` classifies it as `completed`, `failed`, or
 `interrupted`. An `inProgress`, malformed, mismatched, or missing notification
@@ -177,7 +178,7 @@ literal. An absent, duplicate, unsupported, malformed, or unavailable native
 capability rejects admission and terminates the unregistered child; there are
 no aliases or fallback models.
 
-Every fresh daemon-owned ACP or app-server turn, whether opened by an inbox
+Every fresh daemon-owned managed-RPC turn, whether opened by an inbox
 event or a direct spawn prompt, writes one generation-fenced
 `native_turn_attempts` row. The row begins as `started` and may finalize exactly
 once as `completed`, `failed`, `interrupted`, `rejected_before_start`,

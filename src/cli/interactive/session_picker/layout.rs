@@ -14,7 +14,7 @@ const CHANNEL: Color = Color::Indexed(75);
 const MUTED: Color = Color::Indexed(245);
 
 pub(super) fn lines(row: &SessionRow, now: u64, width: usize, focused: bool) -> [Line<'static>; 2] {
-    let greyed = row.transport == "acp";
+    let greyed = matches!(row.transport.as_str(), "acp" | "app-server" | "pi-rpc");
     let handle = format!("@{}", row.handle);
     let scope = scope_spans(&row.workspaces);
     let scope_width = scope.iter().map(|span| span.content.width()).sum::<usize>();

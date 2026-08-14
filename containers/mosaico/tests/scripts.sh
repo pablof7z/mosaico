@@ -10,8 +10,8 @@ fail() {
   exit 1
 }
 
-# shellcheck source=helpers/kimi.sh
 source "${ROOT}/containers/mosaico/tests/helpers/kimi.sh"
+source "${ROOT}/containers/mosaico/tests/helpers/pi.sh"
 
 file_mode() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -83,6 +83,7 @@ printf '{"providers":{"openai-codex":{"tokens":{"access_token":"test","refresh_t
 chmod 600 "${HOST_HOME}/.hermes/profiles/reviewer/auth.json"
 setup_kimi_host_fixture
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/auth.json"
+setup_pi_host_fixture
 printf '{}\n' >"${HOST_HOME}/.local/share/opencode/account.json"
 printf '{}\n' >"${HOST_HOME}/.config/opencode/opencode.jsonc"
 printf 'GOOSE_PROVIDER: openrouter\nGOOSE_MODEL: test/model\n' \
@@ -96,6 +97,7 @@ source "${ROOT}/containers/mosaico/host-auth.bash"
 assert_mounts_only claude '/host-auth/claude'
 assert_mounts_only codex '/host-auth/codex'
 assert_mounts_only opencode '/host-auth/opencode-config'
+assert_mounts_only pi '/host-auth/pi'
 assert_no_mounts goose
 assert_no_mounts hermes
 assert_no_mounts kimi
@@ -165,10 +167,12 @@ echo 'ok: Hermes auth, config, and profiles are staged into writable state'
 
 assert_kimi_state_isolated
 
+assert_pi_state_isolated
+
 CONFIG_HOME="${TMP}/mosaico"
 mkdir -p "${CONFIG_HOME}/agents"
 printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"},"kimi-acp":{"harness":"kimi","transport":"acp"}}' \
+  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"},"kimi-acp":{"harness":"kimi","transport":"acp"},"pi-rpc":{"harness":"pi","transport":"pi-rpc"}}' \
   >"${CONFIG_HOME}/harnesses.json"
 printf '%s\n' \
   '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex-app-server"}' \

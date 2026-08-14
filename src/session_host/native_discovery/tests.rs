@@ -108,3 +108,25 @@ fn discovers_kimi_from_its_session_index() {
         }]
     );
 }
+
+#[test]
+fn discovers_pi_from_its_session_header() {
+    let home = tempfile::tempdir().unwrap();
+    let sessions = home.path().join("pi-sessions");
+    let mut env = EnvGuard::set("HOME", home.path());
+    env.set_var("PI_CODING_AGENT_SESSION_DIR", &sessions);
+    write(
+        &sessions.join(
+            "--work-pi--/2026-08-13T14-06-48-845Z_019ffb72-700d-70e6-8bd6-fcc1d5ac8a57.jsonl",
+        ),
+        "{\"type\":\"session\",\"version\":3,\"id\":\"019ffb72-700d-70e6-8bd6-fcc1d5ac8a57\",\"cwd\":\"/work/pi\"}\n",
+    );
+
+    assert_eq!(
+        discover("019ffb72-700d-70e6-8bd6-fcc1d5ac8a57").unwrap(),
+        [NativeSession {
+            harness: crate::session::Harness::Pi,
+            cwd: Some(PathBuf::from("/work/pi")),
+        }]
+    );
+}

@@ -242,7 +242,7 @@ fn bound_endpoint_projection_is_transport_owned_and_generic() {
 
 #[test]
 fn missing_hosted_locator_preserves_the_admitted_transport() {
-    for transport in ["pty", "acp", "app-server"] {
+    for transport in ["pty", "acp", "app-server", "pi-rpc"] {
         let store = Store::open_memory().unwrap();
         store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),

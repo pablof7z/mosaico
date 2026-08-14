@@ -18,7 +18,7 @@ fn installer_lists_every_supported_harness() {
     let bin = temp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
     for executable in [
-        "claude", "codex", "opencode", "grok", "goose", "hermes", "kimi",
+        "claude", "codex", "opencode", "grok", "goose", "hermes", "kimi", "pi",
     ] {
         write_executable(&bin.join(executable));
     }
@@ -35,7 +35,8 @@ fn installer_lists_every_supported_harness() {
             "grok",
             "goose",
             "hermes",
-            "kimi"
+            "kimi",
+            "pi"
         ]
     );
     assert!(all.iter().all(|harness| harness.detected));
@@ -45,5 +46,5 @@ fn installer_lists_every_supported_harness() {
 
     let selection = resolve_selection(&all, &opts(true, None)).unwrap();
     assert!(selection.skill);
-    assert_eq!(selection.harnesses.len(), 7);
+    assert_eq!(selection.harnesses.len(), 8);
 }

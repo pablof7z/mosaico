@@ -43,7 +43,7 @@ fn dead_hosted_endpoint_is_not_revived_despite_a_live_pid() {
 #[tokio::test]
 async fn missing_hosted_locators_never_fall_back_to_a_live_pid() {
     let state = DaemonState::new_for_test().await;
-    for transport in ["pty", "acp", "app-server"] {
+    for transport in ["pty", "acp", "app-server", "pi-rpc"] {
         let pubkey = format!("pk-missing-{transport}");
         state
             .with_store(|store| {

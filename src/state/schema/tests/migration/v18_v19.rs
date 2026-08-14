@@ -24,7 +24,7 @@ fn schema_eighteen_upgrades_then_drops_relay_owned_messages() {
 
     drop(Store::open(&path).expect("schema eighteen upgrades to current"));
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 22);
+    assert_eq!(version(&conn), 23);
     assert!(!fixture::table_exists(&conn, "messages"));
     assert_eq!(count(&conn, "message_attachments"), 0);
 }
