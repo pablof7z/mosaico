@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::rpc_harness::{AcpClient, AppServerClient, RpcHandle};
+use crate::rpc_harness::{AcpClient, AppServerClient, PiRpcClient, RpcHandle};
 
 use super::{
     acp_runtime::{AcpRuntime, SteerState},
@@ -49,6 +49,41 @@ pub(crate) fn spawn_acp_prompt(
         native_thread_id: native_id,
         completion: completion_rx,
     }
+}
+
+pub(crate) fn spawn_pi_prompt(
+    handle: RpcHandle,
+    native_id: String,
+    text: String,
+    runtime: Arc<Mutex<AcpRuntime>>,
+) -> DeliveryCompletion {
+    let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let result = PiRpcClient::new(handle).prompt(&text).await;
+        if let Ok(mut runtime) = runtime.lock() {
+            runtime.mark_turn_finished();
+        }
+        let completion = result
+            .map(|()| ManagedTurnResult::completed(""))
+            .unwrap_or_else(|error| rpc_failure("", error));
+        let _ = completion_tx.send(completion);
+    });
+    DeliveryCompletion::Managed {
+        native_thread_id: native_id,
+        completion: completion_rx,
+    }
+}
+
+pub(crate) fn spawn_pi_steer(handle: RpcHandle, text: String) -> DeliveryCompletion {
+    let (accepted_tx, accepted_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let result = PiRpcClient::new(handle)
+            .steer(&text)
+            .await
+            .map_err(|error| anyhow::anyhow!("Pi RPC steer failed: {error}"));
+        let _ = accepted_tx.send(result);
+    });
+    DeliveryCompletion::ManagedSteer(accepted_rx)
 }
 
 pub(crate) fn spawn_app_server_turn(

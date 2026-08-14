@@ -3,6 +3,10 @@ use super::*;
 #[path = "work_start_reaction.rs"]
 pub(crate) mod work_start_reaction;
 
+fn hook_owns_lifecycle(admitted_transport: &str) -> bool {
+    matches!(admitted_transport, "" | "pty")
+}
+
 pub(in crate::daemon::server) async fn rpc_turn_start(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -47,9 +51,12 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
             }));
         }
     };
-    turn_lifecycle::drive_turn_started(state, &before, now)
-        .await
-        .context("applying turn_start lifecycle projection")?;
+    let owns_lifecycle = hook_owns_lifecycle(&before.admitted_transport);
+    if owns_lifecycle {
+        turn_lifecycle::drive_turn_started(state, &before, now)
+            .await
+            .context("applying turn_start lifecycle projection")?;
+    }
 
     let rec = state
         .with_store(|s| s.get_session(&before.pubkey).ok().flatten())
@@ -58,8 +65,10 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     let instance = state.session_instance(&rec);
     let agent_label = instance.display_slug();
 
-    // Emit Turn{working} for the live tail feed, keyed on the routing scope.
-    emit_turn_for_routes(state, &rec, now, &agent_label, "working", None);
+    if owns_lifecycle {
+        // Emit Turn{working} for the live tail feed, keyed on the routing scope.
+        emit_turn_for_routes(state, &rec, now, &agent_label, "working", None);
+    }
 
     // PTY inject is only confirmed when the harness user-prompt matches a
     // `submitted` row. Confirmed → `injected` (echo-suppress). Unconfirmed
@@ -67,7 +76,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     // turn's hook path can deliver them. Without a prompt we leave
     // `submitted` alone (stale timeout / later UPS handles it).
     let prompt = params.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-    if !prompt.is_empty() {
+    if owns_lifecycle && !prompt.is_empty() {
         if let Err(e) = state.with_store(|s| {
             s.confirm_submitted_from_prompt(&rec.pubkey, prompt, now)?;
             s.reenqueue_submitted(&rec.pubkey)?;
@@ -100,7 +109,9 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
     record_hook_receipt(state, &turn);
     cursor::drive_cursor_request(state, &rec, turn.receipt.now.max(0) as u64, true)
         .context("applying cursor turn_start projection")?;
-    work_start_reaction::publish_for_started_turn(state, &rec);
+    if owns_lifecycle {
+        work_start_reaction::publish_for_started_turn(state, &rec);
+    }
     let context = turn
         .text
         .map(serde_json::Value::String)
@@ -172,12 +183,19 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
     // Read working/turn_started_at BEFORE closing the turn so we can compute
     // elapsed. Runtime locators resolve to the canonical pubkey-owned row.
     let pre = resolve_session_inner(state, &anchor, ResolveScope::Strict).ok();
-    let (was_working, turn_started_at) = pre
+    let (owns_lifecycle, was_working, turn_started_at) = pre
         .as_ref()
-        .map(|r| (r.is_working(), r.turn_started_at))
-        .unwrap_or((false, 0));
+        .map(|r| {
+            (
+                hook_owns_lifecycle(&r.admitted_transport),
+                r.is_working(),
+                r.turn_started_at,
+            )
+        })
+        .unwrap_or((false, false, 0));
     let now = now_secs();
-    if let Some(rec) = pre.as_ref() {
+    if owns_lifecycle {
+        let rec = pre.as_ref().expect("lifecycle owner has resolved session");
         turn_lifecycle::drive_turn_ended(state, rec, now)
             .await
             .context("applying turn_end lifecycle projection")?;
@@ -190,7 +208,7 @@ pub(in crate::daemon::server) async fn rpc_turn_end(
             .flatten()
     });
 
-    if was_working {
+    if owns_lifecycle && was_working {
         let elapsed_s = (turn_started_at > 0).then(|| now.saturating_sub(turn_started_at));
         if let Some(rec) = rec.as_ref() {
             let agent_label = state.session_instance(rec).display_slug();
@@ -221,5 +239,19 @@ fn emit_turn_for_routes(
             state: work_state.to_string(),
             elapsed_s,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hook_owns_lifecycle;
+
+    #[test]
+    fn hook_lifecycle_is_limited_to_unhosted_and_pty_sessions() {
+        assert!(hook_owns_lifecycle(""));
+        assert!(hook_owns_lifecycle("pty"));
+        for managed in ["acp", "app-server", "pi-rpc"] {
+            assert!(!hook_owns_lifecycle(managed), "{managed}");
+        }
     }
 }

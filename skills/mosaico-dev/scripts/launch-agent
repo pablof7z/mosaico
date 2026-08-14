@@ -21,6 +21,7 @@ backend_command_for_profile() {
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
     kimi*) echo "kimi" ;;
+    pi*) echo "pi" ;;
     opencode-ollama*) echo "opencode-ollama" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
@@ -35,6 +36,7 @@ agent_slug_for_profile() {
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
     kimi*) echo "kimi" ;;
+    pi*) echo "pi" ;;
     opencode*) echo "opencode" ;;
     *) echo "$1" ;;
   esac
@@ -86,8 +88,8 @@ case "${MODE}" in
     cmd=("${common[@]}" "${BACKEND_CMD}" "$@")
     ;;
   smoke)
-    if [[ "${TRANSPORT}" != "acp" && "${TRANSPORT}" != "app-server" ]]; then
-      echo "smoke mode requires an ACP/app-server profile, got ${PROFILE} (${TRANSPORT})" >&2
+    if [[ "${TRANSPORT}" != "acp" && "${TRANSPORT}" != "app-server" && "${TRANSPORT}" != "pi-rpc" ]]; then
+      echo "smoke mode requires a managed RPC profile, got ${PROFILE} (${TRANSPORT})" >&2
       exit 2
     fi
     cmd=("${common[@]}" mosaico __acp-smoke "${BUNDLE}" "$@")
@@ -100,7 +102,7 @@ case "${MODE}" in
     if [[ $# -gt 0 ]]; then
       launch_args+=(-- "$@")
     fi
-    if [[ "${TRANSPORT}" == "acp" || "${TRANSPORT}" == "app-server" ]]; then
+    if [[ "${TRANSPORT}" == "acp" || "${TRANSPORT}" == "app-server" || "${TRANSPORT}" == "pi-rpc" ]]; then
       cmd=("${common[@]}" mosaico-hosted "${launch_args[@]}")
     else
       cmd=("${common[@]}" mosaico "${launch_args[@]}")

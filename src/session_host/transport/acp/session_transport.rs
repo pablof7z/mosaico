@@ -1,9 +1,10 @@
 use super::registry::remove_after_exit_confirmation;
 use super::{register_child, registry, RpcTransport};
-use crate::rpc_harness::{AcpClient, AppServerClient, Dialect};
+use crate::rpc_harness::{AcpClient, AppServerClient, Dialect, PiRpcClient};
 use crate::session_host::transport::acp_runtime::SteerState;
 use crate::session_host::transport::acp_spawn::{
-    spawn_acp_prompt, spawn_app_server_steer, spawn_app_server_steer_pending, spawn_app_server_turn,
+    spawn_acp_prompt, spawn_app_server_steer, spawn_app_server_steer_pending,
+    spawn_app_server_turn, spawn_pi_prompt, spawn_pi_steer,
 };
 use crate::session_host::transport::{
     DeliveryCompletion, EndpointRef, LaunchSpec, PreparedLaunch, ResumeSpec, RpcLaunchSpec,
@@ -25,6 +26,7 @@ impl SessionTransport for RpcTransport {
         let configured = match resolved.transport {
             crate::harness::Transport::Acp => TransportKind::Acp,
             crate::harness::Transport::AppServer => TransportKind::AppServer,
+            crate::harness::Transport::PiRpc => TransportKind::PiRpc,
             crate::harness::Transport::Pty => {
                 anyhow::bail!("RPC transport received a PTY launch plan")
             }
@@ -43,6 +45,8 @@ impl SessionTransport for RpcTransport {
             "MOSAICO_OBSERVED_HARNESS".to_string(),
             resolved.harness.as_str().to_string(),
         ));
+        extra_env.push(("MOSAICO_TRANSPORT".to_string(), self.kind().as_str().into()));
+        extra_env.push(("MOSAICO_ENDPOINT_ID".to_string(), endpoint_id.clone()));
         if resolved.harness == crate::session::Harness::Goose {
             crate::goose_integration::prepare_launch_env(&mut extra_env, &endpoint_id)?;
         }
@@ -104,6 +108,18 @@ impl SessionTransport for RpcTransport {
                     catalog
                         .admit(&opened)
                         .map_err(|e| anyhow::anyhow!("app-server resume admission: {e}"))?;
+                }
+                Dialect::PiRpc => {
+                    let actual = PiRpcClient::new(handle.clone())
+                        .session_id()
+                        .await
+                        .map_err(|error| anyhow::anyhow!("Pi RPC get_state (resume): {error}"))?;
+                    if actual != resume.native_id {
+                        anyhow::bail!(
+                            "Pi RPC resume id mismatch: expected {}, got {actual}",
+                            resume.native_id
+                        );
+                    }
                 }
             }
             Ok(())
@@ -192,6 +208,20 @@ impl SessionTransport for RpcTransport {
                     }
                 }
             }
+            Dialect::PiRpc => {
+                let active = runtime
+                    .lock()
+                    .ok()
+                    .is_some_and(|runtime| runtime.steer_state() != SteerState::Idle);
+                if active {
+                    spawn_pi_steer(handle, text)
+                } else {
+                    if let Ok(mut runtime) = runtime.lock() {
+                        runtime.mark_turn_started();
+                    }
+                    spawn_pi_prompt(handle, native_id, text, runtime)
+                }
+            }
         };
         Ok(completion)
     }
@@ -235,6 +265,8 @@ impl SessionTransport for RpcTransport {
             AcpClient::new(child.0.clone())
                 .session_cancel(&child.1)
                 .await;
+        } else if child.0.dialect == Dialect::PiRpc {
+            PiRpcClient::new(child.0.clone()).abort().await;
         }
         let confirmation = child.0.kill().await;
         remove_after_exit_confirmation(&ep.endpoint_id, confirmation)

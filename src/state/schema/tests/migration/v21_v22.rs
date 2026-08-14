@@ -55,7 +55,7 @@ fn schema_twenty_one_extracts_local_satellites_and_drops_all_relay_state() {
     assert_eq!(store.record_nmp_arrival("next-event").unwrap(), 2);
     drop(store);
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 22);
+    assert_eq!(version(&conn), 23);
     for table in REMOVED {
         assert!(!fixture::table_exists(&conn, table), "{table} removed");
     }
@@ -107,7 +107,7 @@ fn noncanonical_relay_cache_shapes_are_destroyed_instead_of_preserved() {
 
     drop(Store::open(&path).expect("obsolete group cache shape is disposable"));
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 22);
+    assert_eq!(version(&conn), 23);
     for table in REMOVED {
         assert!(!fixture::table_exists(&conn, table), "{table} removed");
     }

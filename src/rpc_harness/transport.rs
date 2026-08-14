@@ -147,6 +147,7 @@ impl RpcHandle {
             cfg.callbacks,
             alive.clone(),
             exit_tx,
+            cfg.dialect,
         ));
 
         Ok((

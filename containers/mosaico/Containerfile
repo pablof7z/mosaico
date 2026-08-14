@@ -47,6 +47,8 @@ RUN mkdir -p /opt/claude \
     && chmod +x /usr/local/bin/claude
 
 RUN npm install --global @moonshot-ai/kimi-code
+ARG PI_VERSION=0.84.2
+RUN npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
 
 # The runtime's Claude ACP driver invokes this adapter through npx. Install it
 # in the image so a fresh live-lab profile never pauses for an interactive npx
@@ -96,6 +98,7 @@ ENV HOME=/state/home \
     GOOSE_DISABLE_KEYRING=1 \
     HERMES_HOME=/state/home/.hermes \
     KIMI_CODE_HOME=/state/home/.kimi-code \
+    PI_CODING_AGENT_DIR=/state/home/.pi/agent \
     MOSAICO_CONFIG=/state/mosaico/config.json \
     MOSAICO_HOME=/state/mosaico \
     MOSAICO_BIN=/state/target/debug/mosaico \

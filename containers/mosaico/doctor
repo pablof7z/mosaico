@@ -17,9 +17,9 @@ validate_mosaico_configs() {
       ((keys - ["args", "harness", "transport"]) | length == 0) and
       (.harness == "claude-code" or .harness == "codex" or
         .harness == "opencode" or .harness == "grok" or .harness == "goose" or
-        .harness == "hermes" or .harness == "kimi") and
+        .harness == "hermes" or .harness == "kimi" or .harness == "pi") and
       (.transport == "pty" or .transport == "acp" or
-        .transport == "app-server") and
+        .transport == "app-server" or .transport == "pi-rpc") and
       ((.args // []) | type == "array") and
       all((.args // [])[]; type == "string")
     )
@@ -63,6 +63,7 @@ echo "grok: $(grok --version)"
 echo "goose: $(goose --version)"
 echo "hermes: $(hermes --version | head -1)"
 echo "kimi: $(kimi --version)"
+echo "pi: $(pi --version)"
 echo "opencode: $(opencode --version)"
 echo "node: $(node --version)"
 echo "claude-acp-adapter: $(command -v claude-agent-acp)"
@@ -71,7 +72,7 @@ opencode acp --help >/dev/null 2>&1
 goose acp --help >/dev/null 2>&1
 hermes acp --check >/dev/null 2>&1
 kimi acp --help >/dev/null 2>&1
-echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp, goose acp, hermes acp, kimi acp"
+echo "rpc harnesses: claude acp adapter, codex app-server, opencode acp, goose acp, hermes acp, kimi acp, pi rpc"
 echo "nak: $(nak --version 2>/dev/null | head -1)"
 echo "ollama_host: ${OLLAMA_HOST}"
 echo "host_auth: ${HOST_AUTH}"
@@ -135,6 +136,10 @@ case "${AGENT}" in
     kimi doctor >/dev/null
     HARNESS=kimi
     ;;
+  pi)
+    test -s "${PI_CODING_AGENT_DIR}/auth.json"
+    HARNESS=pi
+    ;;
   opencode)
     test -f "${XDG_DATA_HOME}/opencode/auth.json"
     HARNESS=opencode
@@ -169,6 +174,7 @@ case "${AGENT}" in
       "${KIMI_CODE_HOME}/config.toml"
     kimi doctor >/dev/null
     ;;
+  pi) test -f "${PI_CODING_AGENT_DIR}/extensions/mosaico.ts" ;;
   opencode) test -f "${XDG_CONFIG_HOME}/opencode/plugin/mosaico.ts" ;;
 esac
 echo "${AGENT} auth/hooks: mounted"
@@ -179,4 +185,5 @@ echo "codex home: ${CODEX_HOME}"
 echo "grok home: ${GROK_HOME}"
 echo "hermes home: ${HERMES_HOME}"
 echo "kimi home: ${KIMI_CODE_HOME}"
+echo "pi home: ${PI_CODING_AGENT_DIR}"
 echo "mosaico home: ${MOSAICO_HOME}"

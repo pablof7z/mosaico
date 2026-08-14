@@ -212,7 +212,8 @@ mod agent_usage;
 mod arrival_cursors;
 mod locators;
 pub(crate) use locators::{
-    LOCATOR_ACP, LOCATOR_APP_SERVER, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PTY,
+    LOCATOR_ACP, LOCATOR_APP_SERVER, LOCATOR_NATIVE_RESUME, LOCATOR_PID, LOCATOR_PI_RPC,
+    LOCATOR_PTY,
 };
 mod channel_readiness_attempts;
 pub use channel_readiness_attempts::{ChannelReadinessAttempt, NewChannelReadinessAttempt};

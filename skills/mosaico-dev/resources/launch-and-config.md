@@ -24,7 +24,8 @@ overrides.
   an available agent. Workspace is the current directory; accepts `--channel`
   and `--name`. Args after `--` append to the resolved harness command for that
   launch only.
-- A bundle admits exactly one hosted transport: `pty` or `acp`. A configured
+- A bundle admits exactly one hosted transport: `pty`, `acp`, `app-server`, or
+  `pi-rpc`. A configured
   `app-server` bundle uses the ACP hosted kind with the app-server dialect;
   `app-server` is not a third admitted kind. There is no launch-time transport
   or harness selector.
@@ -53,6 +54,11 @@ overrides.
   Kimi ACP rejects profiles because it exposes no agent selector. Its `Stop`
   hook uses native block output to deliver pending fabric
   context before the model finishes and closes the original turn accounting.
+- **Pi:** the global extension at `PI_CODING_AGENT_DIR/extensions/mosaico.ts`
+  maps Pi lifecycle events to Mosaico hooks. PTY uses `pi` and `--session`;
+  managed mode uses `pi --mode rpc`, persists `pi-rpc`, and completes only on
+  `agent_end`. Pi exposes no named-profile selector, so both transports reject
+  `profile`.
 
 Provider-specific lab detail:
 `skills/mosaico-dev/references/container-backends.md`,

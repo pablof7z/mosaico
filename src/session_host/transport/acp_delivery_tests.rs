@@ -70,6 +70,7 @@ async fn retained_rpc_transports_are_live_deliver_and_kill() {
         let other_kind = match kind {
             TransportKind::Acp => TransportKind::AppServer,
             TransportKind::AppServer => TransportKind::Acp,
+            TransportKind::PiRpc => TransportKind::Acp,
             TransportKind::Pty => unreachable!(),
         };
         let wrong_transport = RpcTransport::new(other_kind);

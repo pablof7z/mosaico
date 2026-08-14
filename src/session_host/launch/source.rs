@@ -197,6 +197,7 @@ fn desired_transport(
             | crate::session::Harness::Kimi => [Some(Transport::Acp), Some(Transport::Pty)],
             crate::session::Harness::Grok => [Some(Transport::Pty), None],
             crate::session::Harness::Goose => [Some(Transport::Acp), None],
+            crate::session::Harness::Pi => [Some(Transport::PiRpc), Some(Transport::Pty)],
             crate::session::Harness::Unknown => [None, None],
         },
     };

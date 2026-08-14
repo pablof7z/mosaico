@@ -237,3 +237,18 @@ fn installation_requires_at_least_one_wired_harness() {
 
     assert!([&codex, &opencode].into_iter().any(is_installed));
 }
+
+#[test]
+fn pi_installation_requires_the_current_owned_extension() {
+    let temp = tempfile::tempdir().unwrap();
+    let h = harness("pi", temp.path().join("mosaico.ts"));
+    write_text(&h.config_path, "export default function stale() {}\n").unwrap();
+    assert!(!is_installed(&h));
+
+    install_pi(&h, &InstallOpts::default(), false).unwrap();
+    assert!(is_installed(&h));
+    assert_eq!(
+        std::fs::read_to_string(&h.config_path).unwrap(),
+        PI_EXTENSION_TS
+    );
+}

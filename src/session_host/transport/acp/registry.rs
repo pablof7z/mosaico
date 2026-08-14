@@ -83,6 +83,7 @@ pub(super) async fn shutdown_all() -> Vec<(TransportKind, String, std::io::Resul
             let kind = match child.handle.dialect {
                 crate::rpc_harness::Dialect::Acp => TransportKind::Acp,
                 crate::rpc_harness::Dialect::AppServer => TransportKind::AppServer,
+                crate::rpc_harness::Dialect::PiRpc => TransportKind::PiRpc,
             };
             (kind, endpoint.clone(), child.handle.clone())
         })

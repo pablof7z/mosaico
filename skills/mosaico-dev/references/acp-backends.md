@@ -1,7 +1,7 @@
 # ACP and app-server backends
 
 Use this reference for Claude ACP, Codex app-server, Goose ACP, Hermes ACP,
-Kimi ACP, and OpenCode ACP labs.
+Kimi ACP, OpenCode ACP, and Pi RPC labs.
 These transports use structured RPC instead of terminal-byte injection.
 
 ## Configuration contract
@@ -65,6 +65,7 @@ false.
 | `opencode-acp` | `opencode` | `acp` | `MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON` |
 | `hermes-acp` | `hermes` | `acp` | `MOSAICO_DEV_HERMES_ACP_ARGS_JSON` |
 | `kimi-acp` | `kimi` | `acp` | `MOSAICO_DEV_KIMI_ACP_ARGS_JSON` |
+| `pi-rpc` | `pi` | `pi-rpc` | `MOSAICO_DEV_PI_RPC_ARGS_JSON` |
 
 Default args are `[]`. Use the listed writer override only when the lab needs
 explicit provider arguments. The value must be a JSON array of strings. There
@@ -123,6 +124,11 @@ The smoke prints the resolved argv, first session ID, successful cross-process
 
 Kimi's canonical structured command is `kimi acp`. The same smoke contract
 proves initialization, two real turns, and cross-process `session/load`.
+
+Pi's canonical structured command is `pi --mode rpc`. Its protocol is strict
+line-delimited JSON rather than ACP: `get_state` provides the native session
+ID, `prompt` acceptance starts a turn, `agent_end` completes it, and a new
+process resumes with `--session <id>`. Pi exposes no named-profile selector.
 
 ## Launch
 

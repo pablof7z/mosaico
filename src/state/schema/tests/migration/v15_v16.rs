@@ -23,7 +23,7 @@ fn schema_fifteen_drops_the_auto_publish_marker() {
 
     drop(Store::open(&path).expect("schema fifteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 22);
+    assert_eq!(version(&conn), 23);
     assert_eq!(
         conn.query_row(
             "SELECT agent_slug FROM sessions WHERE pubkey='historical'",

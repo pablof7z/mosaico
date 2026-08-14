@@ -20,7 +20,9 @@ use owo_colors::OwoColorize;
 
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
-pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
+pub(super) use config::{
+    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS,
+};
 pub(super) use hooks::{is_installed, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 use selection::{detected_list, preflight_selection, resolve_selection};
@@ -36,7 +38,7 @@ fn print_setup_guide() {
     println!("Mosaico is not installed in any supported agent harness.\n");
     println!("Set it up with:\n\n  mosaico setup\n");
     println!(
-        "This detects Claude Code, Codex, OpenCode, Grok, Goose, Hermes, and Kimi and lets you choose integrations."
+        "This detects Claude Code, Codex, OpenCode, Grok, Goose, Hermes, Kimi, and Pi and lets you choose integrations."
     );
     println!("Use `mosaico setup --all` to install every detected harness.");
 }
@@ -105,6 +107,7 @@ async fn apply_install(
         match h.id {
             "claude-code" | "codex" | "grok" => install_json_harness(h, opts, true)?,
             "opencode" => install_opencode(h, opts, true)?,
+            "pi" => install_pi(h, opts, true)?,
             "goose" if opts.uninstall => goose::uninstall(h, opts)?,
             "goose" => goose::install(h, opts, true)?,
             "hermes" if opts.uninstall => hermes::uninstall(h, opts)?,
@@ -195,6 +198,14 @@ fn install_json_harness(h: &Harness, opts: &InstallOpts, render: bool) -> Result
 }
 
 fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
+    install_source_file(h, opts, render, OPENCODE_PLUGIN_TS)
+}
+
+fn install_pi(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
+    install_source_file(h, opts, render, PI_EXTENSION_TS)
+}
+
+fn install_source_file(h: &Harness, opts: &InstallOpts, render: bool, source: &str) -> Result<()> {
     if opts.uninstall {
         if !h.config_path.exists() {
             if render {
@@ -220,11 +231,11 @@ fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()>
             println!(
                 "  would write {} ({} bytes)",
                 h.config_path.display(),
-                OPENCODE_PLUGIN_TS.len()
+                source.len()
             );
         }
     } else {
-        write_text(&h.config_path, OPENCODE_PLUGIN_TS)?;
+        write_text(&h.config_path, source)?;
         if render {
             println!("  wrote {}", h.config_path.display());
         }

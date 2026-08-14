@@ -95,7 +95,7 @@ pub(super) fn runtime_facts(p: &SessionStartParams) -> anyhow::Result<RuntimeFac
         anyhow::bail!("hook session_start requires an explicit claimed_harness");
     }
     let transport = p.admitted_transport.as_deref().unwrap_or("");
-    if !matches!(transport, "" | "pty" | "acp" | "app-server") {
+    if !matches!(transport, "" | "pty" | "acp" | "app-server" | "pi-rpc") {
         anyhow::bail!("unknown admitted transport {transport:?}");
     }
     if let Some((_, endpoint_kind)) = p.hosted_endpoint()? {

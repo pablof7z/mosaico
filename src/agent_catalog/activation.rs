@@ -26,7 +26,7 @@ pub(super) fn load(profile: &NativeAgentProfile) -> Result<NativeAgentActivation
                 },
             })
         }
-        Harness::Grok | Harness::Goose | Harness::Unknown => {
+        Harness::Grok | Harness::Goose | Harness::Pi | Harness::Unknown => {
             anyhow::bail!(
                 "{} has no native agent activation",
                 profile.harness.as_str()

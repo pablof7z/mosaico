@@ -2,7 +2,7 @@
 //!
 //! This static table is the source of truth for every supported transport. It
 //! supplies the executable, required environment, resume behavior, turn model,
-//! and profile application for PTY, ACP, and app-server sessions.
+//! and profile application for PTY, ACP, app-server, and Pi RPC sessions.
 //!
 //! Invalid cells (e.g. Codex x Acp — Codex has no native ACP) simply have no
 //! entry; `lookup` returns `None` and the caller fails loud.
@@ -43,12 +43,14 @@ pub enum ResumeMechanism {
     /// Codex app-server `thread/resume` (or `thread/fork`) with the thread id.
     AppServerThreadResume,
     /// PTY: append `<flag> <id>` to argv. claude `--resume`,
-    /// opencode/kimi `--session`, grok/hermes `--resume`.
+    /// opencode/kimi/Pi `--session`, grok/hermes `--resume`.
     AppendFlag(&'static str),
     /// PTY: append fixed flags followed by the native id.
     AppendFlags(&'static [&'static str]),
     /// PTY: insert `<sub> <id>` right after argv[0]. codex `resume`.
     Subcommand(&'static str),
+    /// Managed RPC: restart the child with `<flag> <id>` appended to argv.
+    RpcSpawnFlag(&'static str),
     /// Not resumable.
     None,
 }
@@ -62,14 +64,16 @@ pub enum SteerPrimitive {
     Hooks,
     /// PTY bracketed-paste bytes via `pty::client::inject`.
     PtyPaste,
+    /// Pi RPC `steer` command.
+    PiRpcSteer,
     None,
 }
 
 /// The turn/response model the transport exposes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TurnModel {
-    /// Request/notification RPC: ACP `session/prompt`->stopReason, or codex
-    /// `turn/start`->`turn/completed`.
+    /// Request/notification RPC: ACP `session/prompt`->stopReason, Codex
+    /// `turn/start`->`turn/completed`, or Pi `prompt`->`agent_settled`.
     RpcTurn,
     /// Long-lived TTY; a turn is "text pasted + Enter", no completion signal.
     InteractivePty,
@@ -230,6 +234,27 @@ static DRIVERS: &[HarnessDriver] = &[
         steer: SteerPrimitive::PtyPaste,
         turn: TurnModel::InteractivePty,
         profile: ProfileMechanism::CliFlag { flag: "--agent" },
+    },
+    // ── Pi ───────────────────────────────────────────────────────────────
+    HarnessDriver {
+        harness: Harness::Pi,
+        transport: Transport::PiRpc,
+        base_argv: &["pi", "--mode", "rpc"],
+        base_env: &[EnvDirective::Set("PI_SKIP_VERSION_CHECK", "1")],
+        resume: ResumeMechanism::RpcSpawnFlag("--session"),
+        steer: SteerPrimitive::PiRpcSteer,
+        turn: TurnModel::RpcTurn,
+        profile: ProfileMechanism::Unsupported,
+    },
+    HarnessDriver {
+        harness: Harness::Pi,
+        transport: Transport::Pty,
+        base_argv: &["pi"],
+        base_env: &[EnvDirective::Set("PI_SKIP_VERSION_CHECK", "1")],
+        resume: ResumeMechanism::AppendFlag("--session"),
+        steer: SteerPrimitive::PtyPaste,
+        turn: TurnModel::InteractivePty,
+        profile: ProfileMechanism::Unsupported,
     },
 ];
 

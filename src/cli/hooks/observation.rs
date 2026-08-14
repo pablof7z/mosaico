@@ -12,8 +12,7 @@ use std::path::Path;
 /// session, watched pid, cwd) and the daemon resolves the private run internally.
 ///
 /// `harness_session_id` is `Some` only for harnesses that own an id of their own
-/// (claude-code, codex, kimi); it is `None` for programmatic hosts (opencode) whose
-/// only stable anchors are the resume token / hosted PTY session / watched pid. Each
+/// (claude-code, codex, kimi, pi); programmatic hosts use other stable anchors. Each
 /// present locator becomes a session alias the registry uses to reattach future
 /// starts to the same canonical id.
 ///
@@ -125,6 +124,8 @@ fn harness_from_process(command: &str, args: &str) -> Option<&'static str> {
         Some("hermes")
     } else if command.contains("kimi") || node_script_is_kimi(args) {
         Some("kimi")
+    } else if command.contains("pi-coding-agent") || node_script_is_pi(args) {
+        Some("pi")
     } else {
         None
     }
@@ -149,6 +150,11 @@ fn python_script_is_hermes(args: &str) -> bool {
 
 fn node_script_is_kimi(args: &str) -> bool {
     args.contains("/@moonshot-ai/kimi-code/")
+}
+
+fn node_script_is_pi(args: &str) -> bool {
+    args.contains("/@earendil-works/pi-coding-agent/")
+        || args.contains("/pi-coding-agent/dist/cli.js")
 }
 
 fn ps_ppid(pid: i32) -> Option<i32> {
@@ -265,6 +271,18 @@ mod tests {
             harness_from_process("mosaico", "mosaico harness hook hermes --type stop"),
             None
         );
+    }
+
+    #[test]
+    fn detects_pi_node_entrypoint_without_matching_hook_arguments() {
+        assert_eq!(
+            harness_from_process(
+                "/usr/local/bin/node",
+                "/usr/local/bin/node /opt/node_modules/@earendil-works/pi-coding-agent/dist/cli.js --mode rpc"
+            ),
+            Some("pi")
+        );
+        assert_eq!(harness_from_process("mosaico", "harness hook pi"), None);
     }
 
     #[test]

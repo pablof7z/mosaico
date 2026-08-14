@@ -31,6 +31,7 @@ Commands:
   hermes [args]            Run isolated Hermes using host auth/config.
   kimi [args]              Run Kimi Code in its durable isolated profile.
   kimi-login               Authenticate the durable isolated Kimi profile.
+  pi [args]                Run Pi in its durable isolated profile.
   opencode [args]          Run isolated OpenCode using the opencode profile.
   opencode-auth [args]     Run isolated `opencode providers`.
   opencode-ollama [args]   Run isolated OpenCode with an Ollama model.
@@ -63,6 +64,7 @@ agent_for_profile() {
     goose*) echo "goose" ;;
     hermes*) echo "hermes" ;;
     kimi*) echo "kimi" ;;
+    pi*) echo "pi" ;;
     *) echo "opencode" ;;
   esac
 }
@@ -145,6 +147,7 @@ prepare_state() {
     "${STATE_DIR}/home/.agents/agents" \
     "${STATE_DIR}/home/.kimi-code/agents" \
     "${STATE_DIR}/home/.kimi-code/credentials" \
+    "${STATE_DIR}/home/.pi/agent/extensions" \
     "${STATE_DIR}/home/.config/opencode" \
     "${STATE_DIR}/home/.config/goose" \
     "${STATE_DIR}/home/.local/share" \
@@ -251,6 +254,7 @@ container_run() {
     --env GOOSE_DISABLE_KEYRING=1 \
     --env HERMES_HOME=/state/home/.hermes \
     --env KIMI_CODE_HOME=/state/home/.kimi-code \
+    --env PI_CODING_AGENT_DIR=/state/home/.pi/agent \
     --env OLLAMA_HOST="${OLLAMA_HOST}" \
     --env MOSAICO_CONFIG=/state/mosaico/config.json \
     --env MOSAICO_HOME=/state/mosaico \
@@ -278,7 +282,7 @@ with_mosaico() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "pi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -295,7 +299,7 @@ with_mosaico_direct() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "pi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -303,7 +307,7 @@ with_mosaico_direct() {
   ' bash "${harness}" "$@"
 }
 
-# ACP/app-server launch is headless: the direct launch returns after the
+# Managed RPC launch is headless: the direct launch returns after the
 # daemon owns the JSON-RPC child. Keep the container alive so Docker/Apple
 # container lifecycle does not immediately reap that daemon and child.
 with_mosaico_hosted() {
@@ -312,7 +316,7 @@ with_mosaico_hosted() {
   container_run readonly bash -c '
     set -euo pipefail
     cargo build >/dev/null
-    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "opencode" ]]; then
+    if [[ "$1" == "claude-code" || "$1" == "codex" || "$1" == "grok" || "$1" == "goose" || "$1" == "hermes" || "$1" == "kimi" || "$1" == "pi" || "$1" == "opencode" ]]; then
       mosaico setup --harness "$1" >/dev/null
     fi
     shift
@@ -395,6 +399,10 @@ main() {
     kimi)
       select_command_profile kimi kimi
       with_mosaico_direct kimi kimi "$@"
+      ;;
+    pi)
+      select_command_profile pi pi
+      with_mosaico_direct pi pi "$@"
       ;;
     kimi-login)
       select_command_profile kimi kimi

@@ -1,14 +1,15 @@
 //! Stdio JSON-RPC harness engine: the process-transport analogue of the Nostr
 //! `transport`. Owns a child harness process and speaks its JSON-RPC dialect
-//! (ACP or codex app-server) over newline-delimited JSON on stdio.
+//! (ACP, codex app-server, or Pi RPC) over newline-delimited JSON on stdio.
 //!
 //! New module; touches nothing under `src/identity*`. Serves the `RpcTurn` /
-//! `AppServerSteer` capability rows the PTY path cannot.
+//! managed-RPC capability rows the PTY path cannot.
 
 pub mod acp;
 pub mod app_server;
 pub mod callbacks;
 mod io_tasks;
+pub mod pi_rpc;
 pub mod protocol;
 pub mod transport;
 
@@ -17,6 +18,7 @@ pub use app_server::{
     AppServerClient, TurnFailure, TurnOutcome, TurnStartFailure, TurnStartFailureKind,
 };
 pub use callbacks::{Callbacks, FsBridge, PermissionPolicy};
+pub use pi_rpc::PiRpcClient;
 pub use protocol::{Dialect, SessionUpdate, StopReason};
 pub use transport::{RpcError, RpcHandle, SpawnConfig};
 
@@ -40,6 +42,7 @@ pub fn spawn_config_from_driver(
     let dialect = match driver.transport {
         crate::harness::Transport::Acp => Dialect::Acp,
         crate::harness::Transport::AppServer => Dialect::AppServer,
+        crate::harness::Transport::PiRpc => Dialect::PiRpc,
         other => anyhow::bail!(
             "transport {} is not an RPC transport (no stdio JSON-RPC dialect)",
             other.as_str()

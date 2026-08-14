@@ -24,6 +24,7 @@ fn every_canonical_harness_has_a_driver() {
         Harness::Goose,
         Harness::Hermes,
         Harness::Kimi,
+        Harness::Pi,
     ] {
         assert!(
             driver::all().iter().any(|driver| driver.harness == harness),
@@ -41,10 +42,14 @@ fn invalid_driver_cells_are_absent() {
     assert!(driver::lookup(Harness::Goose, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Hermes, Transport::AppServer).is_none());
     assert!(driver::lookup(Harness::Kimi, Transport::AppServer).is_none());
+    assert!(driver::lookup(Harness::Pi, Transport::Acp).is_none());
+    assert!(driver::lookup(Harness::Pi, Transport::AppServer).is_none());
 }
 
 #[path = "tests/kimi.rs"]
 mod kimi;
+#[path = "tests/pi.rs"]
+mod pi;
 
 #[test]
 fn goose_uses_native_acp_with_cross_process_resume() {

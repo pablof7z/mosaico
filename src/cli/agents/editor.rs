@@ -7,14 +7,14 @@ use std::io::IsTerminal as _;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OperationMode {
-    Acp,
+    Managed,
     Pty,
 }
 
 impl OperationMode {
     fn label(self) -> &'static str {
         match self {
-            Self::Acp => "ACP — optimized for headless mode",
+            Self::Managed => "Managed RPC — optimized for headless mode",
             Self::Pty => "PTY — optimized for direct user interaction",
         }
     }
@@ -131,7 +131,7 @@ fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Option<Harnes
 }
 
 fn operation_modes(harness: Harness, native_profile: bool) -> Vec<OperationMode> {
-    [OperationMode::Acp, OperationMode::Pty]
+    [OperationMode::Managed, OperationMode::Pty]
         .into_iter()
         .filter(|mode| {
             let transport = mode_transport(harness, *mode);
@@ -143,8 +143,9 @@ fn operation_modes(harness: Harness, native_profile: bool) -> Vec<OperationMode>
 
 fn mode_transport(harness: Harness, mode: OperationMode) -> Transport {
     match (harness, mode) {
-        (Harness::Codex, OperationMode::Acp) => Transport::AppServer,
-        (_, OperationMode::Acp) => Transport::Acp,
+        (Harness::Codex, OperationMode::Managed) => Transport::AppServer,
+        (Harness::Pi, OperationMode::Managed) => Transport::PiRpc,
+        (_, OperationMode::Managed) => Transport::Acp,
         (_, OperationMode::Pty) => Transport::Pty,
     }
 }

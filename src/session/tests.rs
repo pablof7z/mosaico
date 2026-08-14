@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn pi_is_a_canonical_harness_and_default_target() {
+    let pi = Harness::from_str("pi");
+    assert_eq!(pi.as_str(), "pi");
+    assert_eq!(pi.agent_slug(), "pi");
+}
+
+#[test]
 fn no_group_override_mints_when_per_session_rooms_enabled() {
     assert_eq!(
         decide_session_room(None, "my-repo", true),

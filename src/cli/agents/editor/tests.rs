@@ -1,26 +1,34 @@
 use super::*;
 
 #[test]
-fn conceptual_acp_maps_to_each_harness_native_rpc_transport() {
+fn managed_mode_maps_to_each_harness_native_rpc_transport() {
     assert_eq!(
-        mode_transport(Harness::ClaudeCode, OperationMode::Acp),
+        mode_transport(Harness::ClaudeCode, OperationMode::Managed),
         Transport::Acp
     );
     assert_eq!(
-        mode_transport(Harness::Codex, OperationMode::Acp),
+        mode_transport(Harness::Codex, OperationMode::Managed),
         Transport::AppServer
     );
     assert_eq!(
-        mode_transport(Harness::Hermes, OperationMode::Acp),
+        mode_transport(Harness::Hermes, OperationMode::Managed),
         Transport::Acp
     );
     assert_eq!(
         operation_modes(Harness::Hermes, false),
-        [OperationMode::Acp, OperationMode::Pty]
+        [OperationMode::Managed, OperationMode::Pty]
     );
     assert_eq!(
         operation_modes(Harness::Kimi, false),
-        [OperationMode::Acp, OperationMode::Pty]
+        [OperationMode::Managed, OperationMode::Pty]
+    );
+    assert_eq!(
+        mode_transport(Harness::Pi, OperationMode::Managed),
+        Transport::PiRpc
+    );
+    assert_eq!(
+        operation_modes(Harness::Pi, false),
+        [OperationMode::Managed, OperationMode::Pty]
     );
 }
 
@@ -28,7 +36,7 @@ fn conceptual_acp_maps_to_each_harness_native_rpc_transport() {
 fn native_profiles_only_offer_transports_that_activate_them() {
     assert_eq!(
         operation_modes(Harness::ClaudeCode, true),
-        [OperationMode::Acp, OperationMode::Pty]
+        [OperationMode::Managed, OperationMode::Pty]
     );
     assert_eq!(
         operation_modes(Harness::Opencode, true),

@@ -259,6 +259,18 @@ stage_kimi_state() {
     "${STATE_DIR}/home/.kimi-code/tui.toml" optional
 }
 
+stage_pi_state() {
+  if [[ "${HOST_AUTH}" != "1" || "${AGENT}" != "pi" ]]; then
+    return 0
+  fi
+
+  mkdir -p "${STATE_DIR}/home/.pi/agent"
+  stage_auth_symlink "${HOST_HOME}/.pi/agent/auth.json" \
+    "/host-auth/pi/auth.json" "${STATE_DIR}/home/.pi/agent/auth.json"
+  stage_auth_copy_once "${HOST_HOME}/.pi/agent/settings.json" \
+    "${STATE_DIR}/home/.pi/agent/settings.json" optional
+}
+
 build_host_auth_mounts() {
   HOST_AUTH_MOUNTS=()
   case "${AGENT}" in
@@ -279,6 +291,9 @@ build_host_auth_mounts() {
       ;;
     kimi)
       # Kimi config and native profiles are copied into writable isolated state.
+      ;;
+    pi)
+      add_required_auth_dir_mount "${HOST_HOME}/.pi/agent" "/host-auth/pi"
       ;;
     opencode)
       add_required_auth_dir_mount \
@@ -346,6 +361,7 @@ stage_host_auth() {
     goose) stage_goose_state ;;
     hermes) stage_hermes_state ;;
     kimi) stage_kimi_state ;;
+    pi) stage_pi_state ;;
     opencode) stage_opencode_auth ;;
     *)
       echo "unsupported host-auth agent: ${AGENT}" >&2

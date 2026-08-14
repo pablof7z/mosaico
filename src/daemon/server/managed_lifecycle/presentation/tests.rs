@@ -51,13 +51,20 @@ async fn rpc_transports_reconcile_as_headless_and_arm_idle_eviction() {
         "app-server",
         crate::state::LOCATOR_APP_SERVER,
     );
+    reserve_rpc_session(
+        &state,
+        "pi-rpc-pk",
+        "pi",
+        "pi-rpc",
+        crate::state::LOCATOR_PI_RPC,
+    );
     let before = now_secs();
 
     reconcile(&state).await;
 
     let after = now_secs();
     state.with_store(|store| {
-        for pubkey in ["acp-pk", "app-server-pk"] {
+        for pubkey in ["acp-pk", "app-server-pk", "pi-rpc-pk"] {
             let session = store.get_session(pubkey).unwrap().unwrap();
             assert_eq!(session.presentation_state, PresentationState::Headless);
             assert!((before..=after).contains(&session.idle_since));

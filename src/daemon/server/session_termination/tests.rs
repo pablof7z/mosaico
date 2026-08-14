@@ -142,7 +142,7 @@ async fn idle_eviction_socket_failure_cancels_stopping_and_fails_closed() {
 #[tokio::test]
 async fn automatic_hosted_termination_without_locator_always_fails_closed() {
     let state = DaemonState::new_for_test().await;
-    for transport in ["pty", "acp", "app-server"] {
+    for transport in ["pty", "acp", "app-server", "pi-rpc"] {
         let rec = register(
             &state,
             &format!("pk-automatic-missing-{transport}"),
@@ -170,7 +170,7 @@ async fn automatic_hosted_termination_without_locator_always_fails_closed() {
 #[tokio::test]
 async fn admitted_hosted_session_without_locator_refuses_explicit_pid_fallback() {
     let state = DaemonState::new_for_test().await;
-    for transport in ["pty", "acp", "app-server"] {
+    for transport in ["pty", "acp", "app-server", "pi-rpc"] {
         let rec = register(
             &state,
             &format!("pk-missing-{transport}"),

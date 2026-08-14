@@ -35,7 +35,7 @@ base_line_count() {
 
 is_checked_file() {
     case "$1" in
-        target/*|.git/*|*.lock|*.pyc) return 1 ;;
+        target/*|.git/*|*.lock|package-lock.json|*/package-lock.json|*.pyc) return 1 ;;
         integrations/*/node_modules/*|integrations/*/__pycache__/*) return 1 ;;
         docs/wiki/_citations/*|docs/wiki/_citations.log) return 1 ;;
         docs/wiki/episodes/transcripts/*) return 1 ;;

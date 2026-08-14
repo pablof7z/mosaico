@@ -22,16 +22,18 @@ pub enum TransportKind {
     Pty,
     Acp,
     AppServer,
+    PiRpc,
 }
 
 impl TransportKind {
-    pub const ALL: [Self; 3] = [Self::Pty, Self::Acp, Self::AppServer];
+    pub const ALL: [Self; 4] = [Self::Pty, Self::Acp, Self::AppServer, Self::PiRpc];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             TransportKind::Pty => "pty",
             TransportKind::Acp => "acp",
             TransportKind::AppServer => "app-server",
+            TransportKind::PiRpc => "pi-rpc",
         }
     }
 
@@ -40,6 +42,7 @@ impl TransportKind {
             "pty" => Some(Self::Pty),
             "acp" => Some(Self::Acp),
             "app-server" => Some(Self::AppServer),
+            "pi-rpc" => Some(Self::PiRpc),
             _ => None,
         }
     }
@@ -49,6 +52,7 @@ impl TransportKind {
             TransportKind::Pty => crate::state::LOCATOR_PTY,
             TransportKind::Acp => crate::state::LOCATOR_ACP,
             TransportKind::AppServer => crate::state::LOCATOR_APP_SERVER,
+            TransportKind::PiRpc => crate::state::LOCATOR_PI_RPC,
         }
     }
 
@@ -57,6 +61,7 @@ impl TransportKind {
             crate::state::LOCATOR_PTY => Some(TransportKind::Pty),
             crate::state::LOCATOR_ACP => Some(TransportKind::Acp),
             crate::state::LOCATOR_APP_SERVER => Some(TransportKind::AppServer),
+            crate::state::LOCATOR_PI_RPC => Some(TransportKind::PiRpc),
             _ => None,
         }
     }
@@ -188,7 +193,7 @@ impl TransportImpl {
 pub fn transport_for_kind(kind: TransportKind) -> TransportImpl {
     match kind {
         TransportKind::Pty => TransportImpl::new(PtyTransport),
-        TransportKind::Acp | TransportKind::AppServer => {
+        TransportKind::Acp | TransportKind::AppServer | TransportKind::PiRpc => {
             TransportImpl::new(RpcTransport::new(kind))
         }
     }
@@ -244,6 +249,7 @@ fn transport_impl_for(transport: Transport) -> Result<TransportImpl> {
     Ok(match transport {
         Transport::Acp => TransportImpl::new(RpcTransport::new(TransportKind::Acp)),
         Transport::AppServer => TransportImpl::new(RpcTransport::new(TransportKind::AppServer)),
+        Transport::PiRpc => TransportImpl::new(RpcTransport::new(TransportKind::PiRpc)),
         Transport::Pty => TransportImpl::new(PtyTransport),
     })
 }
@@ -257,6 +263,7 @@ pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: &str) -> Result<Transpo
     Ok(match harness::bundle_transport_with(cfg, bundle)? {
         Transport::Acp => TransportKind::Acp,
         Transport::AppServer => TransportKind::AppServer,
+        Transport::PiRpc => TransportKind::PiRpc,
         Transport::Pty => TransportKind::Pty,
     })
 }

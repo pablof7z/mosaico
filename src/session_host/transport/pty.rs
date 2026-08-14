@@ -41,6 +41,8 @@ impl SessionTransport for PtyTransport {
             "MOSAICO_OBSERVED_HARNESS".to_string(),
             resolved.harness.as_str().to_string(),
         ));
+        env.push(("MOSAICO_TRANSPORT".to_string(), self.kind().as_str().into()));
+        env.push(("MOSAICO_ENDPOINT_ID".to_string(), endpoint_id.clone()));
         Ok(super::PreparedLaunch {
             pty: super::PtyLaunchSpec {
                 id: Some(endpoint_id),

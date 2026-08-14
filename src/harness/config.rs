@@ -46,6 +46,8 @@ pub enum Transport {
     Acp,
     /// Codex `app-server`: its own JSON-RPC dialect.
     AppServer,
+    /// Pi's native strict-JSONL RPC protocol over stdio.
+    PiRpc,
 }
 
 impl Transport {
@@ -54,6 +56,7 @@ impl Transport {
             Transport::Pty => "pty",
             Transport::Acp => "acp",
             Transport::AppServer => "app-server",
+            Transport::PiRpc => "pi-rpc",
         }
     }
 }
@@ -188,7 +191,7 @@ mod harness_serde {
         let raw = String::deserialize(d)?;
         match Harness::from_str(&raw) {
             Harness::Unknown => Err(serde::de::Error::custom(format!(
-                "unknown harness {raw:?} (expected claude-code|codex|opencode|grok|goose|hermes|kimi)"
+                "unknown harness {raw:?} (expected claude-code|codex|opencode|grok|goose|hermes|kimi|pi)"
             ))),
             h => Ok(h),
         }

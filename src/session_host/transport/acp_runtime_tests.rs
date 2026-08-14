@@ -42,3 +42,13 @@ fn mark_helpers_flip_active_flag() {
     rt.mark_turn_finished();
     assert_eq!(rt.steer_state(), SteerState::Idle);
 }
+
+#[test]
+fn pi_only_settles_after_all_follow_up_work() {
+    let mut rt = AcpRuntime::default();
+    rt.mark_turn_started();
+    rt.note_update("agent_end", &json!({}));
+    assert_eq!(rt.steer_state(), SteerState::AwaitingId);
+    rt.note_update("agent_settled", &json!({}));
+    assert_eq!(rt.steer_state(), SteerState::Idle);
+}

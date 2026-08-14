@@ -61,6 +61,53 @@ impl RpcHandle {
         }
     }
 
+    /// Send one Pi strict-JSONL command and await its acceptance response.
+    pub async fn pi_request(
+        &self,
+        mut command: serde_json::Value,
+    ) -> Result<serde_json::Value, RpcError> {
+        let id = self.next_id();
+        let (sender, receiver) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock().unwrap();
+            if !self.alive.load(Ordering::Relaxed) {
+                return Err(RpcError::ChildExited);
+            }
+            pending.insert(id, sender);
+        }
+        let _pending_guard = PendingGuard {
+            pending: self.pending.clone(),
+            id,
+        };
+        let object = command.as_object_mut().ok_or_else(|| {
+            RpcError::Protocol(crate::rpc_harness::protocol::RpcErrorObject {
+                code: -1,
+                message: "Pi RPC command must be a JSON object".into(),
+                data: None,
+            })
+        })?;
+        object.insert("id".into(), serde_json::Value::String(id.to_string()));
+        if self.writer.send(command.to_string()).await.is_err() {
+            return Err(RpcError::ChildExited);
+        }
+        match receiver.await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => Err(error),
+            Err(_) => Err(RpcError::ChildExited),
+        }
+    }
+
+    pub async fn pi_request_timeout(
+        &self,
+        command: serde_json::Value,
+        duration: std::time::Duration,
+    ) -> Result<serde_json::Value, RpcError> {
+        match tokio::time::timeout(duration, self.pi_request(command)).await {
+            Ok(result) => result,
+            Err(_) => Err(RpcError::Timeout),
+        }
+    }
+
     /// Send a request with a timeout.
     pub async fn request_timeout(
         &self,

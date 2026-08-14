@@ -81,11 +81,12 @@ Follow [the install guide](docs/install.md).
     <td align="center" width="110"><img src="docs/images/logos/opencode.png" width="48" alt="OpenCode"><br><sub><b>OpenCode</b></sub></td>
     <td align="center" width="110"><img src="docs/images/logos/grok.png" width="48" alt="Grok"><br><sub><b>Grok</b></sub></td>
     <td align="center" width="110"><strong>Kimi Code</strong></td>
+    <td align="center" width="110"><strong>Pi</strong></td>
   </tr>
 </table>
 
 Every harness joins the fabric the same way. Presence, awareness, send/receive,
-wired through the harness's own hooks, ACP, or both. See
+wired through the harness's own hooks/extensions and native managed transport. See
 [`integrations/`](integrations).
 
 ## License

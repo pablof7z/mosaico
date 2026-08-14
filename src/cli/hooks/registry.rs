@@ -80,6 +80,14 @@ static HOOK_HOSTS: &[HostDef] = &[
         output_format: HookOutputFormat::PlainText,
         requires_harness_session: true,
     },
+    HostDef {
+        name: "pi",
+        agent_slug: "pi",
+        session_id_fields: &["session_id"],
+        session_id_env: None,
+        output_format: HookOutputFormat::PlainText,
+        requires_harness_session: true,
+    },
 ];
 
 pub(super) fn find_hook_host(name: &str) -> Option<&'static HostDef> {
@@ -140,7 +148,7 @@ mod tests {
 
     #[test]
     fn harness_context_envelopes_render_current_adapter_contracts() {
-        for host in ["claude-code", "grok", "opencode", "goose", "kimi"] {
+        for host in ["claude-code", "grok", "opencode", "goose", "kimi", "pi"] {
             let format = emit_format(find_hook_host(host).unwrap(), "user-prompt-submit");
             assert_eq!(render_context_output("fabric", format), "fabric");
         }

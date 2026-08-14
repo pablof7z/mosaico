@@ -16,8 +16,8 @@ The ownership boundary is:
 
 - [ ] Choose one canonical harness ID and default agent slug.
 - [ ] Confirm the installed executable and current supported version.
-- [ ] Identify every native transport Mosaico will support: PTY, ACP, or
-  app-server.
+- [ ] Identify every native transport Mosaico will support: PTY, ACP,
+  app-server, or another harness-owned managed RPC protocol.
 - [ ] Record the exact fresh-launch command for each supported transport.
 - [ ] Record the harness's authoritative session ID and exact resume mechanism.
 - [ ] Determine how turn completion and mid-turn steering work.
