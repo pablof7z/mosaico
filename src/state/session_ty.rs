@@ -76,8 +76,8 @@ pub struct Session {
     pub observed_harness: String,
     /// Last hook host claim, retained only for mismatch diagnostics.
     pub claimed_harness: String,
-    /// Launch-selected harness bundle. Empty for externally discovered sessions.
-    pub admitted_bundle: String,
+    /// Explicit launch preset. Empty means no preset or an external session.
+    pub admitted_preset: String,
     /// Hosted transport selected when admitted (`pty`/`acp`/`app-server`).
     pub admitted_transport: String,
     /// Where the endpoint facts came from (`launch`, `hook`, or `migration`).

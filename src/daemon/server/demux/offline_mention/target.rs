@@ -71,11 +71,6 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let home = root.path().join(".mosaico");
         std::fs::create_dir_all(&home).unwrap();
-        std::fs::write(
-            home.join("harnesses.json"),
-            r#"{"codex-pty":{"harness":"codex","transport":"pty"}}"#,
-        )
-        .unwrap();
         let mut env = EnvGuard::set("HOME", root.path());
         env.set_var("MOSAICO_HOME", &home);
         env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
@@ -83,8 +78,9 @@ mod tests {
             &home,
             "writer",
             LocalAgentUpdate {
-                harness: "codex-pty".into(),
+                harness: "codex".into(),
                 profile: None,
+                preset: None,
                 per_session_key: Some(false),
                 byline: None,
             },
@@ -98,18 +94,11 @@ mod tests {
             Some("writer")
         );
 
-        crate::identity::save_local_agent(
-            &home,
-            "writer",
-            LocalAgentUpdate {
-                harness: "missing-bundle".into(),
-                profile: None,
-                per_session_key: None,
-                byline: None,
-            },
-            2,
-        )
-        .unwrap();
+        let path = home.join("agents/writer.json");
+        let mut record: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        record["harness"] = serde_json::json!("missing");
+        std::fs::write(path, serde_json::to_vec(&record).unwrap()).unwrap();
 
         assert_eq!(configured_agent_slug(&state, &pubkey).unwrap(), None);
     }

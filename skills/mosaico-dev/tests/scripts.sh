@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 ROOT="$(git rev-parse --show-toplevel)"
 SKILL="${ROOT}/skills/mosaico-dev"
 TMP="$(mktemp -d)"
@@ -19,12 +18,14 @@ assert_eq() {
 }
 
 write_profile() {
-  local state="$1" agent="$2" bundle="$3" transport="$4"
+  local state="$1" agent="$2" preset="$3" transport="$4" harness="$2"
+  [[ "${harness}" != "claude" ]] || harness="claude-code"
   mkdir -p "${state}/mosaico/agents"
-  printf '{"slug":"%s","harness":"%s"}\n' "${agent}" "${bundle}" \
+  printf '{"slug":"%s","harness":"%s","preset":"%s"}\n' \
+    "${agent}" "${harness}" "${preset}" \
     >"${state}/mosaico/agents/${agent}.json"
-  printf '{"%s":{"harness":"%s","transport":"%s"}}\n' \
-    "${bundle}" "${agent}" "${transport}" >"${state}/mosaico/harnesses.json"
+  printf '{"%s":{"%s":{"%s":[]}}}\n' \
+    "${preset}" "${harness}" "${transport}" >"${state}/mosaico/presets.json"
 }
 
 write_lab_env() {
@@ -293,8 +294,7 @@ echo 'ok: human sender rejects out-of-range numeric selectors'
 bash -n "${SKILL}"/scripts/* "${ROOT}/containers/mosaico/doctor" \
   "${ROOT}/containers/mosaico/host-auth.bash"
 echo 'ok: skill and container helper scripts parse as bash'
-
-cargo test --quiet --lib harness::tests::config_accepts_only_harness_transport_and_args
-cargo test --quiet --lib identity::tests::creates_then_reloads_keyless_agent_config
+cargo test --quiet --lib harness::presets::tests
+cargo test --quiet --lib identity::tests::creates_and_reloads_canonical_agent_config
 cargo test --quiet --lib config::tests::key_accessors_split_when_both_present
 echo 'ok: generated config assumptions match current Rust schemas'

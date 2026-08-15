@@ -73,17 +73,18 @@ async fn resume_session_record(
     let source = resolve_harness_source(
         harness,
         &rec.agent_slug,
-        Some(&rec.admitted_bundle),
+        Some(&rec.admitted_transport),
         request.intent,
     )?;
-    let identity = resume_identity(state, rec, &source.bundle)?;
+    let identity = resume_identity(state, rec, harness.as_str())?;
+    let preset = source.preset.clone();
     let reservation = admission::reserve_resume_exact(
         state,
         &identity,
         &rec.pubkey,
         &rec.agent_slug,
         harness.as_str(),
-        &source.bundle,
+        preset.as_deref(),
         source.transport.kind().as_str(),
         root,
         group,
@@ -130,11 +131,12 @@ pub(crate) async fn adopt_native_session(
     let slug = harness.agent_slug();
     let abs_path = workspace_abs_path(state, root, Some(cwd))?;
     let source = resolve_harness_source(harness, slug, None, request.intent)?;
+    let preset = source.preset.clone();
     let reservation = admission::reserve_fresh(
         state,
         &source.identity,
         harness.as_str(),
-        &source.bundle,
+        preset.as_deref(),
         source.transport.kind().as_str(),
         root,
         Some(root),
@@ -188,12 +190,12 @@ pub(crate) async fn adopt_native_session(
 fn resume_identity(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
-    bundle: &str,
+    harness: &str,
 ) -> Result<crate::identity::AgentIdentity> {
     if state.with_store(|store| store.is_derived_session_pubkey(&rec.pubkey))? {
         return Ok(crate::identity::AgentIdentity::per_session(
             &rec.agent_slug,
-            bundle,
+            harness,
         ));
     }
     crate::identity::load(&crate::config::mosaico_home(), &rec.agent_slug)

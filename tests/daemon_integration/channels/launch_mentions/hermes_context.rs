@@ -88,19 +88,8 @@ fn hermes_pty_launch_injects_relay_fabric_context_through_pre_llm_hook() {
     let argv_log = home.dir.path().join("hermes-argv.log");
     let native_session = unique_session("hermes-native");
     let _path = install_hermes_shim(&home, &native_session, &work_dir, &context_log, &argv_log);
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"hermes-context-e2e":{"harness":"hermes","transport":"pty"}}"#,
-    )
-    .unwrap();
-    identity::add_local_agent(
-        home.dir.path(),
-        "hermes-context",
-        "hermes-context-e2e",
-        None,
-        1,
-    )
-    .expect("add Hermes agent");
+    identity::add_local_agent(home.dir.path(), "hermes-context", "hermes", None, None, 1)
+        .expect("add Hermes agent");
 
     let pty_id = rt().block_on(async {
         let mut client = DaemonClient::connect_or_spawn().await.expect("connect");

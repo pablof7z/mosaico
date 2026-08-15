@@ -40,9 +40,6 @@ fn validate_launch(facts: &AdmittedRuntimeFacts) -> Result<()> {
     if !facts.claimed_harness.is_empty() {
         anyhow::bail!("launch runtime facts forbid claimed_harness");
     }
-    if facts.bundle.trim().is_empty() {
-        anyhow::bail!("launch runtime facts require bundle");
-    }
     if facts.transport.is_empty() {
         anyhow::bail!("launch runtime facts require transport");
     }
@@ -58,8 +55,8 @@ fn validate_hook(facts: &AdmittedRuntimeFacts) -> Result<()> {
     if claimed_harness == crate::session::Harness::Unknown || claimed_harness.as_str() != claimed {
         anyhow::bail!("runtime facts contain unknown claimed_harness {claimed:?}");
     }
-    if !facts.bundle.is_empty() {
-        anyhow::bail!("hook runtime facts forbid bundle");
+    if !facts.preset.is_empty() {
+        anyhow::bail!("hook runtime facts forbid preset");
     }
     Ok(())
 }

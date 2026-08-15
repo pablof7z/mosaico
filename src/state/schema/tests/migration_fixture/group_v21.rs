@@ -32,6 +32,7 @@ pub(in crate::state::schema::tests) fn restore_relay_group_tables(conn: &Connect
 
 /// Restore every relay-derived table present in schema 21.
 pub(in crate::state::schema::tests) fn restore_relay_derived_tables(conn: &Connection) {
+    super::downgrade_launch_admission_to_v22(conn);
     restore_relay_group_tables(conn);
     conn.execute_batch(
         r#"

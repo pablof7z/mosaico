@@ -4,7 +4,6 @@ use crate::{
         agents::{AgentKind, AgentRow},
         interactive::session_picker::{data::SessionRow, HomeChoice, SessionChoice},
     },
-    harness::Transport,
     session::Harness,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -51,9 +50,8 @@ fn agent(slug: &str, kind: AgentKind) -> HomeChoice {
         agent_slug: slug.into(),
         description: format!("Use {slug} for implementation work"),
         harness: Harness::Codex,
-        bundle: None,
-        transport: Some(Transport::Pty),
         profile: None,
+        preset: None,
         per_session_key: None,
         kind,
         native_profile: None,

@@ -125,20 +125,12 @@ pub(in crate::daemon::server) fn backend_profile_snapshot(
     let catalog = state.agent_catalog();
     let installed_harnesses = state.installed_harnesses();
     let mut failures = Vec::new();
-    let harnesses = match crate::harness::HarnessesConfig::load() {
-        Ok(config) => config,
-        Err(error) => {
-            failures.push(format!("harnesses.json: {error:#}"));
-            crate::harness::HarnessesConfig::default()
-        }
-    };
     let mut agents = BTreeMap::<String, String>::new();
     merge_inventory(
         &mut agents,
         crate::agent_inventory::AgentInventory::build(
             &crate::config::mosaico_home(),
             &installed_harnesses,
-            &harnesses,
             &catalog,
             None,
         ),
@@ -150,7 +142,6 @@ pub(in crate::daemon::server) fn backend_profile_snapshot(
             crate::agent_inventory::AgentInventory::build(
                 &crate::config::mosaico_home(),
                 &installed_harnesses,
-                &harnesses,
                 &catalog,
                 Some(std::path::Path::new(&binding.abs_path)),
             ),

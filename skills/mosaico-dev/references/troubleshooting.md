@@ -52,21 +52,19 @@ If a hook tries to execute a host path, verify staged provider settings point to
 Repair host-auth staging and regenerate the profile; do not change host hook
 settings merely to pass the lab.
 
-## Bundle or agent config is rejected
+## Preset or agent config is rejected
 
 Validate the exact schema:
 
 ```bash
-jq 'to_entries[] | {bundle:.key,keys:(.value|keys),harness:.value.harness,transport:.value.transport,args:(.value.args // [])}' \
-  .container-state/<profile>/mosaico/harnesses.json
-jq '{slug,harness,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \
+jq . .container-state/<profile>/mosaico/presets.json
+jq '{slug,harness,preset,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \
   .container-state/<profile>/mosaico/agents/<slug>.json
 ```
 
-Each bundle allows only `harness`, `transport`, and optional string-array
-`args`. The agent owns optional string `profile`. A `perSessionKey: true` agent
-must be keyless. Regenerate invalid state; do not add aliases or duplicate old
-fields.
+Each preset maps canonical harness names to optional `pty`, `acp`, and
+`app-server` string arrays. The agent owns canonical `harness`, optional
+`preset`, and optional `profile`. A `perSessionKey: true` agent must be keyless.
 
 ## Launch arguments are rejected
 
@@ -76,7 +74,7 @@ The current surface is:
 mosaico <TARGET> [PROMPT] [--channel [ROOM]] [--name ...] [-- <ARGS>...]
 ```
 
-Durable provider flags belong in bundle `args`. One-launch provider arguments
+Reusable provider flags belong in preset argument arrays. One-launch arguments
 must follow `--`; options before it belong to Mosaico. Direct mode receives
 provider CLI arguments without the Mosaico separator.
 
@@ -91,9 +89,8 @@ bash containers/mosaico/run --profile <profile> mosaico agents
 
 A non-interactive run prints available targets. Check live harness detection,
 configured agents, and the installed global/workspace native agent directories.
-`harnesses.json` is launch policy, not catalog membership; a missing compatible
-bundle is created on first realization. If the same native slug exists in several
-harnesses, use the harness-suffixed target printed by the inventory.
+`presets.json` is optional argument policy, not catalog membership. If the same
+native slug exists in several harnesses, use the harness-suffixed target.
 
 ## Workspace is unknown
 

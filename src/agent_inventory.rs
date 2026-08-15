@@ -1,11 +1,10 @@
 //! Canonical logical agent inventory shared by every local consumer.
 //!
 //! This module answers which agents exist. It deliberately does not choose a
-//! harness bundle for native profiles or generic installed harnesses; hosted
+//! transport for native profiles or generic installed harnesses; hosted
 //! launch intent owns that later realization step.
 
 use crate::agent_catalog::{AgentCatalog, NativeAgentProfile};
-use crate::harness::HarnessesConfig;
 use crate::session::Harness;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,9 +13,8 @@ use std::path::Path;
 pub(crate) enum AgentSource {
     Durable {
         pubkey: Option<String>,
-        bundle: String,
-        transport: Option<crate::harness::Transport>,
         profile: Option<String>,
+        preset: Option<String>,
         per_session_key: bool,
         native_profile: Option<NativeAgentProfile>,
     },
@@ -50,7 +48,6 @@ impl AgentInventory {
     pub(crate) fn build(
         mosaico_home: &Path,
         installed_harnesses: &[Harness],
-        harnesses: &HarnessesConfig,
         catalog: &AgentCatalog,
         workspace: Option<&Path>,
     ) -> Self {
@@ -64,16 +61,7 @@ impl AgentInventory {
         let capabilities = catalog.capabilities(workspace);
 
         for agent in entries {
-            let bundle = agent.harness;
-            let harness = match crate::harness::bundle_harness_with(harnesses, &bundle) {
-                Ok(harness) => harness,
-                Err(error) => {
-                    inventory
-                        .failures
-                        .push(format!("{}: {error:#}", agent.slug));
-                    continue;
-                }
-            };
+            let harness = Harness::from_str(&agent.harness);
             // A configured slug may be a sanitized form of the native
             // profile's free-text name (see `crate::slug::slugify`), so fall
             // back to a sanitized comparison when the exact one misses.
@@ -104,9 +92,8 @@ impl AgentInventory {
                 available_since: created.get(&agent.slug).copied().unwrap_or(0),
                 source: AgentSource::Durable {
                     pubkey: agent.pubkey,
-                    transport: harnesses.get(&bundle).map(|config| config.transport),
-                    bundle,
                     profile: agent.profile,
+                    preset: agent.preset,
                     per_session_key: agent.per_session_key,
                     native_profile,
                 },

@@ -40,7 +40,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
@@ -132,7 +132,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     for admitted in [
         "observed_harness",
         "claimed_harness",
-        "admitted_bundle",
+        "admitted_preset",
         "admitted_transport",
         "endpoint_provenance",
     ] {

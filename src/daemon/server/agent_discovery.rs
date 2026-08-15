@@ -30,11 +30,9 @@ impl DaemonState {
         workspace: Option<&Path>,
     ) -> Result<crate::agent_inventory::AgentInventory> {
         self.refresh_agent_catalog()?;
-        let harnesses = crate::harness::HarnessesConfig::load()?;
         Ok(crate::agent_inventory::AgentInventory::build(
             &crate::config::mosaico_home(),
             &self.installed_harnesses(),
-            &harnesses,
             &self.agent_catalog(),
             workspace,
         ))
@@ -154,15 +152,10 @@ mod tests {
         let root = TempDir::new().unwrap();
         let mosaico_home = root.path().join(".mosaico");
         std::fs::create_dir_all(&mosaico_home).unwrap();
-        std::fs::write(
-            mosaico_home.join("harnesses.json"),
-            r#"{"codex-pty":{"harness":"codex","transport":"pty"}}"#,
-        )
-        .unwrap();
         let mut env = EnvGuard::set("HOME", root.path());
         env.set_var("MOSAICO_HOME", &mosaico_home);
         env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
-        crate::identity::add_local_agent(&mosaico_home, "writer", "codex-pty", None, 7).unwrap();
+        crate::identity::add_local_agent(&mosaico_home, "writer", "codex", None, None, 7).unwrap();
         let state = DaemonState::new_for_test().await;
 
         let value =

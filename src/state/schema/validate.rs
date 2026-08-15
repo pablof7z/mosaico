@@ -173,7 +173,7 @@ fn validate_session(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "readiness_parent",
             "observed_harness",
             "claimed_harness",
-            "admitted_bundle",
+            "admitted_preset",
             "admitted_transport",
             "endpoint_provenance",
             "runtime_state",
@@ -206,6 +206,7 @@ fn validate_session(conn: &Connection, path: Option<&Path>) -> Result<()> {
             "explicit_chat_published_at",
             "transcript_path",
             "channel_h",
+            "admitted_bundle",
         ],
         path,
     )

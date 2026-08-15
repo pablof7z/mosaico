@@ -73,11 +73,6 @@ fn install_goose_shim(
     )
     .unwrap();
 
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"goose-e2e":{"harness":"goose","transport":"pty"}}"#,
-    )
-    .unwrap();
     let old_path = std::env::var_os("PATH");
     let mut paths = vec![bin];
     paths.extend(std::env::split_paths(
@@ -111,7 +106,7 @@ fn goose_pty_launch_injects_canonical_fabric_context_through_top_of_mind() {
     let argv_log = home.dir.path().join("goose-argv.log");
     let native_session = unique_session("goose-native");
     let _env = install_goose_shim(&home, &native_session, &work_dir, &context_log, &argv_log);
-    identity::add_local_agent(home.dir.path(), "goose", "goose-e2e", None, 1)
+    identity::add_local_agent(home.dir.path(), "goose", "goose", None, None, 1)
         .expect("add Goose agent");
 
     let pty_id = rt().block_on(async {

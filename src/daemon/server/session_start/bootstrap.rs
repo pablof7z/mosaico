@@ -9,7 +9,7 @@ pub(crate) struct HostedSessionStart<'a> {
     pub(crate) dispatch_event: Option<&'a str>,
     pub(crate) session_name: Option<&'a str>,
     pub(crate) observed_harness: Harness,
-    pub(crate) admitted_bundle: &'a str,
+    pub(crate) admitted_preset: Option<&'a str>,
     pub(crate) admitted_transport: crate::session_host::transport::TransportKind,
 }
 
@@ -35,7 +35,7 @@ pub(crate) async fn bootstrap_hosted_session_start(
             "pubkey": request.pubkey,
             "reclaimed_pubkey": request.reclaimed_pubkey,
             "observed_harness": request.observed_harness.as_str(),
-            "admitted_bundle": request.admitted_bundle,
+            "admitted_preset": request.admitted_preset,
             "admitted_transport": request.admitted_transport.as_str(),
             "endpoint_provenance": "launch",
             "cwd": &meta.cwd,

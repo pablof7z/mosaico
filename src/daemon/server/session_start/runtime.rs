@@ -170,7 +170,7 @@ pub(super) fn reserve_generation(
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: facts.observed_harness.as_str().to_string(),
                 claimed_harness: facts.claimed_harness.clone(),
-                bundle: facts.admitted_bundle.clone(),
+                preset: facts.admitted_preset.clone(),
                 transport: facts.admitted_transport.clone(),
                 endpoint_provenance: facts.endpoint_provenance.clone(),
             },

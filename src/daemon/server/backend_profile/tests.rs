@@ -25,10 +25,6 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
     env.set_var("CODEX_HOME", &codex_home);
     env.set_var("PATH", home.path().join(".local/bin"));
     write(
-        &mosaico_home.join("harnesses.json"),
-        r#"{"codex-rpc":{"harness":"codex","transport":"app-server"}}"#,
-    );
-    write(
         &codex_home.join("agents/global.toml"),
         "name='global'\ndescription='Everywhere'\ndeveloper_instructions='Work'",
     );

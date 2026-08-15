@@ -71,7 +71,7 @@ pub(super) async fn open(
         command,
         harness,
         resume,
-        bundle,
+        preset,
         native_agent,
         identity,
         prepared_launch,
@@ -139,7 +139,7 @@ pub(super) async fn open(
             dispatch_event: presentation.dispatch_event,
             session_name: presentation.session_name,
             observed_harness: harness,
-            admitted_bundle: &bundle,
+            admitted_preset: preset.as_deref(),
             admitted_transport: transport.kind(),
         },
     )

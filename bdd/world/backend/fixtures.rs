@@ -16,16 +16,14 @@ impl Backend {
             "---\nname: {profile}\ndescription: BDD fixture profile\n---\nReview carefully.\n"
         );
         std::fs::write(profiles.join(format!("{profile}.md")), document)?;
-        let harnesses = serde_json::json!({
-            "yolo-claude": {
-                "harness": "claude-code",
-                "transport": "pty",
-                "args": ["--dangerously-skip-permissions"]
+        let presets = serde_json::json!({
+            "unrestricted": {
+                "claude-code": {"pty": ["--dangerously-skip-permissions"]}
             }
         });
         std::fs::write(
-            self.mosaico_home.join("harnesses.json"),
-            serde_json::to_vec_pretty(&harnesses)?,
+            self.mosaico_home.join("presets.json"),
+            serde_json::to_vec_pretty(&presets)?,
         )?;
         let result = self.run(
             &[
@@ -33,7 +31,9 @@ impl Backend {
                 "add",
                 agent,
                 "--harness",
-                "yolo-claude",
+                "claude-code",
+                "--preset",
+                "unrestricted",
                 "--profile",
                 profile,
             ],

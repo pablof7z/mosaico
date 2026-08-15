@@ -13,10 +13,12 @@ pub(super) enum AgentAction {
     /// Create or update a configured agent binding.
     Add {
         slug: String,
-        #[arg(long, value_name = "BUNDLE")]
+        #[arg(long, value_name = "HARNESS")]
         harness: String,
         #[arg(long, value_name = "PROFILE")]
         profile: Option<String>,
+        #[arg(long, value_name = "PRESET")]
+        preset: Option<String>,
     },
     /// Permanently delete a configured agent JSON file.
     Remove { slug: String },

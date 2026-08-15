@@ -35,132 +35,116 @@ mkdir -p "${KEY_DIR}"
 profile_contract() {
   local profile="$1"
   AGENT_PROFILE=
+  PRESET="${profile}"
   case "${profile}" in
     claude)
       AGENT_SLUG=claude
-      BUNDLE=claude
       HARNESS=claude-code
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_CLAUDE_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_CLAUDE_ARGS_JSON:-[]}"
       ;;
     claude-acp)
       AGENT_SLUG=claude
-      BUNDLE=claude-acp
       HARNESS=claude-code
       TRANSPORT=acp
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_CLAUDE_ACP_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_CLAUDE_ACP_ARGS_JSON:-[]}"
       ;;
     codex)
       AGENT_SLUG=codex
-      BUNDLE=codex
       HARNESS=codex
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_CODEX_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_CODEX_ARGS_JSON:-[]}"
       ;;
     codex-app-server)
       AGENT_SLUG=codex
-      BUNDLE=codex-app-server
       HARNESS=codex
       TRANSPORT=app-server
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON:-[]}"
       AGENT_PROFILE="${MOSAICO_DEV_CODEX_CONFIG_PROFILE:-}"
       ;;
     grok)
       AGENT_SLUG=grok
-      BUNDLE=grok
       HARNESS=grok
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_GROK_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_GROK_ARGS_JSON:-[]}"
       ;;
     goose)
       AGENT_SLUG=goose
-      BUNDLE=goose
       HARNESS=goose
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_GOOSE_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_GOOSE_ARGS_JSON:-[]}"
       ;;
     goose-acp)
       AGENT_SLUG=goose
-      BUNDLE=goose-acp
       HARNESS=goose
       TRANSPORT=acp
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_GOOSE_ACP_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_GOOSE_ACP_ARGS_JSON:-[]}"
       ;;
     hermes)
       AGENT_SLUG=hermes
-      BUNDLE=hermes
       HARNESS=hermes
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_HERMES_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_HERMES_ARGS_JSON:-[]}"
       AGENT_PROFILE="${MOSAICO_DEV_HERMES_PROFILE:-}"
       ;;
     hermes-acp)
       AGENT_SLUG=hermes
-      BUNDLE=hermes-acp
       HARNESS=hermes
       TRANSPORT=acp
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_HERMES_ACP_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_HERMES_ACP_ARGS_JSON:-[]}"
       AGENT_PROFILE="${MOSAICO_DEV_HERMES_PROFILE:-}"
       ;;
     kimi)
       AGENT_SLUG=kimi
-      BUNDLE=kimi
       HARNESS=kimi
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_KIMI_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_KIMI_ARGS_JSON:-[]}"
       AGENT_PROFILE="${MOSAICO_DEV_KIMI_PROFILE:-}"
       ;;
     kimi-acp)
       AGENT_SLUG=kimi
-      BUNDLE=kimi-acp
       HARNESS=kimi
       TRANSPORT=acp
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_KIMI_ACP_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_KIMI_ACP_ARGS_JSON:-[]}"
       ;;
     pi)
       AGENT_SLUG=pi
-      BUNDLE=pi
       HARNESS=pi
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_PI_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_PI_ARGS_JSON:-[]}"
       ;;
     pi-rpc)
       AGENT_SLUG=pi
-      BUNDLE=pi-rpc
       HARNESS=pi
       TRANSPORT=pi-rpc
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_PI_RPC_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_PI_RPC_ARGS_JSON:-[]}"
       ;;
     opencode)
       AGENT_SLUG=opencode
-      BUNDLE=opencode
       HARNESS=opencode
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_OPENCODE_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_OPENCODE_ARGS_JSON:-[]}"
       ;;
     opencode-acp)
       AGENT_SLUG=opencode
-      BUNDLE=opencode-acp
       HARNESS=opencode
       TRANSPORT=acp
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON:-[]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_OPENCODE_ACP_ARGS_JSON:-[]}"
       ;;
     codex-ollama)
       AGENT_SLUG=codex
-      BUNDLE=codex-ollama
       HARNESS=codex
       TRANSPORT=pty
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_CODEX_OLLAMA_ARGS_JSON:-[\"--oss\",\"--local-provider\",\"ollama\"]}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_CODEX_OLLAMA_ARGS_JSON:-[\"--oss\",\"--local-provider\",\"ollama\"]}"
       ;;
     opencode-ollama)
       AGENT_SLUG=opencode
-      BUNDLE=opencode-ollama
       HARNESS=opencode
       TRANSPORT=pty
       default_opencode_args="$(jq -cn --arg model \
         "${MOSAICO_DEV_OPENCODE_OLLAMA_MODEL:-ollama/deepseek-r1:8b}" \
         '["-m",$model]')"
-      BUNDLE_ARGS_JSON="${MOSAICO_DEV_OPENCODE_OLLAMA_ARGS_JSON:-${default_opencode_args}}"
+      PRESET_ARGS_JSON="${MOSAICO_DEV_OPENCODE_OLLAMA_ARGS_JSON:-${default_opencode_args}}"
       ;;
     *)
       printf 'unsupported profile %s; expected claude|claude-acp|codex|codex-app-server|grok|goose|goose-acp|hermes|hermes-acp|kimi|kimi-acp|pi|pi-rpc|opencode|opencode-acp|codex-ollama|opencode-ollama\n' "${profile}" >&2
@@ -168,7 +152,7 @@ profile_contract() {
       ;;
   esac
   if ! jq -e 'type == "array" and all(.[]; type == "string")' \
-    <<<"${BUNDLE_ARGS_JSON}" >/dev/null; then
+    <<<"${PRESET_ARGS_JSON}" >/dev/null; then
     printf 'invalid args JSON for profile %s: expected an array of strings\n' "${profile}" >&2
     exit 2
   fi
@@ -229,7 +213,7 @@ for i in "${!PROFILES[@]}"; do
   state_dir="${STATE_ROOT}/${profile}"
   cfg="${state_dir}/mosaico/config.json"
   mosaico_dir="${state_dir}/mosaico"
-  harnesses_cfg="${mosaico_dir}/harnesses.json"
+  presets_cfg="${mosaico_dir}/presets.json"
   agent_cfg="${mosaico_dir}/agents/${AGENT_SLUG}.json"
   mkdir -p "${state_dir}/mosaico" "${state_dir}/home"
   reset_mosaico_state "${state_dir}"
@@ -250,24 +234,24 @@ for i in "${!PROFILES[@]}"; do
     }' >"${cfg}"
 
   jq -n \
-    --arg bundle "${BUNDLE}" \
+    --arg preset "${PRESET}" \
     --arg harness "${HARNESS}" \
     --arg transport "${TRANSPORT}" \
-    --argjson args "${BUNDLE_ARGS_JSON}" \
-    '{($bundle): ({harness:$harness,transport:$transport}
-      + if $args == [] then {} else {args:$args} end)}' \
-    >"${harnesses_cfg}"
+    --argjson args "${PRESET_ARGS_JSON}" \
+    '{($preset): {($harness): {($transport): $args}}}' \
+    >"${presets_cfg}"
 
   jq -n \
     --arg slug "${AGENT_SLUG}" \
     --argjson created_at "$(date +%s)" \
-    --arg harness "${BUNDLE}" \
+    --arg harness "${HARNESS}" \
+    --arg preset "${PRESET}" \
     --arg profile "${AGENT_PROFILE}" \
-    '{slug:$slug,created_at:$created_at,perSessionKey:true,harness:$harness}
+    '{slug:$slug,created_at:$created_at,perSessionKey:true,harness:$harness,preset:$preset}
       + if $profile == "" then {} else {profile:$profile} end' \
     >"${agent_cfg}"
 
-  jq -e . "${cfg}" "${harnesses_cfg}" "${agent_cfg}" >/dev/null
+  jq -e . "${cfg}" "${presets_cfg}" "${agent_cfg}" >/dev/null
   chmod 600 "${cfg}" "${agent_cfg}"
-  echo "profile=${profile} agent=${AGENT_SLUG} bundle=${BUNDLE} harness=${HARNESS} transport=${TRANSPORT} config=${cfg} human_count=$(jq 'length' <<<"${whitelist_json}") owner_pubkey=${OWNER_PUBKEY:0:12} backend_pubkey=${BACKEND_PUBKEYS[$i]:0:12} reset_mosaico_state=${MOSAICO_DEV_RESET_PROFILE_STATE:-1}"
+  echo "profile=${profile} agent=${AGENT_SLUG} preset=${PRESET} harness=${HARNESS} transport=${TRANSPORT} config=${cfg} human_count=$(jq 'length' <<<"${whitelist_json}") owner_pubkey=${OWNER_PUBKEY:0:12} backend_pubkey=${BACKEND_PUBKEYS[$i]:0:12} reset_mosaico_state=${MOSAICO_DEV_RESET_PROFILE_STATE:-1}"
 done

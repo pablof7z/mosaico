@@ -37,16 +37,8 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
         )
         .unwrap();
     }
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        serde_json::json!({
-            "test-acp": {"harness": harness, "transport": "acp"}
-        })
-        .to_string(),
-    )
-    .unwrap();
     let agent = format!("{harness}-acp-agent-nsec");
-    mosaico::identity::add_local_agent(home.dir.path(), &agent, "test-acp", None, 1).unwrap();
+    mosaico::identity::add_local_agent(home.dir.path(), &agent, harness, None, None, 1).unwrap();
     let channel = format!("{harness}-acp-agent-nsec-{}", std::process::id());
     let work_dir = home.dir.path().join(&channel);
     std::fs::create_dir_all(&work_dir).unwrap();
@@ -109,7 +101,7 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let store = Store::open(&home.store_path()).unwrap();
     let session = store.get_session(pubkey).unwrap().unwrap();
     assert_eq!(session.observed_harness, harness);
-    assert_eq!(session.admitted_bundle, "test-acp");
+    assert_eq!(session.admitted_preset, "");
     assert_eq!(session.admitted_transport, "acp");
     assert_eq!(session.endpoint_provenance, "launch");
     assert!(store

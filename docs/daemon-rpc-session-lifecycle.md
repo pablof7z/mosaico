@@ -9,7 +9,7 @@ Spawns an in-daemon `SessionTask` (publishes profile and presence, declares its
 NMP live-query demand, and routes mentions — today's `runtime::run_session`).
 
 ```jsonc
-params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_bundle": "claude-pty"|null, "admitted_transport": "pty"|"acp"|"app-server"|"pi-rpc"|null, "endpoint_provenance": "launch"|"hook", "pty_session": "endpoint-id"|null, "endpoint_kind": "pty"|"acp"|"app-server"|"pi-rpc"|null, "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
+params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_preset": "unrestricted"|null, "admitted_transport": "pty"|"acp"|"app-server"|"pi-rpc"|null, "endpoint_provenance": "launch"|"hook", "pty_session": "endpoint-id"|null, "endpoint_kind": "pty"|"acp"|"app-server"|"pi-rpc"|null, "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
 result: {"pubkey": "hex"}
 ```
 
@@ -20,7 +20,7 @@ the handle is a seven-day offline lease. The provider opens the workspace root
 NIP-29 group through NMP, names it from the workspace slug, and adds the session
 agent as a relay member before the engine publishes presence.
 
-Launch admission persists `observed_harness`, bundle, transport, and endpoint
+Launch admission persists `observed_harness`, preset, transport, and endpoint
 provenance as immutable facts for that runtime. A hook reports its host string
 separately as `claimed_harness`; the adapter derives `observed_harness` from the
 owned launch environment or a recognized ancestor process. Missing or unknown

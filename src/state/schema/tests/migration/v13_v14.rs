@@ -18,6 +18,6 @@ fn schema_thirteen_adds_native_turn_attempts_forward_only() {
 
     drop(Store::open(&path).expect("schema thirteen upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 23);
+    assert_eq!(version(&conn), 24);
     assert!(fixture::table_exists(&conn, "native_turn_attempts"));
 }

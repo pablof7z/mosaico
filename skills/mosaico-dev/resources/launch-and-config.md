@@ -3,43 +3,46 @@
 **Why:** session start and agent declaration are product surface. Drift here
 ships broken hosts and fake compatibility.
 
-**When:** editing launch CLI, `harnesses.json`, agent JSON, identity derivation,
-or harness-native profile wiring.
+**When:** editing launch CLI, `presets.json`, agent JSON, identity derivation,
+transport selection, or harness-native profile wiring.
 
-No old launch flags, duplicate config fields, or fallback bundle names. Fix
-durable defaults in config; use separator args only for intentional one-launch
-overrides.
+There is no backwards compatibility for removed launch configuration. Reject
+old names and fields; do not add aliases, fallback reads, or conversions.
 
-## Bundle and agent files
+## Agent and preset files
 
-- `harnesses.json` maps a bundle name to exactly `harness`, `transport`, and
-  optional `args`. Unknown fields fail parsing. The executable and transport
-  driver are code-owned.
-- `agents/<slug>.json` owns the public slug, selected bundle in `harness`,
-  optional harness-native `profile`, identity mode, and metadata.
+- `agents/<slug>.json` owns the public slug, canonical `harness`, optional
+  harness-native `profile`, optional named `preset`, identity mode, and metadata.
+- `presets.json` is preset-first: preset name, canonical harness, then optional
+  `pty`, `acp`, and `app-server` string arrays. Unknown fields fail parsing.
+- A preset only adds arguments to a driver selected elsewhere. It never chooses
+  a harness, executable, or transport. No preset means no implicit arguments.
+
+```json
+{
+  "unrestricted": {
+    "codex": {"pty": ["--yolo"]},
+    "claude-code": {"pty": ["--dangerously-skip-permissions"]}
+  }
+}
+```
 
 ## Launch surface
 
-- `mosaico <TARGET> [PROMPT] [-- <ARGS>...]` matches an existing session, then
-  an available agent. Workspace is the current directory; accepts `--channel`
-  and `--name`. Args after `--` append to the resolved harness command for that
-  launch only.
-- A bundle admits exactly one hosted transport: `pty`, `acp`, `app-server`, or
-  `pi-rpc`. A configured
-  `app-server` bundle uses the ACP hosted kind with the app-server dialect;
-  `app-server` is not a third admitted kind. There is no launch-time transport
-  or harness selector.
-- Bundle `args` are operational provider flags. Agent `profile` is a named
-  native profile (Claude PTY `--agent`, Codex PTY `--profile`, Hermes
-  PTY/ACP top-level `--profile`, Kimi PTY `--agent`, Codex app-server isolated
-  `CODEX_HOME`). ACP dialects without named profiles reject `profile`.
+- `mosaico <TARGET> [PROMPT] [-- <ARGS>...]` resolves a session, then an agent.
+  Args after `--` append last for that launch only.
+- Interactive fresh launch selects PTY. Managed launch selects the preferred
+  structured driver when supported: Codex app-server or native ACP.
+- Resume preserves an admitted managed transport when it remains supported and
+  re-resolves the agent's current preset for the new runtime generation.
+- `profile` activates a harness-native named profile. Unsupported combinations
+  fail instead of silently dropping it.
 
 ## Identity
 
 - `userNsec` is the human operator signer. `mosaicoPrivateKey` is the backend
   management/session-derivation identity. They must be distinct.
-- `perSessionKey: true` agents are keyless on disk (omit `secret_key` /
-  `public_key`); session keys derive from the backend key plus a fresh anchor.
+- `perSessionKey: true` agents are keyless on disk.
 - `perSessionKey: false` requires persisted agent `secret_key` and `public_key`.
 
 ## Harness notes
@@ -60,7 +63,5 @@ overrides.
   `agent_end`. Pi exposes no named-profile selector, so both transports reject
   `profile`.
 
-Provider-specific lab detail:
-`skills/mosaico-dev/references/container-backends.md`,
-`skills/mosaico-dev/references/acp-backends.md`,
-`skills/mosaico-dev/references/grok-pty-lab.md`.
+Provider-specific lab detail lives in `references/container-backends.md`,
+`references/acp-backends.md`, and `references/grok-pty-lab.md`.

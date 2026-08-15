@@ -6,7 +6,7 @@ use validation::validate_runtime_facts;
 
 pub(super) const COLS: &str =
     "pubkey, runtime_generation, agent_slug, work_root, readiness_parent, \
-     observed_harness, claimed_harness, admitted_bundle, admitted_transport, \
+     observed_harness, claimed_harness, admitted_preset, admitted_transport, \
      endpoint_provenance, child_pid, runtime_state, presentation_state, \
      work_state, recovery_state, lifecycle_epoch, attachment_epoch, idle_since, idle_deadline, \
      stopped_at, stop_reason, turn_count, busy_seconds, created_at, last_seen, turn_started_at, \
@@ -39,7 +39,7 @@ pub(super) fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<Session> {
         readiness_parent: row.get(4)?,
         observed_harness: row.get(5)?,
         claimed_harness: row.get(6)?,
-        admitted_bundle: row.get(7)?,
+        admitted_preset: row.get(7)?,
         admitted_transport: row.get(8)?,
         endpoint_provenance: row.get(9)?,
         child_pid: row.get(10)?,
@@ -73,7 +73,7 @@ impl Store {
             &AdmittedRuntimeFacts {
                 observed_harness: observed.clone(),
                 claimed_harness: observed,
-                bundle: String::new(),
+                preset: String::new(),
                 transport: String::new(),
                 endpoint_provenance: "hook".to_string(),
             },
@@ -132,7 +132,7 @@ impl Store {
         tx.execute(
             "INSERT INTO sessions
                  (pubkey, runtime_generation, agent_slug, work_root, observed_harness,
-                  claimed_harness, admitted_bundle, admitted_transport, endpoint_provenance,
+                  claimed_harness, admitted_preset, admitted_transport, endpoint_provenance,
                   child_pid, runtime_state, presentation_state, work_state,
                   recovery_state, lifecycle_epoch, created_at, last_seen, state_changed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
@@ -146,10 +146,10 @@ impl Store {
                      ELSE excluded.observed_harness END,
                  claimed_harness=CASE WHEN excluded.claimed_harness<>''
                      THEN excluded.claimed_harness ELSE sessions.claimed_harness END,
-                 admitted_bundle=CASE
-                     WHEN excluded.endpoint_provenance='launch' THEN excluded.admitted_bundle
-                     WHEN sessions.endpoint_provenance='launch' THEN sessions.admitted_bundle
-                     ELSE excluded.admitted_bundle END,
+                 admitted_preset=CASE
+                     WHEN excluded.endpoint_provenance='launch' THEN excluded.admitted_preset
+                     WHEN sessions.endpoint_provenance='launch' THEN sessions.admitted_preset
+                     ELSE excluded.admitted_preset END,
                  admitted_transport=CASE
                      WHEN excluded.endpoint_provenance='launch' THEN excluded.admitted_transport
                      WHEN sessions.endpoint_provenance='launch' THEN sessions.admitted_transport
@@ -171,7 +171,7 @@ impl Store {
                 r.work_root,
                 facts.observed_harness,
                 facts.claimed_harness,
-                facts.bundle,
+                facts.preset,
                 facts.transport,
                 facts.endpoint_provenance,
                 r.child_pid,

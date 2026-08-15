@@ -12,7 +12,7 @@ mod types;
 
 use anyhow::Result;
 
-use crate::harness::{self, config::HarnessesConfig, Transport};
+use crate::harness::Transport;
 
 /// Which transport hosts a session. This is the persisted runtime contract;
 /// configured app-server sessions never collapse into ACP.
@@ -127,7 +127,7 @@ pub trait SessionTransport: Send + Sync {
 pub use acp::RpcTransport;
 pub use pty::PtyTransport;
 
-/// Type-erased transport selected from a configured harness bundle.
+/// Type-erased transport selected from launch intent and harness capability.
 pub struct TransportImpl(Box<dyn SessionTransport>);
 
 impl TransportImpl {
@@ -238,34 +238,23 @@ pub fn hosted_endpoint_for(
     })
 }
 
-/// Pick the exact transport for a required configured bundle.
-pub fn select_transport(bundle: &str) -> Result<TransportImpl> {
-    let cfg = HarnessesConfig::load()?;
-    select_transport_with(&cfg, bundle)
-}
-
 /// Map a fully-resolved raw [`Transport`] to its hosting implementation.
-fn transport_impl_for(transport: Transport) -> Result<TransportImpl> {
-    Ok(match transport {
+pub fn select_transport(transport: Transport) -> TransportImpl {
+    match transport {
         Transport::Acp => TransportImpl::new(RpcTransport::new(TransportKind::Acp)),
         Transport::AppServer => TransportImpl::new(RpcTransport::new(TransportKind::AppServer)),
         Transport::PiRpc => TransportImpl::new(RpcTransport::new(TransportKind::PiRpc)),
         Transport::Pty => TransportImpl::new(PtyTransport),
-    })
+    }
 }
 
-pub fn select_transport_with(cfg: &HarnessesConfig, bundle: &str) -> Result<TransportImpl> {
-    transport_impl_for(harness::bundle_transport_with(cfg, bundle)?)
-}
-
-/// Resolve a required bundle to the hosted-session transport kind.
-pub fn transport_kind_for(cfg: &HarnessesConfig, bundle: &str) -> Result<TransportKind> {
-    Ok(match harness::bundle_transport_with(cfg, bundle)? {
+pub fn transport_kind_for(transport: Transport) -> TransportKind {
+    match transport {
         Transport::Acp => TransportKind::Acp,
         Transport::AppServer => TransportKind::AppServer,
         Transport::PiRpc => TransportKind::PiRpc,
         Transport::Pty => TransportKind::Pty,
-    })
+    }
 }
 
 #[cfg(test)]

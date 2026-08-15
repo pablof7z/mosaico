@@ -43,7 +43,7 @@ Each profile owns:
 .container-state/<profile>/cargo/
 .container-state/<profile>/target/
 .container-state/<profile>/mosaico/config.json
-.container-state/<profile>/mosaico/harnesses.json
+.container-state/<profile>/mosaico/presets.json
 .container-state/<profile>/mosaico/agents/<slug>.json
 .container-state/<profile>/mosaico/state.db*
 .container-state/<profile>/mosaico/nmp.redb
@@ -88,37 +88,40 @@ jq '{relays,indexerRelay,backendName,whitelistedPubkeys}' \
   .container-state/claude-acp/mosaico/config.json
 ```
 
-## Bundle and agent ownership
+## Preset and agent ownership
 
-Each bundle contains exactly:
+`presets.json` is preset-first. Each preset maps canonical harnesses to optional
+transport-specific argument arrays:
 
 ```json
 {
-  "claude": {
-    "harness": "claude-code",
-    "transport": "pty",
-    "args": []
+  "unrestricted": {
+    "codex": {"pty": ["--yolo"]},
+    "claude-code": {"pty": ["--dangerously-skip-permissions"]}
   }
 }
 ```
 
-The agent file selects the bundle and optional native profile:
+The agent file selects a canonical harness, optional preset, and optional native
+profile:
 
 ```json
 {
   "slug": "claude",
   "created_at": 0,
   "perSessionKey": true,
-  "harness": "claude"
+  "harness": "claude-code",
+  "preset": "unrestricted"
 }
 ```
 
 Per-session agents omit key fields. Only durable `perSessionKey: false` agents
 persist `secret_key` and `public_key`.
 
-The bundle owns operational `args`; the agent owns the optional profile name.
-The executable, required transport prefix, resume behavior, and profile
-translation are code-owned. Unknown bundle fields fail parsing.
+The preset owns reusable provider arguments; the agent owns its harness and
+optional profile name. Launch intent owns transport. The executable, required
+transport prefix, resume behavior, and profile translation are code-owned.
+Unknown preset fields fail parsing.
 
 ## Profile generation
 
@@ -129,7 +132,7 @@ skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" \
   codex-ollama opencode-ollama
 ```
 
-Default bundle args are empty for standard PTY and structured profiles.
+Default preset args are empty for standard PTY and structured profiles.
 `codex-ollama` owns `--oss --local-provider ollama`; `opencode-ollama` owns
 `-m <model>`, where `MOSAICO_DEV_OPENCODE_OLLAMA_MODEL` defaults to
 `ollama/deepseek-r1:8b`.
@@ -159,7 +162,7 @@ Every profile has an exact JSON-array override:
 Each override must be a JSON array of strings and replaces the generated args.
 
 `MOSAICO_DEV_CODEX_CONFIG_PROFILE=<name>` adds the optional `profile` string to
-the Codex app-server agent file. It does not add fields to the bundle.
+the Codex app-server agent file. It does not add fields to the preset.
 `MOSAICO_DEV_HERMES_PROFILE=<name>` does the same for both Hermes profiles;
 Mosaico places Hermes' top-level `--profile` before the optional `acp` subcommand.
 `MOSAICO_DEV_KIMI_PROFILE=<name>` adds a Kimi PTY native agent, which Mosaico
@@ -187,9 +190,9 @@ MOSAICO_DEV_PROMPT="Run mosaico my session." \
 ```
 
 The helper forwards those arguments after Mosaico's `--` separator. Use launch
-mode for bundle/transport routing, native-profile activation,
-hosted lifecycle, PTY behavior, and channel delivery. Configure provider flags
-in bundle `args`, then regenerate the profile.
+mode for launch-intent transport routing, native-profile activation, hosted
+lifecycle, PTY behavior, and channel delivery. Configure reusable provider
+flags in preset arguments, then regenerate the profile.
 
 ## Native profile inventory
 
@@ -226,7 +229,7 @@ skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke claude-acp
 
 Doctor performs the Cargo build, installs the relevant Mosaico integration, and
 checks provider auth plus transport tools. Structured smoke additionally proves
-the configured RPC bundle. Do not use unsupported top-level version flags as a
+the configured harness/preset and RPC driver. Do not use unsupported top-level version flags as a
 prewarm shortcut.
 
 For Grok, doctor must also verify `${GROK_HOME}/hooks/mosaico.json`; follow it
@@ -234,6 +237,6 @@ with the direct one-turn auth check in `grok-pty-lab.md`.
 
 ## Reporting
 
-For each backend report the profile, bundle, transport, exact direct or launch
+For each backend report the profile, preset, harness, transport, exact direct or launch
 command, accepted model/provider args, auth result, PTY or RPC session id, logs
 inspected, and the next concrete failure if it did not pass.

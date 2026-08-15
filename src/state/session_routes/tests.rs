@@ -16,7 +16,7 @@ fn running(store: &Store) -> (u64, Session) {
             &AdmittedRuntimeFacts {
                 observed_harness: "grok".into(),
                 claimed_harness: String::new(),
-                bundle: "grok-pty".into(),
+                preset: String::new(),
                 transport: "pty".into(),
                 endpoint_provenance: "launch".into(),
             },

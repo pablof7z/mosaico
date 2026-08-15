@@ -21,6 +21,22 @@ fn create_current(conn: &Connection) {
     conn.execute("DROP TABLE session_coaching", []).unwrap();
 }
 
+fn downgrade_launch_admission_to_v22(conn: &Connection) {
+    let has_preset = conn
+        .prepare("PRAGMA table_info(sessions)")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .any(|name| name.is_ok_and(|name| name == "admitted_preset"));
+    if has_preset {
+        conn.execute_batch(
+            "ALTER TABLE sessions DROP COLUMN admitted_preset;
+             ALTER TABLE sessions ADD COLUMN admitted_bundle TEXT NOT NULL DEFAULT '';",
+        )
+        .unwrap();
+    }
+}
+
 pub(super) fn create_schema_four(path: &Path) {
     v4::create_schema_four(path);
 }
@@ -31,6 +47,7 @@ pub(super) fn create_schema_four(path: &Path) {
 /// and reverting what changed since, so a column deleted at 20 has to come back
 /// before a database can honestly claim to be stamped 19 or earlier.
 pub(super) fn downgrade_messages_to_v19(conn: &Connection) {
+    downgrade_launch_admission_to_v22(conn);
     restore_relay_group_tables(conn);
     restore_relay_message_tables(conn);
     conn.execute("DROP TABLE session_coaching", []).unwrap();

@@ -216,7 +216,7 @@ mod tests {
                     &AdmittedRuntimeFacts {
                         observed_harness: "codex".into(),
                         claimed_harness: String::new(),
-                        bundle: "codex-app-server".into(),
+                        preset: String::new(),
                         transport: "app-server".into(),
                         endpoint_provenance: "launch".into(),
                     },

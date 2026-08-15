@@ -9,6 +9,16 @@ pub use save::{save_local_agent, LocalAgentUpdate};
 pub struct AgentLaunchConfig {
     pub harness: String,
     pub profile: Option<String>,
+    pub preset: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalAgentSummary {
+    pub slug: String,
+    pub harness: String,
+    pub profile: Option<String>,
+    pub preset: Option<String>,
+    pub byline: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +29,7 @@ pub(crate) struct KeystoreEntry {
     pub(crate) per_session_key: bool,
     pub(crate) harness: String,
     pub(crate) profile: Option<String>,
+    pub(crate) preset: Option<String>,
     pub(crate) byline: Option<String>,
 }
 
@@ -45,6 +56,7 @@ pub(crate) fn keystore_entries(mosaico_home: &Path) -> Vec<KeystoreEntry> {
                         per_session_key: k.per_session_key,
                         harness: k.harness,
                         profile: k.profile,
+                        preset: k.preset,
                         byline,
                     })
                 }
@@ -69,13 +81,17 @@ pub fn list_local_pubkeys(mosaico_home: &Path) -> Vec<String> {
         .collect()
 }
 
-/// All configured agents as `(slug, harness, profile, byline)`.
-pub fn list_local_agents(
-    mosaico_home: &Path,
-) -> Vec<(String, String, Option<String>, Option<String>)> {
+/// All configured agents and their launch selections.
+pub fn list_local_agents(mosaico_home: &Path) -> Vec<LocalAgentSummary> {
     keystore_entries(mosaico_home)
         .into_iter()
-        .map(|entry| (entry.slug, entry.harness, entry.profile, entry.byline))
+        .map(|entry| LocalAgentSummary {
+            slug: entry.slug,
+            harness: entry.harness,
+            profile: entry.profile,
+            preset: entry.preset,
+            byline: entry.byline,
+        })
         .collect()
 }
 
@@ -96,17 +112,18 @@ pub fn list_invitable_agents(mosaico_home: &Path) -> Vec<(String, Option<String>
 pub fn list_advertised_agents(mosaico_home: &Path) -> Vec<(String, String)> {
     list_local_agents(mosaico_home)
         .into_iter()
-        .map(|(slug, _harness, _profile, byline)| (slug, byline.unwrap_or_default()))
+        .map(|agent| (agent.slug, agent.byline.unwrap_or_default()))
         .collect()
 }
 
-/// Add or update a configured local agent. The harness bundle is required; an
+/// Add or update a configured local agent. The canonical harness is required; an
 /// absent profile means to use the harness-native default.
 pub fn add_local_agent(
     mosaico_home: &Path,
     slug: &str,
     harness: &str,
     profile: Option<&str>,
+    preset: Option<&str>,
     now: u64,
 ) -> Result<(AgentIdentity, bool)> {
     save_local_agent(
@@ -115,6 +132,7 @@ pub fn add_local_agent(
         LocalAgentUpdate {
             harness: harness.to_string(),
             profile: profile.map(str::to_string),
+            preset: preset.map(str::to_string),
             per_session_key: None,
             byline: None,
         },
@@ -122,13 +140,14 @@ pub fn add_local_agent(
     )
 }
 
-/// Load the exact bundle/profile selection for a configured agent.
+/// Load the exact harness/profile/preset binding for a configured agent.
 pub fn agent_launch_config(mosaico_home: &Path, slug: &str) -> Result<AgentLaunchConfig> {
     let path = key_path(mosaico_home, slug);
     let stored = read_stored_key(&path)?;
     Ok(AgentLaunchConfig {
         harness: stored.harness,
         profile: stored.profile,
+        preset: stored.preset,
     })
 }
 

@@ -19,7 +19,7 @@ mod pi;
 
 #[derive(Args)]
 pub struct AcpSmokeArgs {
-    /// Explicit RPC harness bundle from harnesses.json.
+    /// Canonical harness name.
     pub harness: String,
     /// Working directory for the session (defaults to a temp dir).
     #[arg(long)]
@@ -30,30 +30,30 @@ pub struct AcpSmokeArgs {
     /// Harness-native named profile to activate for both processes.
     #[arg(long)]
     pub profile: Option<String>,
+    /// Optional named launch preset from presets.json.
+    #[arg(long)]
+    pub preset: Option<String>,
 }
 
-/// Resolve `name` to an explicitly configured RPC-transport bundle.
+/// Resolve a canonical harness to its structured transport.
 fn resolve_rpc(
     name: &str,
     profile: Option<&str>,
+    preset: Option<&str>,
     scratch: &std::path::Path,
 ) -> Result<crate::harness::ResolvedHarness> {
-    use crate::harness::{config::HarnessesConfig, Transport};
-
-    let cfg = HarnessesConfig::load()?;
-    let bundle = cfg
-        .get(name)
-        .with_context(|| format!("no harness bundle {name:?} in harnesses.json"))?;
-    if !matches!(
-        bundle.transport,
-        Transport::Acp | Transport::AppServer | Transport::PiRpc
-    ) {
-        anyhow::bail!(
-            "harness bundle {name:?} uses {}, not an RPC transport",
-            bundle.transport.as_str()
-        );
+    use crate::harness::{PresetsConfig, Transport};
+    let harness = crate::session::Harness::from_str(name);
+    if harness == crate::session::Harness::Unknown || harness.as_str() != name {
+        anyhow::bail!("unknown canonical harness {name:?}");
     }
-    crate::harness::resolve_with(&cfg, name, profile, scratch)
+    let transport = match harness {
+        crate::session::Harness::Codex => Transport::AppServer,
+        crate::session::Harness::Pi => Transport::PiRpc,
+        _ => Transport::Acp,
+    };
+    let presets = PresetsConfig::load()?;
+    crate::harness::resolve_with(&presets, harness, transport, profile, preset, scratch)
 }
 
 pub async fn acp_smoke(args: AcpSmokeArgs) -> Result<()> {
@@ -66,12 +66,17 @@ pub async fn acp_smoke(args: AcpSmokeArgs) -> Result<()> {
     let scratch = crate::config::mosaico_home()
         .join("harness-profiles")
         .join(&args.harness);
-    let resolved = resolve_rpc(&args.harness, args.profile.as_deref(), &scratch)?;
+    let resolved = resolve_rpc(
+        &args.harness,
+        args.profile.as_deref(),
+        args.preset.as_deref(),
+        &scratch,
+    )?;
     println!(
-        "[acp-smoke] bundle={} harness={} transport={}",
-        resolved.bundle,
+        "[acp-smoke] harness={} transport={} preset={}",
         resolved.harness.as_str(),
-        resolved.transport.as_str()
+        resolved.transport.as_str(),
+        resolved.preset.as_deref().unwrap_or("none")
     );
     println!(
         "[acp-smoke] argv={:?} cwd={}",

@@ -78,10 +78,10 @@ signer, routes, and locators after process termination is confirmed.
 
 Launch admission facts are immutable for a runtime generation. A later hook may
 update `claimed_harness`, but cannot reclassify a launch-owned
-`observed_harness`, `admitted_bundle`, `admitted_transport`, or
+`observed_harness`, `admitted_preset`, `admitted_transport`, or
 `endpoint_provenance`. Delivery resolves the exact locator keyed by the stored
 observed harness and admitted transport; it never rereads mutable agent or
-bundle configuration to rediscover a live runtime's transport.
+preset configuration to rediscover a live runtime's transport.
 
 ## Migration history
 
@@ -90,6 +90,9 @@ current read contracts.
 
 - **Schema 21** added `session_coaching`, a generation-scoped ledger of
   progressive agent guidance already emitted.
+- **Schema 24** replaced the historical launch-config admission field with the
+  selected preset name. Harness and transport are independent admission facts.
+- **Schema 23** admitted Pi's native RPC transport and locator.
 - **Schema 20** removed the redundant historical `messages.direction` field.
 - **Schema 19** added a verified attachment directory to the historical
   `messages` projection. Schema 22 moves only non-empty directories into

@@ -65,72 +65,72 @@ EOF
 }
 
 assert_generated_profiles() {
-  local profile harnesses agent config
+  local profile presets agent config
   for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
     kimi kimi-acp pi pi-rpc codex-ollama opencode-ollama; do
-    harnesses="${TMP}/container-state/${profile}/mosaico/harnesses.json"
+    presets="${TMP}/container-state/${profile}/mosaico/presets.json"
     agent="$(find "${TMP}/container-state/${profile}/mosaico/agents" \
       -type f -name '*.json')"
     config="${TMP}/container-state/${profile}/mosaico/config.json"
-    assert_json 'all(.[]; ((keys - ["args","harness","transport"]) | length) == 0)' \
-      "${harnesses}" "${profile} bundle contains only current fields"
-    assert_json 'has("slug") and has("created_at") and .perSessionKey == true and has("harness") and (has("secret_key") | not) and (has("public_key") | not)' \
+    assert_json 'all(.[]; type == "object" and all(.[]; type == "object" and all(.[]; type == "array")))' \
+      "${presets}" "${profile} preset contains transport argument arrays"
+    assert_json 'has("slug") and has("created_at") and .perSessionKey == true and has("harness") and has("preset") and (has("secret_key") | not) and (has("public_key") | not)' \
       "${agent}" "${profile} agent is keyless"
     assert_json '.userNsec == "nsec-relay-owner" and .whitelistedPubkeys == ["pub-relay-owner","pub-human-2","pub-human-3"] and (.mosaicoPrivateKey != .userNsec)' \
       "${config}" "${profile} separates human and backend keys"
   done
 
-  assert_json '.["claude-acp"] == {"harness":"claude-code","transport":"acp"}' \
-    "${TMP}/container-state/claude-acp/mosaico/harnesses.json" \
-    'structured bundle defaults to no args'
-  assert_json '.["codex-app-server"].args == ["--strict-config"]' \
-    "${TMP}/container-state/codex-app-server/mosaico/harnesses.json" \
+  assert_json '.["claude-acp"]["claude-code"].acp == []' \
+    "${TMP}/container-state/claude-acp/mosaico/presets.json" \
+    'structured preset defaults to no args'
+  assert_json '.["codex-app-server"].codex["app-server"] == ["--strict-config"]' \
+    "${TMP}/container-state/codex-app-server/mosaico/presets.json" \
     'per-profile args JSON overrides defaults'
-  assert_json '.["grok"] == {"harness":"grok","transport":"pty"}' \
-    "${TMP}/container-state/grok/mosaico/harnesses.json" \
-    'Grok profile emits a native PTY bundle'
-  assert_json '.["goose"] == {"harness":"goose","transport":"pty"}' \
-    "${TMP}/container-state/goose/mosaico/harnesses.json" \
-    'Goose profile emits its interactive PTY bundle'
-  assert_json '.["goose-acp"] == {"harness":"goose","transport":"acp"}' \
-    "${TMP}/container-state/goose-acp/mosaico/harnesses.json" \
-    'Goose profile emits a native ACP bundle'
-  assert_json '.["hermes"] == {"harness":"hermes","transport":"pty"}' \
-    "${TMP}/container-state/hermes/mosaico/harnesses.json" \
-    'Hermes profile emits a native PTY bundle'
-  assert_json '.["hermes-acp"] == {"harness":"hermes","transport":"acp"}' \
-    "${TMP}/container-state/hermes-acp/mosaico/harnesses.json" \
-    'Hermes ACP profile emits a structured bundle'
+  assert_json '.["grok"].grok.pty == []' \
+    "${TMP}/container-state/grok/mosaico/presets.json" \
+    'Grok profile emits PTY preset args'
+  assert_json '.["goose"].goose.pty == []' \
+    "${TMP}/container-state/goose/mosaico/presets.json" \
+    'Goose profile emits interactive PTY preset args'
+  assert_json '.["goose-acp"].goose.acp == []' \
+    "${TMP}/container-state/goose-acp/mosaico/presets.json" \
+    'Goose profile emits ACP preset args'
+  assert_json '.["hermes"].hermes.pty == []' \
+    "${TMP}/container-state/hermes/mosaico/presets.json" \
+    'Hermes profile emits PTY preset args'
+  assert_json '.["hermes-acp"].hermes.acp == []' \
+    "${TMP}/container-state/hermes-acp/mosaico/presets.json" \
+    'Hermes ACP profile emits structured preset args'
   assert_json '.profile == "reviewer"' \
     "${TMP}/container-state/hermes-acp/mosaico/agents/hermes.json" \
     'Hermes named profile belongs to agent config'
-  assert_json '.["kimi"] == {"harness":"kimi","transport":"pty"}' \
-    "${TMP}/container-state/kimi/mosaico/harnesses.json" \
-    'Kimi profile emits its interactive PTY bundle'
+  assert_json '.["kimi"].kimi.pty == []' \
+    "${TMP}/container-state/kimi/mosaico/presets.json" \
+    'Kimi profile emits interactive PTY preset args'
   assert_json '.profile == "reviewer"' \
     "${TMP}/container-state/kimi/mosaico/agents/kimi.json" \
     'Kimi PTY named profile belongs to agent config'
-  assert_json '.["kimi-acp"] == {"harness":"kimi","transport":"acp"}' \
-    "${TMP}/container-state/kimi-acp/mosaico/harnesses.json" \
-    'Kimi ACP profile emits a structured bundle'
+  assert_json '.["kimi-acp"].kimi.acp == []' \
+    "${TMP}/container-state/kimi-acp/mosaico/presets.json" \
+    'Kimi ACP profile emits structured preset args'
   assert_json 'has("profile") | not' \
     "${TMP}/container-state/kimi-acp/mosaico/agents/kimi.json" \
     'Kimi ACP omits unsupported named profiles'
-  assert_json '.["pi"] == {"harness":"pi","transport":"pty"}' \
-    "${TMP}/container-state/pi/mosaico/harnesses.json" \
-    'Pi profile emits its interactive PTY bundle'
-  assert_json '.["pi-rpc"] == {"harness":"pi","transport":"pi-rpc"}' \
-    "${TMP}/container-state/pi-rpc/mosaico/harnesses.json" \
-    'Pi RPC profile emits its native managed bundle'
+  assert_json '.["pi"].pi.pty == []' \
+    "${TMP}/container-state/pi/mosaico/presets.json" \
+    'Pi profile emits interactive PTY preset args'
+  assert_json '.["pi-rpc"].pi["pi-rpc"] == []' \
+    "${TMP}/container-state/pi-rpc/mosaico/presets.json" \
+    'Pi RPC profile emits managed preset args'
   assert_json '.profile == "planner"' \
     "${TMP}/container-state/codex-app-server/mosaico/agents/codex.json" \
     'Codex named profile belongs to agent config'
-  assert_json '.["codex-ollama"].args == ["--oss","--local-provider","ollama"]' \
-    "${TMP}/container-state/codex-ollama/mosaico/harnesses.json" \
-    'Codex Ollama bundle owns provider args'
-  assert_json '.["opencode-ollama"].args == ["-m","ollama/deepseek-r1:8b"]' \
-    "${TMP}/container-state/opencode-ollama/mosaico/harnesses.json" \
-    'OpenCode Ollama bundle owns model args'
+  assert_json '.["codex-ollama"].codex.pty == ["--oss","--local-provider","ollama"]' \
+    "${TMP}/container-state/codex-ollama/mosaico/presets.json" \
+    'Codex Ollama preset owns provider args'
+  assert_json '.["opencode-ollama"].opencode.pty == ["-m","ollama/deepseek-r1:8b"]' \
+    "${TMP}/container-state/opencode-ollama/mosaico/presets.json" \
+    'OpenCode Ollama preset owns model args'
   local key_count
   key_count="$(
     for profile in claude-acp codex-app-server grok goose goose-acp hermes hermes-acp \
@@ -166,8 +166,8 @@ assert_bad_args_rejected() {
   )"
   status=$?
   set -e
-  [[ "${status}" -eq 2 ]] || fail 'non-array bundle args unexpectedly passed'
+  [[ "${status}" -eq 2 ]] || fail 'non-array preset args unexpectedly passed'
   grep -Fq 'expected an array of strings' <<<"${output}" \
     || fail 'invalid args JSON did not report the current contract'
-  echo 'ok: profile writer requires bundle args to be an array of strings'
+  echo 'ok: profile writer requires preset args to be an array of strings'
 }

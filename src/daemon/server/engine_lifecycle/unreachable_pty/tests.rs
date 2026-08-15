@@ -41,7 +41,7 @@ async fn startup_reconcile_without_locator_retains_live_pty_as_unavailable() {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: "codex-pty".into(),
+                    preset: String::new(),
                     transport: "pty".into(),
                     endpoint_provenance: "launch".into(),
                 },

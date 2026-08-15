@@ -167,7 +167,8 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         write_agent_config(&home, slug, &original);
 
         let normal_slug = "mode-flip-normal";
-        mosaico::identity::load_or_create(home.dir.path(), normal_slug, "codex", None, 1).unwrap();
+        mosaico::identity::load_or_create(home.dir.path(), normal_slug, "codex", None, None, 1)
+            .unwrap();
         let normal = start_session_in(
             &mut client,
             normal_slug,

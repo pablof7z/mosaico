@@ -21,7 +21,7 @@ pub(crate) use local_agent::keystore_entries;
 pub use local_agent::{
     add_local_agent, agent_launch_config, list_advertised_agents, list_invitable_agents,
     list_local_agents, list_local_pubkeys, remove_local_agent, save_local_agent,
-    set_local_agent_byline, AgentLaunchConfig, LocalAgentUpdate,
+    set_local_agent_byline, AgentLaunchConfig, LocalAgentSummary, LocalAgentUpdate,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,12 +40,15 @@ struct StoredKey {
     /// When false, this persisted key signs every fresh session for the agent.
     #[serde(rename = "perSessionKey")]
     per_session_key: bool,
-    /// Required bundle name in `~/.mosaico/harnesses.json`.
+    /// Canonical harness id. Transport is selected at launch time.
     harness: String,
     /// Optional harness-specific profile name. Code translates it according to
     /// the configured `(harness, transport)` driver.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     profile: Option<String>,
+    /// Optional reusable argument preset from `~/.mosaico/presets.json`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    preset: Option<String>,
 }
 
 impl StoredKey {
@@ -61,6 +64,8 @@ impl StoredKey {
 /// lookups both pass through this boundary so schema changes cannot drift.
 fn read_stored_key(path: &Path) -> Result<StoredKey> {
     let stored = read_stored_key_unvalidated(path)?;
+    validate_harness(&stored.harness)
+        .with_context(|| format!("validating agent record {}", path.display()))?;
     stored
         .identity_keys()
         .with_context(|| format!("validating agent record {}", path.display()))?;
@@ -84,7 +89,7 @@ fn read_stored_key_unvalidated(path: &Path) -> Result<StoredKey> {
     Ok(stored)
 }
 
-/// A resolved agent identity plus its launch bundle/profile selection.
+/// A resolved agent identity plus its harness/profile/preset binding.
 #[derive(Debug, Clone)]
 pub struct AgentIdentity {
     pub slug: String,
@@ -92,6 +97,7 @@ pub struct AgentIdentity {
     pub per_session_key: bool,
     pub harness: String,
     pub profile: Option<String>,
+    pub preset: Option<String>,
 }
 
 impl AgentIdentity {
@@ -106,6 +112,7 @@ impl AgentIdentity {
             per_session_key: true,
             harness: harness.to_string(),
             profile: None,
+            preset: None,
         }
     }
 }
@@ -140,7 +147,7 @@ fn validate_slug(slug: &str) -> Result<()> {
     Ok(())
 }
 
-/// Load an agent, creating it on first observed session with an explicit bundle
+/// Load an agent, creating it on first observed session with an explicit harness
 /// and optional harness-specific profile. Existing configuration is never overwritten by
 /// observations; operator updates go through [`add_local_agent`].
 pub fn load_or_create(
@@ -148,11 +155,13 @@ pub fn load_or_create(
     slug: &str,
     harness: &str,
     profile: Option<&str>,
+    preset: Option<&str>,
     now: u64,
 ) -> Result<AgentIdentity> {
     validate_slug(slug)?;
-    let harness = validate_config_name("harness", harness)?;
+    let harness = validate_harness(harness)?;
     let profile = normalize_optional_config_name("profile", profile)?;
+    let preset = normalize_optional_config_name("preset", preset)?;
     let path = key_path(mosaico_home, slug);
     if path.exists() {
         let stored = read_stored_key(&path)?;
@@ -163,6 +172,7 @@ pub fn load_or_create(
             per_session_key: stored.per_session_key,
             harness: stored.harness,
             profile: stored.profile,
+            preset: stored.preset,
         });
     }
 
@@ -175,6 +185,7 @@ pub fn load_or_create(
         per_session_key: true,
         harness,
         profile,
+        preset,
     };
     std::fs::create_dir_all(agents_dir(mosaico_home))
         .with_context(|| format!("creating {}", agents_dir(mosaico_home).display()))?;
@@ -187,6 +198,7 @@ pub fn load_or_create(
         per_session_key: stored.per_session_key,
         harness: stored.harness,
         profile: stored.profile,
+        preset: stored.preset,
     })
 }
 
@@ -203,6 +215,7 @@ pub fn load(mosaico_home: &Path, slug: &str) -> Result<AgentIdentity> {
         per_session_key: stored.per_session_key,
         harness: stored.harness,
         profile: stored.profile,
+        preset: stored.preset,
     })
 }
 
@@ -253,6 +266,15 @@ fn validate_config_name(field: &str, value: &str) -> Result<String> {
         bail!("agent {field} must not be empty");
     }
     Ok(value.to_string())
+}
+
+fn validate_harness(value: &str) -> Result<String> {
+    let value = validate_config_name("harness", value)?;
+    let harness = crate::session::Harness::from_str(&value);
+    if harness == crate::session::Harness::Unknown || harness.as_str() != value {
+        bail!("unknown agent harness {value:?}");
+    }
+    Ok(value)
 }
 
 fn normalize_optional_config_name(field: &str, value: Option<&str>) -> Result<Option<String>> {

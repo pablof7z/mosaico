@@ -7,7 +7,7 @@
 //! Invalid cells (e.g. Codex x Acp — Codex has no native ACP) simply have no
 //! entry; `lookup` returns `None` and the caller fails loud.
 
-use super::config::Transport;
+use super::Transport;
 use crate::session::Harness;
 
 /// One row of the capability matrix.

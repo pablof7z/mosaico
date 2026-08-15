@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use rusqlite::Connection;
 use std::path::Path;
 
-pub(super) const SCHEMA_VERSION: u32 = 23;
+pub(super) const SCHEMA_VERSION: u32 = 24;
 
 pub(super) fn read(conn: &Connection) -> Result<u32> {
     conn.pragma_query_value(None, "user_version", |row| row.get(0))

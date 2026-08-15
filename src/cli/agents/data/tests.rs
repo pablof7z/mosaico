@@ -1,7 +1,6 @@
 use super::*;
 use crate::agent_catalog::{AgentCatalog, DiscoveryRoots};
 use crate::agent_inventory::AgentInventory;
-use crate::harness::HarnessesConfig;
 use std::path::Path;
 
 fn write(path: &Path, body: &str) {
@@ -9,13 +8,8 @@ fn write(path: &Path, body: &str) {
     std::fs::write(path, body).unwrap();
 }
 
-fn rows(
-    home: &Path,
-    installed: &[Harness],
-    harnesses: &HarnessesConfig,
-    catalog: &AgentCatalog,
-) -> Vec<AgentRow> {
-    AgentInventory::build(home, installed, harnesses, catalog, Some(home))
+fn rows(home: &Path, installed: &[Harness], catalog: &AgentCatalog) -> Vec<AgentRow> {
+    AgentInventory::build(home, installed, catalog, Some(home))
         .agents
         .into_iter()
         .map(project)
@@ -30,15 +24,10 @@ fn combines_configured_native_and_generic_agents() {
         "---\nname: reviewer\ndescription: Reviews changes\n---\nReview",
     );
     let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
-    let harnesses: HarnessesConfig = serde_json::from_str(
-        r#"{"claude-pty":{"harness":"claude-code","transport":"pty"},"codex-pty":{"harness":"codex","transport":"pty"}}"#,
-    )
-    .unwrap();
-    crate::identity::add_local_agent(home.path(), "writer", "codex-pty", None, 1).unwrap();
+    crate::identity::add_local_agent(home.path(), "writer", "codex", None, None, 1).unwrap();
     let rows = rows(
         home.path(),
         &[Harness::ClaudeCode, Harness::Codex],
-        &harnesses,
         &catalog,
     );
     assert!(rows.iter().any(|row| row.slug == "reviewer"));
@@ -60,34 +49,26 @@ fn configured_native_profile_is_one_row_with_exact_profile_attached() {
         "---\nname: reviewer\ndescription: Reviews changes\n---\nReview",
     );
     let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
-    let harnesses: HarnessesConfig =
-        serde_json::from_str(r#"{"claude-pty":{"harness":"claude-code","transport":"pty"}}"#)
-            .unwrap();
-    crate::identity::add_local_agent(home.path(), "reviewer", "claude-pty", None, 1).unwrap();
-    let rows = rows(home.path(), &[Harness::ClaudeCode], &harnesses, &catalog);
+    crate::identity::add_local_agent(home.path(), "reviewer", "claude-code", None, None, 1)
+        .unwrap();
+    let rows = rows(home.path(), &[Harness::ClaudeCode], &catalog);
     let reviewer = rows.iter().find(|row| row.slug == "reviewer").unwrap();
     assert_eq!(reviewer.kind, AgentKind::Configured);
     assert!(reviewer.native_profile.is_some());
 }
 
 #[test]
-fn implicit_rows_remain_bundle_independent() {
+fn implicit_rows_have_no_preset() {
     let home = tempfile::tempdir().unwrap();
     write(
         &home.path().join(".config/opencode/agents/reviewer.md"),
         "---\nname: reviewer\ndescription: Reviews changes\n---\nReview",
     );
     let catalog = AgentCatalog::discover(&DiscoveryRoots::for_user_home(home.path()), &[]).unwrap();
-    let rows = rows(
-        home.path(),
-        &[Harness::Opencode],
-        &HarnessesConfig::default(),
-        &catalog,
-    );
+    let rows = rows(home.path(), &[Harness::Opencode], &catalog);
 
     for row in rows {
-        assert!(row.bundle.is_none());
-        assert!(row.transport.is_none());
+        assert!(row.preset.is_none());
     }
 }
 
@@ -98,9 +79,8 @@ fn summary_is_single_line_and_bounded() {
         agent_slug: "reviewer".into(),
         description: "First line\\n\\n<example>\nA very long native profile prompt follows".into(),
         harness: Harness::Codex,
-        bundle: None,
-        transport: None,
         profile: None,
+        preset: None,
         per_session_key: None,
         kind: AgentKind::NativeProfile,
         native_profile: None,

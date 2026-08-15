@@ -81,10 +81,10 @@ goose-acp        -> native Goose ACP
 kimi-acp         -> native Kimi Code ACP
 ```
 
-Each generated profile writes `/state/mosaico/harnesses.json` plus a keyless
-selecting `/state/mosaico/agents/<slug>.json`. Harness bundles contain only
-`harness`, `transport`, and optional `args`; provider profile selection belongs
-in the agent file. Use the skill's
+Each generated profile writes `/state/mosaico/presets.json` plus a keyless
+`/state/mosaico/agents/<slug>.json`. Agent files select a canonical harness and
+named preset. Presets contain per-transport argument arrays; provider profile
+selection belongs in the agent file. Use the skill's
 `scripts/launch-agent ... smoke` for the transport handshake/model turn and
 `scripts/launch-agent ... launch` for a live headless agent. The latter uses
 `mosaico-hosted` to keep the container-owned daemon and RPC child alive.
@@ -164,8 +164,8 @@ from inside the container.
 | Cargo target | `/state/target` |
 | Mosaico config | `/state/mosaico/config.json` |
 | Mosaico daemon/socket/db | `/state/mosaico` |
-| harness bundles | `/state/mosaico/harnesses.json` |
-| agent bundle selectors | `/state/mosaico/agents/*.json` |
+| launch presets | `/state/mosaico/presets.json` |
+| agent harness/preset selectors | `/state/mosaico/agents/*.json` |
 
 Unselected provider config, provider session history, plugins, and host Mosaico
 daemon state are not mounted.

@@ -172,12 +172,13 @@ async fn spawn_agent_inner_full(
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
     let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
     let harness = resolved.harness;
+    let preset = resolved.preset.clone();
     let reservation = match expected_pubkey {
         Some(pubkey) => admission::reserve_fresh_for_pubkey(
             state,
             &resolved.identity,
             harness.as_str(),
-            &resolved.bundle,
+            preset.as_deref(),
             resolved.transport.kind().as_str(),
             root,
             group,
@@ -187,7 +188,7 @@ async fn spawn_agent_inner_full(
             state,
             &resolved.identity,
             harness.as_str(),
-            &resolved.bundle,
+            preset.as_deref(),
             resolved.transport.kind().as_str(),
             root,
             group,

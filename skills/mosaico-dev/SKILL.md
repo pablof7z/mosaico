@@ -16,10 +16,11 @@ Expand: `skills/mosaico-dev/resources/authority-and-orientation.md`.
 ## Launch and config
 
 Care when you touch how sessions start or how agents/harnesses are declared.
-The durable contract is: bundles own transport; agents pick a bundle and
-identity mode; launch is `mosaico <TARGET> [PROMPT] [-- <ARGS>...]` with no
-launch-time harness/transport switch. Identity keys have fixed roles — do not
-invent dual names or legacy flags.
+The durable contract is: agents pick a canonical harness and optional argument
+preset; launch intent selects transport; launch is
+`mosaico <TARGET> [PROMPT] [-- <ARGS>...]` with no launch-time harness or
+transport switch. Identity keys have fixed roles — do not invent dual names or
+legacy flags.
 
 Expand: `skills/mosaico-dev/resources/launch-and-config.md`.
 
@@ -62,7 +63,7 @@ index `skills/mosaico-dev/references/lab/INDEX.md`.
 | Path under `skills/mosaico-dev/` | Open when you need… |
 |---|---|
 | `resources/authority-and-orientation.md` | sources of truth, working rules, repo layout |
-| `resources/launch-and-config.md` | harnesses.json, agents, identity, launch CLI |
+| `resources/launch-and-config.md` | presets.json, agents, identity, launch CLI |
 | `resources/build-and-quality.md` | just recipes, Croissant, quality gates |
 | `resources/testing/` | how to choose and write tests |
 | `resources/containers-and-lab.md` | lab purpose, hard rules, minimal start |

@@ -68,11 +68,6 @@ done
 }
 
 fn configure_agents(home: &Home, codex_home: &Path) {
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"codex-app-server":{"harness":"codex","transport":"app-server"}}"#,
-    )
-    .unwrap();
     let native = codex_home.join("agents/native-codex-role.toml");
     std::fs::create_dir_all(native.parent().unwrap()).unwrap();
     std::fs::write(
@@ -93,8 +88,9 @@ fn configure_agents(home: &Home, codex_home: &Path) {
     mosaico::identity::add_local_agent(
         home.dir.path(),
         "mosaico-configured-role",
-        "codex-app-server",
+        "codex",
         Some("mosaico-configured-profile"),
+        None,
         1,
     )
     .unwrap();

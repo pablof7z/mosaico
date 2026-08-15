@@ -6,58 +6,36 @@ These transports use structured RPC instead of terminal-byte injection.
 
 ## Configuration contract
 
-A structured launch requires two files:
-
-```text
-<MOSAICO_HOME>/harnesses.json
-<MOSAICO_HOME>/agents/<slug>.json
-```
-
-`harnesses.json` contains only transport policy. For example:
-
-```json
-{
-  "claude-acp": {
-    "harness": "claude-code",
-    "transport": "acp",
-    "args": []
-  }
-}
-```
-
-`args` is optional and defaults to an empty array. It is the only bundle-owned
-provider-argument surface. Agent profile names and executable selection do not
-belong in a bundle; unknown fields are invalid.
-
-The agent file selects that bundle:
+A configured agent selects a canonical harness and optional preset:
 
 ```json
 {
   "slug": "claude",
   "created_at": 0,
   "perSessionKey": true,
-  "harness": "claude-acp"
+  "harness": "claude-code",
+  "preset": "lab"
 }
 ```
 
-This per-session agent is intentionally keyless on disk. Add `secret_key` and
-`public_key` only with `perSessionKey: false` for a deliberately durable agent.
+The preset can add arguments for the transport selected by managed launch:
 
-Safe inspection:
-
-```bash
-jq 'to_entries[] | {bundle:.key,harness:.value.harness,transport:.value.transport,args:(.value.args // [])}' \
-  .container-state/claude-acp/mosaico/harnesses.json
-jq '{slug,harness,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \
-  .container-state/claude-acp/mosaico/agents/claude.json
+```json
+{
+  "lab": {
+    "claude-code": {"acp": []},
+    "codex": {"app-server": ["-c", "model=test"]}
+  }
+}
 ```
 
-For a normal per-session lab agent, both `has_secret` and `has_public` must be
-false.
+`presets.json` does not select transport. A missing transport cell contributes
+no arguments. A referenced preset or harness realization that does not exist is
+an error. Per-session agents are intentionally keyless on disk.
 
 ## Generated profiles
 
-| profile | harness | transport | args override |
+| profile | harness | managed transport | args override |
 | --- | --- | --- | --- |
 | `claude-acp` | `claude-code` | `acp` | `MOSAICO_DEV_CLAUDE_ACP_ARGS_JSON` |
 | `codex-app-server` | `codex` | `app-server` | `MOSAICO_DEV_CODEX_APP_SERVER_ARGS_JSON` |
@@ -67,31 +45,12 @@ false.
 | `kimi-acp` | `kimi` | `acp` | `MOSAICO_DEV_KIMI_ACP_ARGS_JSON` |
 | `pi-rpc` | `pi` | `pi-rpc` | `MOSAICO_DEV_PI_RPC_ARGS_JSON` |
 
-Default args are `[]`. Use the listed writer override only when the lab needs
-explicit provider arguments. The value must be a JSON array of strings. There
-are no model/profile objects.
-
-A named Codex configuration is different from bundle args. Select it with:
-
-```bash
-MOSAICO_DEV_CODEX_CONFIG_PROFILE=planner \
-  skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" codex-app-server
-```
-
-The writer places `"profile":"planner"` in the Codex agent file. Mosaico then
-composes `$CODEX_HOME/planner.config.toml` over the base config in an isolated
-app-server home. Codex app-server does not accept the native `--profile` flag.
-Claude ACP and OpenCode ACP do not support named agent profiles. Goose 1.43.0
-supports recipes through other CLI surfaces, but `goose acp` exposes no stable
-recipe/profile selector. Omit `profile` for those combinations. Hermes ACP
-accepts `MOSAICO_DEV_HERMES_PROFILE`; its `--profile <name>` selector is placed
-before the `acp` subcommand.
-Kimi ACP also has no stable named-profile selector, so omit `profile` for
-`kimi-acp`.
+Default args are `[]`. The override must be a JSON string array. Native profile
+support is driver-specific: Hermes ACP supports `--profile`; Codex app-server
+uses isolated `CODEX_HOME` composition; Claude, Goose, OpenCode, and Kimi ACP
+do not expose a supported named-profile selector.
 
 ## Smoke before launch
-
-Generate the profile, run doctor, and drive the configured bundle:
 
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" claude-acp
@@ -99,24 +58,16 @@ bash containers/mosaico/run --profile claude-acp doctor
 skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke claude-acp
 ```
 
-A passing smoke proves initialization, session/thread creation, a real turn,
-and a second real turn after cross-process resume. ACP uses `session/load`;
-Codex app-server uses `thread/resume`.
+The smoke command passes the canonical harness plus the generated named preset
+to `mosaico __acp-smoke`. ACP proves `session/load`; Codex app-server proves
+`thread/resume` in a fresh process.
 
-Goose's canonical command is `goose acp`. Do not configure a PTY bundle or
-native profile for this transport; it cannot activate either. Goose's own
-plugins/extensions remain provider configuration, and `--with-builtin` can be
-set through bundle `args` when a lab explicitly needs it. Mosaico's Goose Open
-Plugin is still mandatory: its awaited hooks write full fabric context to the
-session-specific Top Of Mind file before Goose calls the provider.
-
-Hermes named profiles are discovered from `<HERMES_HOME>/profiles/<name>` and
-activate natively as `hermes --profile <name> acp` for managed launch.
-Prove the exact profile across both ACP processes with:
+Inspect public configuration without printing signer or provider secrets:
 
 ```bash
-skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke hermes-acp \
-  --profile builder
+jq . .container-state/claude-acp/mosaico/presets.json
+jq '{slug,harness,preset,profile,perSessionKey,has_secret:has("secret_key")}' \
+  .container-state/claude-acp/mosaico/agents/claude.json
 ```
 
 The smoke prints the resolved argv, first session ID, successful cross-process

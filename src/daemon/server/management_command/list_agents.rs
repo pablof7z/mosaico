@@ -55,14 +55,6 @@ mod tests {
         env.set_var("MOSAICO_ISOLATED_HOME_OK", "1");
         env.set_var("CODEX_HOME", &codex_home);
         write(
-            &mosaico_home.join("harnesses.json"),
-            r#"{
-              "claude-pty":{"harness":"claude-code","transport":"pty"},
-              "codex-pty":{"harness":"codex","transport":"pty"},
-              "opencode-pty":{"harness":"opencode","transport":"pty"}
-            }"#,
-        );
-        write(
             &codex_home.join("agents/writer.toml"),
             "name='writer'\ndescription='Writes'\ndeveloper_instructions='Write'",
         );

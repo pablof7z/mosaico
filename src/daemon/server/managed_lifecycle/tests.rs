@@ -16,7 +16,7 @@ fn reserve_running(state: &Arc<DaemonState>, pubkey: &str) -> Session {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: "codex-pty".into(),
+                    preset: String::new(),
                     transport: "pty".into(),
                     endpoint_provenance: "launch".into(),
                 },
@@ -159,7 +159,7 @@ async fn replay_finalizes_reserved_idle_stop_once() {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: "codex-pty".into(),
+                    preset: String::new(),
                     transport: "pty".into(),
                     endpoint_provenance: "launch".into(),
                 },

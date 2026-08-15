@@ -226,7 +226,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
             &mosaico::state::AdmittedRuntimeFacts {
                 observed_harness: "codex".into(),
                 claimed_harness: "codex".into(),
-                bundle: String::new(),
+                preset: String::new(),
                 transport: String::new(),
                 endpoint_provenance: "hook".into(),
             },

@@ -91,7 +91,7 @@ pub(super) fn test_session(_id: &str) -> Session {
         readiness_parent: String::new(),
         observed_harness: "claude-code".to_string(),
         claimed_harness: String::new(),
-        admitted_bundle: String::new(),
+        admitted_preset: String::new(),
         admitted_transport: String::new(),
         endpoint_provenance: "hook".to_string(),
         child_pid: None,

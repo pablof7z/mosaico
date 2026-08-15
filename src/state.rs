@@ -165,7 +165,7 @@ pub struct RegisterSession {
 pub struct AdmittedRuntimeFacts {
     pub observed_harness: String,
     pub claimed_harness: String,
-    pub bundle: String,
+    pub preset: String,
     pub transport: String,
     pub endpoint_provenance: String,
 }

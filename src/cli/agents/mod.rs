@@ -22,7 +22,8 @@ pub(in crate::cli) async fn agents(args: AgentsArgs) -> Result<()> {
             slug,
             harness,
             profile,
-        } => add(&slug, &harness, profile.as_deref()).await,
+            preset,
+        } => add(&slug, &harness, profile.as_deref(), preset.as_deref()).await,
         AgentAction::Remove { slug } => remove(&slug).await,
     }
 }
@@ -126,8 +127,15 @@ async fn list() -> Result<()> {
     Ok(())
 }
 
-async fn add(slug: &str, harness: &str, profile: Option<&str>) -> Result<()> {
-    let saved = save_agent_config(slug, harness, profile.map(str::to_string), None).await?;
+async fn add(slug: &str, harness: &str, profile: Option<&str>, preset: Option<&str>) -> Result<()> {
+    let saved = save_agent_config(
+        slug,
+        harness,
+        profile.map(str::to_string),
+        preset.map(str::to_string),
+        None,
+    )
+    .await?;
     println!(
         "{} {} · {}",
         if saved.created { "Created" } else { "Updated" },
@@ -157,6 +165,7 @@ pub(super) async fn save_agent_config(
     slug: &str,
     harness: &str,
     profile: Option<String>,
+    preset: Option<String>,
     per_session_key: Option<bool>,
 ) -> Result<SavedAgent> {
     let value = crate::cli::daemon_call_async(
@@ -165,6 +174,7 @@ pub(super) async fn save_agent_config(
             "slug": slug,
             "harness": harness,
             "profile": profile,
+            "preset": preset,
             "per_session_key": per_session_key,
         }),
     )
@@ -205,9 +215,8 @@ mod tests {
             agent_slug: "reviewer".into(),
             description: "Reviews changes".into(),
             harness: crate::session::Harness::ClaudeCode,
-            bundle: Some("claude-acp".into()),
-            transport: Some(crate::harness::Transport::Acp),
             profile: None,
+            preset: Some("unrestricted".into()),
             per_session_key: Some(true),
             kind: AgentKind::Configured,
             native_profile: None,

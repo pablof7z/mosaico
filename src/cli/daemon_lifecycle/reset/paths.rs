@@ -7,7 +7,7 @@ use crate::daemon::storage_paths::StoragePaths;
 
 const CONFIG_NAMES: &[&str] = &[
     "config.json",
-    "harnesses.json",
+    "presets.json",
     "agents",
     "workspaces.json",
     "mcp-clients.json",

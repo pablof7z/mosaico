@@ -1,24 +1,9 @@
 use super::data::{harness_name, AgentKind, AgentRow};
-use crate::harness::{HarnessBundle, HarnessesConfig, Transport};
+use crate::harness::PresetsConfig;
 use crate::session::Harness;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use dialoguer::{theme::ColorfulTheme, Select};
 use std::io::IsTerminal as _;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OperationMode {
-    Managed,
-    Pty,
-}
-
-impl OperationMode {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Managed => "Managed RPC — optimized for headless mode",
-            Self::Pty => "PTY — optimized for direct user interaction",
-        }
-    }
-}
 
 /// Any `esc` press during this flow backs all the way out to the picker
 /// without saving, rather than erroring or forcing the operator through the
@@ -31,38 +16,7 @@ pub(super) async fn edit(row: &AgentRow) -> Result<()> {
     let Some(harness) = select_harness(row, &theme)? else {
         return Ok(());
     };
-    let options = operation_modes(harness, row.native_profile.is_some());
-    if options.is_empty() {
-        bail!(
-            "{} has no hosted transport that can activate this agent",
-            harness_name(harness)
-        );
-    }
-    let default_mode = row
-        .transport
-        .and_then(|transport| {
-            options
-                .iter()
-                .position(|mode| mode_transport(harness, *mode) == transport)
-        })
-        .unwrap_or(0);
-    let mode = if options.len() == 1 {
-        options[0]
-    } else {
-        let labels = options.iter().map(|mode| mode.label()).collect::<Vec<_>>();
-        let Some(choice) = Select::with_theme(&theme)
-            .with_prompt("How should this agent run?")
-            .items(&labels)
-            .default(default_mode)
-            .interact_opt()?
-        else {
-            return Ok(());
-        };
-        options[choice]
-    };
-    let transport = mode_transport(harness, mode);
-    let Some(bundle) = select_or_create_bundle(harness, transport, row.bundle.as_deref(), &theme)?
-    else {
+    let Some(preset) = select_preset(harness, row.preset.as_deref(), &theme)? else {
         return Ok(());
     };
     let Some(per_session_key) = select_key_mode(row.per_session_key.unwrap_or(true), &theme)?
@@ -71,12 +25,24 @@ pub(super) async fn edit(row: &AgentRow) -> Result<()> {
     };
     let profile = profile_for_save(row);
     let slug = persistable_slug(&row.slug);
-    let saved = super::save_agent_config(&slug, &bundle, profile, Some(per_session_key)).await?;
+    let preset_label = preset
+        .as_deref()
+        .map(|name| format!(" · preset {name}"))
+        .unwrap_or_default();
+    let saved = super::save_agent_config(
+        &slug,
+        harness.as_str(),
+        profile,
+        preset,
+        Some(per_session_key),
+    )
+    .await?;
     println!(
-        "{} {} · {bundle} · {}",
+        "{} {} · {}{}",
         if saved.created { "Created" } else { "Updated" },
         slug,
-        mode.label()
+        harness_name(harness),
+        preset_label
     );
     if slug != row.slug {
         println!(
@@ -105,16 +71,7 @@ fn profile_for_save(row: &AgentRow) -> Option<String> {
 }
 
 fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Option<Harness>> {
-    if row.harness != Harness::Unknown {
-        return Ok(Some(row.harness));
-    }
-    let available = crate::config::detect_available_harnesses()?
-        .into_iter()
-        .filter(|harness| *harness != Harness::Unknown)
-        .collect::<Vec<_>>();
-    if available.is_empty() {
-        bail!("the configured bundle is missing and no local harness is available");
-    }
+    let available = Harness::ALL;
     let labels = available
         .iter()
         .map(|harness| harness_name(*harness))
@@ -122,7 +79,12 @@ fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Option<Harnes
     let Some(choice) = Select::with_theme(theme)
         .with_prompt("Select harness")
         .items(&labels)
-        .default(0)
+        .default(
+            available
+                .iter()
+                .position(|harness| *harness == row.harness)
+                .unwrap_or(0),
+        )
         .interact_opt()?
     else {
         return Ok(None);
@@ -130,85 +92,30 @@ fn select_harness(row: &AgentRow, theme: &ColorfulTheme) -> Result<Option<Harnes
     Ok(Some(available[choice]))
 }
 
-fn operation_modes(harness: Harness, native_profile: bool) -> Vec<OperationMode> {
-    [OperationMode::Managed, OperationMode::Pty]
-        .into_iter()
-        .filter(|mode| {
-            let transport = mode_transport(harness, *mode);
-            crate::harness::driver::lookup(harness, transport).is_some()
-                && (!native_profile || crate::harness::supports_native_agent(harness, transport))
-        })
-        .collect()
-}
-
-fn mode_transport(harness: Harness, mode: OperationMode) -> Transport {
-    match (harness, mode) {
-        (Harness::Codex, OperationMode::Managed) => Transport::AppServer,
-        (Harness::Pi, OperationMode::Managed) => Transport::PiRpc,
-        (_, OperationMode::Managed) => Transport::Acp,
-        (_, OperationMode::Pty) => Transport::Pty,
-    }
-}
-
-fn select_or_create_bundle(
+fn select_preset(
     harness: Harness,
-    transport: Transport,
     current: Option<&str>,
     theme: &ColorfulTheme,
-) -> Result<Option<String>> {
-    let path = crate::config::mosaico_home().join("harnesses.json");
-    let mut config = HarnessesConfig::load_from(&path)?;
-    let compatible = compatible_bundles(&config, harness, transport);
-    if !compatible.is_empty() {
-        let default = current
-            .and_then(|current| compatible.iter().position(|name| name == current))
-            .unwrap_or(0);
-        if compatible.len() == 1 {
-            return Ok(Some(compatible[0].clone()));
-        }
-        let Some(choice) = Select::with_theme(theme)
-            .with_prompt("Select harness configuration")
-            .items(&compatible)
-            .default(default)
-            .interact_opt()?
-        else {
-            return Ok(None);
-        };
-        return Ok(Some(compatible[choice].clone()));
-    }
-
-    let (name, created) = config.ensure_bundle(
-        &format!("{}-{}", harness.agent_slug(), transport.as_str()),
-        HarnessBundle {
-            harness,
-            transport,
-            args: Vec::new(),
-        },
-    )?;
-    if created {
-        config.save_to(&path).with_context(|| {
-            format!("saving automatically-created harness configuration {name:?}")
-        })?;
-        println!("Created harness configuration {name}");
-    }
-    Ok(Some(name))
-}
-
-fn compatible_bundles(
-    config: &HarnessesConfig,
-    harness: Harness,
-    transport: Transport,
-) -> Vec<String> {
-    config
-        .bundles
-        .iter()
-        .filter(|(_, bundle)| {
-            bundle.harness == harness
-                && bundle.transport == transport
-                && crate::harness::driver::lookup(harness, transport).is_some()
-        })
-        .map(|(name, _)| name.clone())
-        .collect()
+) -> Result<Option<Option<String>>> {
+    let mut names = PresetsConfig::load()?.names_for_harness(harness);
+    names.sort();
+    let mut labels = vec!["No preset".to_string()];
+    labels.extend(names.iter().cloned());
+    let default = current
+        .and_then(|current| names.iter().position(|name| name == current))
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let Some(choice) = Select::with_theme(theme)
+        .with_prompt("Launch preset")
+        .items(&labels)
+        .default(default)
+        .interact_opt()?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        choice.checked_sub(1).map(|index| names[index].clone()),
+    ))
 }
 
 fn select_key_mode(current_per_session: bool, theme: &ColorfulTheme) -> Result<Option<bool>> {

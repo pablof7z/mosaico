@@ -57,11 +57,6 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
         home.dir.path().join(".local/bin/claude"),
     )
     .unwrap();
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"claude-pty":{"harness":"claude-code","transport":"pty","args":["forever"]}}"#,
-    )
-    .unwrap();
 
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
     let out = run_cli_with_env_in_dir(
@@ -86,10 +81,7 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
         .into_iter()
         .find(|meta| meta.agent == "writing-partner")
         .expect("launched writing-partner PTY metadata");
-    assert_eq!(
-        meta.command,
-        ["claude", "forever", "--agent", "writing-partner"]
-    );
+    assert_eq!(meta.command, ["claude", "--agent", "writing-partner"]);
     let cleanup = PtyCleanup(meta.id);
     drop(cleanup);
     stop_daemon(&home);
@@ -101,15 +93,11 @@ fn launch_lists_and_starts_harness_despite_invalid_same_named_agent() {
     let home = Home::new();
     write_config(&home, false);
     std::fs::create_dir_all(home.dir.path().join(".config/opencode")).unwrap();
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"opencode-pty":{"harness":"opencode","transport":"pty","args":["forever"]}}"#,
-    )
-    .unwrap();
     mosaico::identity::add_local_agent(
         home.dir.path(),
         "opencode",
         "opencode",
+        None,
         None,
         mosaico::util::now_secs(),
     )

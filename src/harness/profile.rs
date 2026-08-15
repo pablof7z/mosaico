@@ -16,7 +16,7 @@ pub struct CodexHomePlan {
 pub struct ProfilePlan {
     /// Top-level selectors inserted immediately after the executable.
     pub global_argv: Vec<String>,
-    /// Harness-native profile selector appended after driver and bundle args.
+    /// Harness-native profile selector appended after driver and preset args.
     pub extra_argv: Vec<String>,
     /// Extra env for the child (e.g. `OPENCODE_CONFIG=<path>`).
     pub extra_env: Vec<(String, String)>,

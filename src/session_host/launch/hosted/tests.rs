@@ -111,7 +111,7 @@ fn fresh_extra_args_reach_pty_and_rpc_commands() {
 }
 
 #[test]
-fn claude_resume_appends_the_native_id_after_bundle_args() {
+fn claude_resume_appends_the_native_id_after_preset_args() {
     let (command, prepared) = prepare(
         &["claude", "--dangerously-skip-permissions"],
         ResumeMechanism::AppendFlag("--resume"),
@@ -168,7 +168,7 @@ fn goose_resume_appends_both_required_flags() {
 }
 
 #[test]
-fn codex_resume_inserts_the_subcommand_before_bundle_args() {
+fn codex_resume_inserts_the_subcommand_before_preset_args() {
     let (command, _) = prepare(
         &["codex", "--profile", "writer"],
         ResumeMechanism::Subcommand("resume"),
@@ -194,12 +194,12 @@ fn codex_resume_inserts_the_subcommand_before_bundle_args() {
 #[tokio::test]
 async fn bootstrap_failure_kills_the_endpoint_and_releases_the_reservation() {
     let state = DaemonState::new_for_test().await;
-    let identity = crate::identity::AgentIdentity::per_session("codex", "codex-pty");
+    let identity = crate::identity::AgentIdentity::per_session("codex", "codex");
     let reservation = admission::reserve_fresh(
         &state,
         &identity,
         "codex",
-        "codex-pty",
+        None,
         "pty",
         "root",
         Some("root"),
@@ -217,7 +217,7 @@ async fn bootstrap_failure_kills_the_endpoint_and_releases_the_reservation() {
         command: vec!["fake-codex".into()],
         harness: crate::session::Harness::Codex,
         resume: ResumeMechanism::None,
-        bundle: "codex-pty".into(),
+        preset: None,
         native_agent: None,
         identity,
         prepared_launch: Default::default(),

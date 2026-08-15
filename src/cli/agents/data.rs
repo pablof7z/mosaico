@@ -1,6 +1,5 @@
 use crate::agent_catalog::NativeAgentProfile;
 use crate::agent_inventory::AgentSource;
-use crate::harness::Transport;
 use crate::session::Harness;
 use anyhow::Result;
 use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
@@ -18,9 +17,8 @@ pub(in crate::cli) struct AgentRow {
     pub(in crate::cli) agent_slug: String,
     pub(in crate::cli) description: String,
     pub(in crate::cli) harness: Harness,
-    pub(in crate::cli) bundle: Option<String>,
-    pub(in crate::cli) transport: Option<Transport>,
     pub(in crate::cli) profile: Option<String>,
+    pub(in crate::cli) preset: Option<String>,
     pub(in crate::cli) per_session_key: Option<bool>,
     pub(in crate::cli) kind: AgentKind,
     pub(in crate::cli) native_profile: Option<NativeAgentProfile>,
@@ -78,40 +76,32 @@ fn project(agent: crate::agent_inventory::Agent) -> AgentRow {
     } else {
         agent.use_criteria
     };
-    let (kind, bundle, transport, profile, per_session_key, native_profile) = match agent.source {
+    let (kind, profile, preset, per_session_key, native_profile) = match agent.source {
         AgentSource::Durable {
             pubkey: _,
-            bundle,
-            transport,
             profile,
+            preset,
             per_session_key,
             native_profile,
         } => (
             AgentKind::Configured,
-            Some(bundle.clone()),
-            transport,
             profile,
+            preset,
             Some(per_session_key),
             native_profile,
         ),
-        AgentSource::DetectedProfile { profile, .. } => (
-            AgentKind::NativeProfile,
-            None,
-            None,
-            None,
-            None,
-            Some(profile),
-        ),
-        AgentSource::DetectedHarness => (AgentKind::Generic, None, None, None, None, None),
+        AgentSource::DetectedProfile { profile, .. } => {
+            (AgentKind::NativeProfile, None, None, None, Some(profile))
+        }
+        AgentSource::DetectedHarness => (AgentKind::Generic, None, None, None, None),
     };
     AgentRow {
         slug: agent.slug,
         agent_slug: agent.agent_slug,
         description,
         harness: agent.harness,
-        bundle,
-        transport,
         profile,
+        preset,
         per_session_key,
         kind,
         native_profile,

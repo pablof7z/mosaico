@@ -213,7 +213,7 @@ fn bound_endpoint_projection_is_transport_owned_and_generic() {
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: "codex".into(),
                 claimed_harness: String::new(),
-                bundle: "codex-app-server".into(),
+                preset: String::new(),
                 transport: "app-server".into(),
                 endpoint_provenance: "launch".into(),
             },
@@ -262,7 +262,7 @@ fn missing_hosted_locator_preserves_the_admitted_transport() {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: format!("codex-{transport}"),
+                    preset: String::new(),
                     transport: transport.into(),
                     endpoint_provenance: "launch".into(),
                 },

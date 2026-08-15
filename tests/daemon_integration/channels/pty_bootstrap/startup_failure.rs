@@ -10,15 +10,11 @@ fn missing_provider_is_a_cli_failure_without_live_metadata_or_session() {
     let channel = unique_session("missing-provider");
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"missing-grok":{"harness":"grok","transport":"pty"}}"#,
-    )
-    .unwrap();
     mosaico::identity::add_local_agent(
         home.dir.path(),
         "missing-provider-role",
-        "missing-grok",
+        "grok",
+        None,
         None,
         1,
     )
@@ -57,7 +53,7 @@ fn incomplete_durable_agent(home: &Home, slug: &str) -> std::path::PathBuf {
             "slug": slug,
             "created_at": 1,
             "perSessionKey": false,
-            "harness": "missing-bundle"
+            "harness": "grok"
         }))
         .unwrap(),
     )

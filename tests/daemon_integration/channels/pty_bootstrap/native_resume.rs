@@ -27,11 +27,6 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
     let root = unique_session("native-resume");
     let work_dir = home.dir.path().join(&root);
     add_workspace_mapping(&home, &root, &work_dir);
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"opencode-pty":{"harness":"opencode","transport":"pty","args":["forever"]}}"#,
-    )
-    .unwrap();
 
     let native_id = "native-id-without-uuid-shape";
     let data_home = home.dir.path().join("data");
@@ -89,7 +84,7 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         .expect("adopted PTY metadata");
     assert_eq!(
         metadata.command,
-        ["opencode", "forever", "--session", native_id, "--yolo"]
+        ["opencode", "--session", native_id, "--yolo"]
     );
     let original_generation = session.runtime_generation;
     let original_endpoint = metadata.id.clone();

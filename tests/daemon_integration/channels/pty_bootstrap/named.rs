@@ -140,7 +140,7 @@ fn pty_spawn_uses_requested_public_name_and_rejects_conflict() {
     assert_eq!(resumed_session.agent_slug, session.agent_slug);
     assert_eq!(resumed_session.work_root, session.work_root);
     assert_eq!(resumed_session.observed_harness, session.observed_harness);
-    assert_eq!(resumed_session.admitted_bundle, session.admitted_bundle);
+    assert_eq!(resumed_session.admitted_preset, session.admitted_preset);
     assert_eq!(
         resumed_session.admitted_transport,
         session.admitted_transport

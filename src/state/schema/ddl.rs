@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     readiness_parent  TEXT NOT NULL DEFAULT '',
     observed_harness  TEXT NOT NULL DEFAULT '',
     claimed_harness   TEXT NOT NULL DEFAULT '',
-    admitted_bundle   TEXT NOT NULL DEFAULT '',
+    admitted_preset   TEXT NOT NULL DEFAULT '',
     admitted_transport TEXT NOT NULL DEFAULT ''
         CHECK (admitted_transport IN ('', 'pty', 'acp', 'app-server', 'pi-rpc')),
     endpoint_provenance TEXT NOT NULL DEFAULT ''
