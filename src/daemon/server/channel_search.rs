@@ -71,7 +71,6 @@ pub(in crate::daemon::server) fn rpc_channel_search(
         next_cursor,
     })?)
 }
-
 fn query_from_params(
     state: &Arc<DaemonState>,
     params: &SearchParams,

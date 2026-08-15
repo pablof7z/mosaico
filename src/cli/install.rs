@@ -9,6 +9,7 @@ mod hooks;
 mod io;
 mod kimi;
 mod onboarding;
+mod pi;
 mod selection;
 mod shell;
 mod skill_api;
@@ -20,10 +21,9 @@ use owo_colors::OwoColorize;
 
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
-pub(super) use config::{
-    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS, PI_PROTOCOL_TS,
-    PI_STATUS_TS, PI_TOOLS_TS,
-};
+pub(super) use config::{harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS};
+#[cfg(test)]
+pub(super) use config::{PI_EXTENSION_FILES, PI_EXTENSION_TS, PI_TOOLS_TS};
 pub(super) use hooks::{is_installed, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
 use selection::{detected_list, preflight_selection, resolve_selection};
@@ -108,7 +108,7 @@ async fn apply_install(
         match h.id {
             "claude-code" | "codex" | "grok" => install_json_harness(h, opts, true)?,
             "opencode" => install_opencode(h, opts, true)?,
-            "pi" => install_pi(h, opts, true)?,
+            "pi" => pi::install(h, opts, true)?,
             "goose" if opts.uninstall => goose::uninstall(h, opts)?,
             "goose" => goose::install(h, opts, true)?,
             "hermes" if opts.uninstall => hermes::uninstall(h, opts)?,
@@ -200,28 +200,6 @@ fn install_json_harness(h: &Harness, opts: &InstallOpts, render: bool) -> Result
 
 fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     install_source_file(h, opts, render, OPENCODE_PLUGIN_TS)
-}
-
-fn install_pi(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
-    install_source_file(h, opts, render, PI_EXTENSION_TS)?;
-    install_source_path(
-        &h.config_path.with_file_name("protocol.ts"),
-        opts,
-        render,
-        PI_PROTOCOL_TS,
-    )?;
-    install_source_path(
-        &h.config_path.with_file_name("status.ts"),
-        opts,
-        render,
-        PI_STATUS_TS,
-    )?;
-    install_source_path(
-        &h.config_path.with_file_name("tools.ts"),
-        opts,
-        render,
-        PI_TOOLS_TS,
-    )
 }
 
 fn install_source_file(h: &Harness, opts: &InstallOpts, render: bool, source: &str) -> Result<()> {

@@ -86,6 +86,7 @@ pub(in crate::daemon::server) fn rpc_who(
                     local_host: &host,
                     forced_messages: &[],
                     warnings: &[],
+                    extension_delivery_live: false,
                     force: true,
                 },
                 p.human_color,

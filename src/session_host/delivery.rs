@@ -16,6 +16,7 @@ use crate::session_host::transport::{
 pub use doorbell::ring_doorbells;
 pub(crate) use output_mode::session_is_headless;
 use prompt::inject_planned_messages;
+pub(crate) use prompt::render_inbox_rows;
 
 #[cfg(test)]
 #[path = "delivery/tests.rs"]

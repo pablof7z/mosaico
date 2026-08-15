@@ -67,8 +67,8 @@ fn full_and_delta_channels_use_identical_tags_and_nesting() {
 fn my_session_full_state_is_byte_identical_to_a_cursor_zero_hook() {
     let store = seed_store();
     let rec = session(&store);
-    let full =
-        render_full_session_state(&store, &rec, "coder", "", "laptop", 100).expect("full state");
+    let full = render_full_session_state(&store, &rec, "coder", "", "laptop", 100, false)
+        .expect("full state");
     let captured = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let mut hook = HookContextState::default();
     let hook = hook

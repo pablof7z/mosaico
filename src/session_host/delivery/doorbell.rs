@@ -27,6 +27,12 @@ async fn ring_doorbells_inner(state: &Arc<DaemonState>) -> Result<()> {
     });
 
     for rec in sessions {
+        // A native extension is the ingress authority while its renewable
+        // delivery lease is live. A crashed extension expires shortly, then a
+        // managed PTY fallback may claim newly pending rows.
+        if crate::daemon::server::session_delivery::extension_delivery_live(state, &rec) {
+            continue;
+        }
         let pubkey = rec.pubkey.clone();
         let pending = match state.with_store(|s| s.peek_pending_for_pubkey(&pubkey)) {
             Ok(pending) => pending,

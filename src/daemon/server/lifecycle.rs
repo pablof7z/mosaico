@@ -4,6 +4,7 @@ pub(super) mod auth_restore;
 mod host_profile_bootstrap;
 pub(super) mod nmp_open;
 mod pending_writes;
+mod reconcile;
 mod shutdown;
 
 pub async fn run() -> Result<()> {
@@ -33,13 +34,7 @@ pub async fn run() -> Result<()> {
     tracing::info!(socket = %socket_path().display(), "daemon listening");
     let (cfg, backend_keys) = auth_restore::load_backend()?;
     let mut store = Store::open(&store_path())?;
-    let reconciled_attempts = store.reconcile_open_native_turn_attempts(now_secs())?;
-    if reconciled_attempts > 0 {
-        tracing::warn!(
-            reconciled_attempts,
-            "reconciled native turn attempts left open by the prior daemon"
-        );
-    }
+    reconcile::leftover_startup_state(&store)?;
     let nmp = Arc::new(nmp_open::open(&cfg, &storage, &backend_keys)?);
     store.bind_nmp_views(nmp.views_handle());
     let store = Arc::new(Mutex::new(store));

@@ -62,10 +62,9 @@ function canPaint(ctx: ExtensionContext): boolean {
 
 export async function paintSessionStatus(
   ctx: ExtensionContext,
-  bin: string,
 ): Promise<void> {
   if (!canPaint(ctx)) return
-  const result = await execute(bin, "mosaico_session", {}, AbortSignal.timeout(2_000), ctx)
+  const result = await execute("mosaico_session", {}, AbortSignal.timeout(2_000), ctx)
   const fabric = typeof result.details?.fabric === "string" ? result.details.fabric : ""
   const status = !result.isError ? parseSessionStatus(fabric) : undefined
   ctx.ui.setStatus(STATUS_KEY, status ? renderSessionStatus(status) : undefined)

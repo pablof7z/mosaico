@@ -25,10 +25,6 @@ pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Valu
     call_with_policy(params, identity, false).await
 }
 
-pub(in crate::cli) async fn call_for_pi(params: &Value, identity: Value) -> Result<Value> {
-    call_with_policy(params, identity, true).await
-}
-
 async fn call_with_policy(
     params: &Value,
     identity: Value,

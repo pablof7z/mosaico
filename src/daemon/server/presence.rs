@@ -20,8 +20,14 @@ pub(crate) async fn reconcile_generation(
     if session.runtime_generation != generation || !session.is_running() {
         return;
     }
-    let projection =
-        state.with_store(|store| crate::session_presence::publication(store, &session));
+    let extension_delivery_live = super::session_delivery::extension_delivery_live(state, &session);
+    let projection = state.with_store(|store| {
+        crate::session_presence::publication_with_extension(
+            store,
+            &session,
+            extension_delivery_live,
+        )
+    });
     let keys = match state.session_signing_keys(pubkey) {
         Ok(keys) => keys,
         Err(error) => {
@@ -58,8 +64,14 @@ pub(crate) async fn reassert_generation(
             return;
         }
     };
-    let projection =
-        state.with_store(|store| crate::session_presence::publication(store, &session));
+    let extension_delivery_live = super::session_delivery::extension_delivery_live(state, &session);
+    let projection = state.with_store(|store| {
+        crate::session_presence::publication_with_extension(
+            store,
+            &session,
+            extension_delivery_live,
+        )
+    });
     let keys = match state.session_signing_keys(pubkey) {
         Ok(keys) => keys,
         Err(error) => {

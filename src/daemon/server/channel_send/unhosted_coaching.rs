@@ -38,6 +38,7 @@ pub(super) fn maybe_warn(
     shown_at: u64,
 ) -> Result<Option<CoachingNotice>> {
     if !session.admitted_transport.is_empty()
+        || super::super::session_delivery::extension_delivery_live(state, session)
         || expected_authors.is_empty()
         || wait_intent
         || state.has_matching_active_wait(session, channel, expected_authors)

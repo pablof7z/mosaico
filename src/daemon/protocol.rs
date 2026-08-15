@@ -14,7 +14,7 @@ use std::time::Duration;
 /// contracts must agree.
 // Durable-key launch preflight and repair are daemon-owned. Older daemons do
 // not expose these RPCs, so a mixed client must force a re-exec.
-const PROTOCOL_VERSION_BASE: u32 = 71;
+const PROTOCOL_VERSION_BASE: u32 = 72;
 
 /// Effective protocol version. A client refuses to talk to a daemon whose
 /// protocol differs (older daemon → ask it to exit & respawn; newer daemon →

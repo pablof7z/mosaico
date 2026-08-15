@@ -23,7 +23,7 @@ pub(in crate::daemon::server) struct ChatReadParams {
     id: Option<String>,
     #[serde(default)]
     channel: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "super::chat_time::optional_time")]
     since: Option<u64>,
     #[serde(default)]
     limit: Option<u64>,

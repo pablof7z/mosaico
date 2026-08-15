@@ -12,7 +12,7 @@ zero or multiple joined channels must name the destination.
 
 ```jsonc
 params: {"id": "event-id"|null, "channel": "#root/child"|null,
-         "since": u64|null, "limit": u64|null, "offset": u64,
+         "since": u64|"2h"|null, "limit": u64|null, "offset": u64,
          "tail": bool, "live": bool}
 stream: {"item": {"event_id": "hex", "from_slug": "agent",
                   "channel": "#root/child", "body": "…",
@@ -24,6 +24,8 @@ Normal history reads use the shared 100-word render limit and set
 message body. Both read from the current NMP-delivered message view; Mosaico has
 no persisted message history to fall back to. Explicit history reads are
 deliberate inspection and are not subject to automatic-context join cutoffs.
+`since` accepts a Unix timestamp or a relative duration with `s`, `m`, `h`, or
+`d` suffix, so native agent tools can preserve Pi's typed time input.
 
 ## `channel_search`
 

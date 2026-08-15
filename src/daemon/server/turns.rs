@@ -101,6 +101,7 @@ pub(in crate::daemon::server) async fn rpc_turn_start(
         &state.host(),
         prev_started,
         &state.runtime.hook_contexts,
+        super::session_delivery::extension_delivery_live(state, &rec),
     )?;
     if let Some(nudge) = super::channel_move::maybe_nudge(state, &rec, now) {
         turn.append_advisory(&nudge, "channel-topology-nudge");
@@ -154,6 +155,7 @@ pub(in crate::daemon::server) async fn rpc_turn_check(
         delta_since,
         now,
         &state.runtime.hook_contexts,
+        super::session_delivery::extension_delivery_live(state, &rec),
     )?;
     if let Some(nudge) = super::channel_move::maybe_nudge(state, &rec, now) {
         turn.append_advisory(&nudge, "channel-topology-nudge");

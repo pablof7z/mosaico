@@ -44,6 +44,35 @@ transport boundary.
 The workspace and root channel are one entity with the public address
 `<workspace>`. There is no local agent allow/block file in the NIP-29 path.
 
+## Pi extension delivery
+
+The Pi extension keeps one dedicated daemon UDS connection for its inbound
+delivery loop. It never reads Mosaico's database or runs the presentation CLI.
+
+```jsonc
+session_delivery_wait
+params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",
+         "timeout_secs": 1..60}
+result: {"kind":"timeout"}
+     | {"kind":"delivery", "lease_id":"pi-<generation>-<nonce>",
+        "message":{"custom_type":"mosaico.delivery", "content":"<mosaico>…",
+                   "display":false, "details":{"event_ids":["…"]}}}
+
+session_delivery_ack
+params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",
+         "lease_id":"…", "accepted":true|false}
+result: {"state":"injected"|"requeued", "event_ids":["…"]}
+```
+
+`wait` leases only pending inbox rows addressed to that exact native Pi session.
+Pi injects the returned payload with `sendMessage` as a custom message, then
+acks `accepted:true` only after Pi emits the matching `message_start` carrying
+that lease id. A rejected, stale, expired, or foreign lease cannot consume a
+later delivery. An unacknowledged lease is requeued on expiry or daemon restart.
+Untagged channel chat remains turn-awareness context and never wakes Pi.
+Managed `pi-rpc` sessions reject these methods because their RPC transport owns
+delivery and completion.
+
 ## `session_end`
 
 ```jsonc

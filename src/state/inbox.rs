@@ -4,6 +4,7 @@
 //! because a row exists. States:
 //! - `pending` — parked for the next hook or PTY inject
 //! - `delivered` — claimed by hook turn context (or mid-flight PTY claim)
+//! - `leased` — handed to a native extension; awaiting its exact acceptance ack
 //! - `submitted` — written to a PTY; awaiting user-prompt-submit corroboration
 //! - `injected` — confirmed as the harness user prompt (echo-suppress in context)
 //! - `echo_consumed` — turn ended after injection
@@ -20,6 +21,7 @@ const COLS: &str = "inbox.event_id, inbox.target_pubkey, inbox.state, inbox.from
      inbox.channel_h, inbox.body, inbox.created_at, inbox.delivered_at, \
      COALESCE(message_attachments.directory, '')";
 mod delivery;
+mod extension_delivery;
 mod prefix_lookup;
 
 fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {

@@ -16,9 +16,17 @@ pub(crate) fn assemble_turn_check_context(
     now: u64,
 ) -> Option<String> {
     let hook_contexts = super::HookContextStates::default();
-    assemble_turn_check(store, rec, self_host, delta_since, now, &hook_contexts)
-        .unwrap()
-        .text
+    assemble_turn_check(
+        store,
+        rec,
+        self_host,
+        delta_since,
+        now,
+        &hook_contexts,
+        false,
+    )
+    .unwrap()
+    .text
 }
 
 /// Mid-turn context for the PostToolUse `turn_check` hook.
@@ -29,6 +37,7 @@ pub(crate) fn assemble_turn_check(
     delta_since: Option<u64>,
     now: u64,
     hook_contexts: &super::HookContextStates,
+    extension_delivery_live: bool,
 ) -> Result<TurnContext> {
     let mut warnings: Vec<String> = Vec::new();
     super::headless::push_mode_notice(store, hook_contexts, rec, false, &mut warnings);
@@ -95,6 +104,7 @@ pub(crate) fn assemble_turn_check(
                 local_host: self_host,
                 forced_messages: &forced,
                 warnings: &warnings,
+                extension_delivery_live,
                 force: false,
             },
         )

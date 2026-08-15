@@ -159,6 +159,7 @@ fn input<'a>(
         local_host: "laptop",
         forced_messages: &[],
         warnings: &[],
+        extension_delivery_live: false,
         force,
     }
 }

@@ -91,20 +91,7 @@ pub fn is_installed(h: &Harness) -> bool {
                     .map(|s| s.contains("mosaico") && s.contains("opencode"))
                     .unwrap_or(false)
         }
-        "pi" => {
-            std::fs::read_to_string(&h.config_path)
-                .map(|source| source == super::PI_EXTENSION_TS)
-                .unwrap_or(false)
-                && std::fs::read_to_string(h.config_path.with_file_name("protocol.ts"))
-                    .map(|source| source == super::PI_PROTOCOL_TS)
-                    .unwrap_or(false)
-                && std::fs::read_to_string(h.config_path.with_file_name("status.ts"))
-                    .map(|source| source == super::PI_STATUS_TS)
-                    .unwrap_or(false)
-                && std::fs::read_to_string(h.config_path.with_file_name("tools.ts"))
-                    .map(|source| source == super::PI_TOOLS_TS)
-                    .unwrap_or(false)
-        }
+        "pi" => super::pi::is_installed(h),
         "claude-code" | "codex" | "grok" => is_json_harness_installed(h),
         "goose" => super::goose::is_installed(h),
         "hermes" => super::hermes::is_installed(h),
