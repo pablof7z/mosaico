@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
-pub(super) async fn call(args: &Value, _caller: Option<&str>) -> Result<Value> {
+pub(super) async fn call(args: &Value, identity: &Value) -> Result<Value> {
     let from = string_array(args, "from")?;
     let to = string_array(args, "to")?;
     let contains = string_array(args, "contains")?;
@@ -30,7 +30,8 @@ pub(super) async fn call(args: &Value, _caller: Option<&str>) -> Result<Value> {
         "limit": limit,
         "cursor": cursor,
     });
-    let structured = crate::cli::search::daemon_search(params).await?;
+    let structured =
+        super::daemon_raw("channel_search", super::caller_params(params, identity)).await?;
     tool_result(structured)
 }
 

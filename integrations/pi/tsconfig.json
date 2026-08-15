@@ -3,10 +3,11 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022",
     "types": ["node"]
   },
-  "include": ["mosaico.ts"]
+  "include": ["*.ts"]
 }

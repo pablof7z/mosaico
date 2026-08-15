@@ -6,6 +6,7 @@ import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { registerMosaicoTools } from "./tools.ts"
 
 function resolveBin(): string {
   if (process.env.MOSAICO_BIN) return process.env.MOSAICO_BIN
@@ -21,6 +22,8 @@ function resolveBin(): string {
 export default function mosaico(pi: ExtensionAPI) {
   const bin = resolveBin()
   const boundaryWarnings = new Map<string, string>()
+
+  registerMosaicoTools(pi, bin)
 
   function runHook(
     type: string,

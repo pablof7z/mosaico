@@ -1,6 +1,6 @@
 {
   "name": "pi-mosaico",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Mosaico identity, awareness, and lifecycle integration for Pi",
   "type": "module",
   "license": "MIT",
@@ -16,6 +16,7 @@
   },
   "files": [
     "mosaico.ts",
+    "tools.ts",
     "README.md",
     "LICENSE"
   ],
