@@ -23,13 +23,29 @@ fn local_routes(home: &Home, pubkey: &str) -> BTreeSet<String> {
         .collect()
 }
 
-fn public_channels(value: &serde_json::Value) -> BTreeSet<String> {
-    value["channels"]
-        .as_array()
-        .expect("statusline channels")
-        .iter()
-        .map(|channel| channel.as_str().expect("public channel path").to_string())
-        .collect()
+fn who_session_projection(pubkey: &str, workspace: &str) -> (String, BTreeSet<String>) {
+    rt().block_on(async {
+        let mut c = Client::connect_or_spawn().await.expect("connect");
+        let v = c
+            .call("who", serde_json::json!({ "workspace": workspace }))
+            .await
+            .expect("who");
+        let rows = v["rows"].as_array().expect("who rows");
+        let ours = rows
+            .iter()
+            .filter(|row| row["pubkey"].as_str() == Some(pubkey))
+            .collect::<Vec<_>>();
+        let slug = ours
+            .first()
+            .and_then(|row| row["slug"].as_str())
+            .expect("who row for session")
+            .to_string();
+        let channels = ours
+            .iter()
+            .map(|row| row["channel"].as_str().expect("public channel").to_string())
+            .collect();
+        (slug, channels)
+    })
 }
 
 fn exact_state_is_current(
@@ -166,41 +182,20 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         Duration::from_secs(25),
     );
 
-    let before = rt().block_on(async {
-        Client::connect_or_spawn()
-            .await
-            .expect("connect")
-            .call(
-                "statusline",
-                serde_json::json!({ "session": &session.pubkey }),
-            )
-            .await
-            .expect("public statusline before restart")
-    });
-    assert_eq!(before["agent"].as_str(), Some(handle.as_str()));
-    assert_eq!(public_channels(&before), expected_paths);
+    let (before_slug, before_channels) = who_session_projection(&session.pubkey, &root);
+    assert_eq!(before_slug, handle);
+    assert_eq!(before_channels, expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
     stop_daemon_for_restart(&home);
     cleanup.assert_exact_processes_live();
-    let after = rt().block_on(async {
-        let mut client = Client::connect_or_spawn()
-            .await
-            .expect("restart exact Cargo-built daemon");
-        wait_for_reconciled_session_engine(
-            &home,
-            &session.pubkey,
-            session.runtime_generation,
-            log_boundary,
-        );
-        client
-            .call(
-                "statusline",
-                serde_json::json!({ "session": &session.pubkey }),
-            )
-            .await
-            .expect("public statusline after restart")
-    });
+    wait_for_reconciled_session_engine(
+        &home,
+        &session.pubkey,
+        session.runtime_generation,
+        log_boundary,
+    );
+    let (after_slug, after_channels) = who_session_projection(&session.pubkey, &root);
     assert!(
         exact_state_is_current(
             &home,
@@ -210,8 +205,8 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         ),
         "the reconciled session lost identity, generation, routes, or standing"
     );
-    assert_eq!(after["agent"].as_str(), Some(handle.as_str()));
-    assert_eq!(public_channels(&after), expected_paths);
+    assert_eq!(after_slug, handle);
+    assert_eq!(after_channels, expected_paths);
     cleanup.assert_exact_processes_live();
 
     let matching_sessions = Store::open(&home.store_path())

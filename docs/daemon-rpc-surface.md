@@ -190,14 +190,6 @@ The streaming read, current-observation search, send, reply, and blocking wait
 contracts live in
 [daemon-rpc-messaging.md](daemon-rpc-messaging.md).
 
-### `statusline`
-```jsonc
-params: {"harness_session": "native-id"|null, "cwd": "/path", ...}
-result: {"working": bool, "status": "…", "session_count": N, "member_count": N,
-         "is_member": bool, "pending": N, "pending_chat": N}
-```
-Pure-read snapshot for the host statusline integration — no drain, no writes.
-
 ### `ping`
 ```jsonc
 params: {}

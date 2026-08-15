@@ -146,16 +146,9 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
         Duration::from_secs(25),
     );
 
-    let (statusline, no_route_error) = rt().block_on(async {
+    let no_route_error = rt().block_on(async {
         let mut client = DaemonClient::connect_or_spawn().await.expect("connect");
-        let statusline = client
-            .call(
-                "statusline",
-                serde_json::json!({ "session": &original.pubkey }),
-            )
-            .await
-            .expect("routeless public statusline");
-        let error = client
+        client
             .call(
                 "channel_send",
                 serde_json::json!({
@@ -165,15 +158,18 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
             )
             .await
             .expect_err("routeless send without channel must fail")
-            .to_string();
-        (statusline, error)
+            .to_string()
     });
+    let identity = Store::open(&home.store_path())
+        .unwrap()
+        .session_identity(&original.pubkey)
+        .unwrap()
+        .expect("routeless session identity after restart");
     assert_eq!(
-        statusline["agent"].as_str(),
-        Some(public_handle.as_str()),
+        identity.display_slug(),
+        public_handle,
         "daemon restart changed the public session identity"
     );
-    assert_eq!(statusline["channels"], serde_json::json!([]));
     assert!(
         no_route_error.contains("has not joined any channels"),
         "routeless command used an invented route: {no_route_error}"

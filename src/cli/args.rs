@@ -123,7 +123,7 @@ pub(super) enum Cmd {
     /// Start an agent session on a backend/workspace and hand it a message after ACK.
     #[command(hide = true)]
     Dispatch(DispatchArgs),
-    /// Hook integration and statusline for any supported agent harness.
+    /// Hook integration for any supported agent harness.
     #[command(hide = true)]
     Harness {
         #[command(subcommand)]

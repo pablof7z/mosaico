@@ -7,6 +7,7 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { registerMosaicoTools } from "./tools.ts"
+import { clearSessionStatus, paintSessionStatus } from "./status.ts"
 
 function resolveBin(): string {
   if (process.env.MOSAICO_BIN) return process.env.MOSAICO_BIN
@@ -54,6 +55,7 @@ export default function mosaico(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     await runHook("session-start", session(ctx), 5_000)
+    await paintSessionStatus(ctx, bin)
   })
 
   pi.on("before_agent_start", async (event, ctx) => {
@@ -63,6 +65,7 @@ export default function mosaico(pi: ExtensionAPI) {
         prompt: event.prompt,
       })
     ).trim()
+    await paintSessionStatus(ctx, bin)
     if (!context) return
     return {
       message: {
@@ -112,9 +115,11 @@ export default function mosaico(pi: ExtensionAPI) {
     if ((process.env.MOSAICO_TRANSPORT ?? "") !== "pi-rpc") {
       await runHook("stop", session(ctx), 5_000)
     }
+    await paintSessionStatus(ctx, bin)
   })
 
   pi.on("session_shutdown", async (_event, ctx) => {
     await runHook("session-end", session(ctx), 5_000)
+    clearSessionStatus(ctx)
   })
 }

@@ -6,8 +6,6 @@ use mosaico::state::Store;
 mod cross_project_guard;
 #[path = "process/hooks.rs"]
 mod hooks;
-#[path = "process/statusline.rs"]
-mod statusline;
 #[path = "process/version_skew.rs"]
 mod version_skew;
 #[path = "process/who.rs"]

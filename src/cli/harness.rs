@@ -22,15 +22,6 @@ pub(in crate::cli) enum HarnessAction {
         #[arg(long = "type")]
         hook_type: String,
     },
-    /// Render the one-line fabric statusline for a host's status bar.
-    /// Reads the harness's statusline JSON payload on stdin (for `session_id`),
-    /// prints one line, and always exits 0 — fails open when the daemon is down
-    /// (and never spawns one).
-    Statusline {
-        /// Session id; if omitted, taken from the stdin payload.
-        #[arg(long)]
-        session: Option<String>,
-    },
 }
 
 impl HarnessAction {
@@ -53,7 +44,6 @@ pub(in crate::cli) async fn harness(action: HarnessAction) -> Result<()> {
             }
             Ok(())
         }
-        HarnessAction::Statusline { session } => super::statusline::statusline(session),
     }
 }
 
@@ -61,27 +51,6 @@ pub(in crate::cli) async fn harness(action: HarnessAction) -> Result<()> {
 mod tests {
     use super::*;
     use clap::Parser;
-
-    #[test]
-    fn harness_statusline_args_parse_with_owner_args() {
-        let cli = crate::cli::args::Cli::try_parse_from([
-            "mosaico",
-            "harness",
-            "statusline",
-            "--session",
-            "s1",
-        ])
-        .expect("harness statusline parses");
-
-        match cli.cmd.expect("expected harness command") {
-            crate::cli::args::Cmd::Harness {
-                action: HarnessAction::Statusline { session },
-            } => {
-                assert_eq!(session.as_deref(), Some("s1"));
-            }
-            _ => panic!("expected harness statusline command"),
-        }
-    }
 
     #[test]
     fn harness_pi_args_parse() {

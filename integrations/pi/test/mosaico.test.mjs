@@ -29,9 +29,15 @@ process.stdin.on("end", () => {
       process.stdout.write("not-json")
       return
     }
+    if (process.env.PI_MOSAICO_SESSION === "down" && request.tool === "mosaico_session") {
+      process.stderr.write("daemon unavailable")
+      process.exit(1)
+    }
     const reply = () => process.stdout.write(JSON.stringify({
       content: [{ type: "text", text: "structured tool result" }],
-      details: { tool: request.tool, arguments: request.arguments },
+      details: request.tool === "mosaico_session"
+        ? { fabric: process.env.PI_MOSAICO_FABRIC || "" }
+        : { tool: request.tool, arguments: request.arguments },
       isError: false,
     }))
     if (process.env.PI_MOSAICO_TEST_DELAY === "1") setTimeout(reply, 10000)
@@ -74,7 +80,7 @@ exec ${JSON.stringify(process.execPath)} ${JSON.stringify(program)} "$@"
   }
 }
 
-function register(transport, endpointId) {
+function register(transport, endpointId, ui) {
   const handlers = new Map()
   const tools = new Map()
   const pi = {
@@ -84,7 +90,21 @@ function register(transport, endpointId) {
   process.env.MOSAICO_TRANSPORT = transport
   process.env.MOSAICO_ENDPOINT_ID = endpointId
   mosaico(pi)
-  return { handlers, tools }
+  return { handlers, tools, ui }
+}
+
+function tuiContext(statuses = new Map()) {
+  return {
+    ...context,
+    cwd: tmpdir(),
+    mode: "tui",
+    ui: {
+      setStatus: (key, text) => {
+        if (text === undefined) statuses.delete(key)
+        else statuses.set(key, text)
+      },
+    },
+  }
 }
 
 const context = {
@@ -256,5 +276,68 @@ test("tool cancellation aborts the harness process", async () => {
     delete process.env.MOSAICO_BIN
     delete process.env.PI_MOSAICO_TEST_LOG
     delete process.env.PI_MOSAICO_TEST_DELAY
+  }
+})
+
+test("interactive Pi paints mosaico_session into its own status chip", async () => {
+  const fake = fakeMosaico()
+  process.env.MOSAICO_BIN = fake.bin
+  process.env.PI_MOSAICO_TEST_LOG = fake.log
+  process.env.PI_MOSAICO_FABRIC = '<self name="@cliff-pi" workspace="mosaico" title="Add session status chrome to pi-mosaico" unhosted="true" headless="off" />'
+  const statuses = new Map()
+  try {
+    const { handlers } = register("pty", "pty-endpoint")
+    await handlers.get("session_start")({}, tuiContext(statuses))
+    assert.equal(
+      statuses.get("mosaico"),
+      "@cliff-pi #mosaico [Add session status chrome to pi-mosaico] unhosted",
+    )
+    const request = fake.calls().find(call => call.type === "pi-tool").payload
+    assert.equal(request.tool, "mosaico_session")
+    assert.equal(request.session.native_id, "pi-session")
+  } finally {
+    fake.cleanup()
+    delete process.env.MOSAICO_BIN
+    delete process.env.PI_MOSAICO_TEST_LOG
+    delete process.env.PI_MOSAICO_FABRIC
+    delete process.env.MOSAICO_TRANSPORT
+    delete process.env.MOSAICO_ENDPOINT_ID
+  }
+})
+
+test("status chip stays hidden when the daemon is down", async () => {
+  const fake = fakeMosaico()
+  process.env.MOSAICO_BIN = fake.bin
+  process.env.PI_MOSAICO_TEST_LOG = fake.log
+  process.env.PI_MOSAICO_SESSION = "down"
+  const statuses = new Map([["mosaico", "stale"]])
+  try {
+    const { handlers } = register("pty", "pty-endpoint")
+    await handlers.get("session_start")({}, tuiContext(statuses))
+    assert.equal(statuses.has("mosaico"), false)
+  } finally {
+    fake.cleanup()
+    delete process.env.MOSAICO_BIN
+    delete process.env.PI_MOSAICO_TEST_LOG
+    delete process.env.PI_MOSAICO_SESSION
+    delete process.env.MOSAICO_TRANSPORT
+    delete process.env.MOSAICO_ENDPOINT_ID
+  }
+})
+
+test("non-TUI sessions never paint chrome", async () => {
+  const fake = fakeMosaico()
+  process.env.MOSAICO_BIN = fake.bin
+  process.env.PI_MOSAICO_TEST_LOG = fake.log
+  try {
+    const { handlers } = register("pi-rpc", "rpc-endpoint")
+    await handlers.get("session_start")({}, context)
+    assert.equal(fake.calls().some(call => call.type === "pi-tool"), false)
+  } finally {
+    fake.cleanup()
+    delete process.env.MOSAICO_BIN
+    delete process.env.PI_MOSAICO_TEST_LOG
+    delete process.env.MOSAICO_TRANSPORT
+    delete process.env.MOSAICO_ENDPOINT_ID
   }
 })

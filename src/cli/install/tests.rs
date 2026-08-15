@@ -252,6 +252,14 @@ fn pi_installation_requires_the_current_owned_extension() {
         PI_EXTENSION_TS
     );
     assert_eq!(
+        std::fs::read_to_string(h.config_path.with_file_name("protocol.ts")).unwrap(),
+        PI_PROTOCOL_TS
+    );
+    assert_eq!(
+        std::fs::read_to_string(h.config_path.with_file_name("status.ts")).unwrap(),
+        PI_STATUS_TS
+    );
+    assert_eq!(
         std::fs::read_to_string(h.config_path.with_file_name("tools.ts")).unwrap(),
         PI_TOOLS_TS
     );

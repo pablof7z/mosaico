@@ -38,7 +38,6 @@ mod resume;
 mod search;
 mod session;
 mod session_catalog;
-mod statusline;
 mod turn;
 mod uninstall;
 mod who;
