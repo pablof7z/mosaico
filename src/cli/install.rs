@@ -21,7 +21,7 @@ use owo_colors::OwoColorize;
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
 pub(super) use config::{
-    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS,
+    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS, PI_TOOLS_TS,
 };
 pub(super) use hooks::{is_installed, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
@@ -202,12 +202,27 @@ fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()>
 }
 
 fn install_pi(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
-    install_source_file(h, opts, render, PI_EXTENSION_TS)
+    install_source_file(h, opts, render, PI_EXTENSION_TS)?;
+    install_source_path(
+        &h.config_path.with_file_name("tools.ts"),
+        opts,
+        render,
+        PI_TOOLS_TS,
+    )
 }
 
 fn install_source_file(h: &Harness, opts: &InstallOpts, render: bool, source: &str) -> Result<()> {
+    install_source_path(&h.config_path, opts, render, source)
+}
+
+fn install_source_path(
+    path: &std::path::Path,
+    opts: &InstallOpts,
+    render: bool,
+    source: &str,
+) -> Result<()> {
     if opts.uninstall {
-        if !h.config_path.exists() {
+        if !path.exists() {
             if render {
                 println!("  nothing to remove");
             }
@@ -215,12 +230,12 @@ fn install_source_file(h: &Harness, opts: &InstallOpts, render: bool, source: &s
         }
         if opts.dry_run {
             if render {
-                println!("  would remove {}", h.config_path.display());
+                println!("  would remove {}", path.display());
             }
         } else {
-            std::fs::remove_file(&h.config_path)?;
+            std::fs::remove_file(path)?;
             if render {
-                println!("  removed {}", h.config_path.display());
+                println!("  removed {}", path.display());
             }
         }
         return Ok(());
@@ -228,16 +243,12 @@ fn install_source_file(h: &Harness, opts: &InstallOpts, render: bool, source: &s
 
     if opts.dry_run {
         if render {
-            println!(
-                "  would write {} ({} bytes)",
-                h.config_path.display(),
-                source.len()
-            );
+            println!("  would write {} ({} bytes)", path.display(), source.len());
         }
     } else {
-        write_text(&h.config_path, source)?;
+        write_text(path, source)?;
         if render {
-            println!("  wrote {}", h.config_path.display());
+            println!("  wrote {}", path.display());
         }
     }
     Ok(())

@@ -3,17 +3,37 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
 mod search;
+mod send;
 mod wait;
+
+#[cfg(test)]
+use send::{attachment_specs, channel_send_params};
 
 pub(super) fn list() -> Value {
     json!({ "tools": super::catalog::list() })
 }
 
 pub(super) async fn call(params: &Value) -> Result<Value> {
-    call_as(params, None).await
+    call_with_policy(params, crate::cli::caller_identity(), false).await
 }
 
 pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Value> {
+    let mut identity = crate::cli::caller_identity();
+    if let (Some(caller), Some(object)) = (caller, identity.as_object_mut()) {
+        object.insert("session".into(), json!(caller));
+    }
+    call_with_policy(params, identity, false).await
+}
+
+pub(in crate::cli) async fn call_for_pi(params: &Value, identity: Value) -> Result<Value> {
+    call_with_policy(params, identity, true).await
+}
+
+async fn call_with_policy(
+    params: &Value,
+    identity: Value,
+    allow_local_attachments: bool,
+) -> Result<Value> {
     let name = required_string(params, "name")?;
     let args = params
         .get("arguments")
@@ -28,22 +48,24 @@ pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Valu
         );
     }
     if name == "mosaico.channel_search" {
-        return Ok(match search::call(&args, caller).await {
+        return Ok(match search::call(&args, &identity).await {
             Ok(value) => value,
             Err(err) => tool_error(format!("{err:#}")),
         });
     }
     let result = match name.as_str() {
-        "mosaico.my_session" => my_session(caller).await,
-        "mosaico.wait" => wait::ambient(&args, caller).await,
-        "mosaico.channel_list" => channel_list(&args, caller).await,
-        "mosaico.channel_read" => channel_read(&args, caller).await,
-        "mosaico.channel_send" => channel_send(&args, caller).await,
-        "mosaico.dispatch" => dispatch(&args, caller).await,
-        "mosaico.react" => react(&args, caller).await,
-        "mosaico.channel_create" => channel_create(&args, caller).await,
-        "mosaico.channel_join" => channel_mutation("channel_join", &args, caller).await,
-        "mosaico.channel_leave" => channel_mutation("channel_leave", &args, caller).await,
+        "mosaico.my_session" => my_session(&identity).await,
+        "mosaico.wait" => wait::ambient(&args, &identity).await,
+        "mosaico.channel_list" => channel_list(&args, &identity).await,
+        "mosaico.channel_read" => channel_read(&args, &identity).await,
+        "mosaico.channel_send" => {
+            send::channel_send(&args, &identity, allow_local_attachments).await
+        }
+        "mosaico.dispatch" => dispatch(&args, &identity).await,
+        "mosaico.react" => react(&args, &identity).await,
+        "mosaico.channel_create" => channel_create(&args, &identity).await,
+        "mosaico.channel_join" => channel_mutation("channel_join", &args, &identity).await,
+        "mosaico.channel_leave" => channel_mutation("channel_leave", &args, &identity).await,
         other => anyhow::bail!("unknown tool: {other}"),
     };
     Ok(match result {
@@ -52,11 +74,11 @@ pub(super) async fn call_as(params: &Value, caller: Option<&str>) -> Result<Valu
     })
 }
 
-async fn my_session(caller: Option<&str>) -> Result<Value> {
-    daemon_identity("my_session", json!({}), caller).await
+async fn my_session(identity: &Value) -> Result<Value> {
+    daemon_identity("my_session", json!({}), identity).await
 }
 
-async fn channel_list(args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn channel_list(args: &Value, identity: &Value) -> Result<Value> {
     daemon_identity(
         "channel_list",
         with_session(
@@ -70,12 +92,12 @@ async fn channel_list(args: &Value, caller: Option<&str>) -> Result<Value> {
             }),
             args,
         ),
-        caller,
+        identity,
     )
     .await
 }
 
-async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn channel_read(args: &Value, identity: &Value) -> Result<Value> {
     let params = caller_params(
         json!({
             "id": opt_string(args, "id"),
@@ -87,7 +109,7 @@ async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
             "tail": true,
             "live": false,
         }),
-        caller,
+        identity,
     );
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     let mut messages = Vec::new();
@@ -97,31 +119,7 @@ async fn channel_read(args: &Value, caller: Option<&str>) -> Result<Value> {
     Ok(json!({ "messages": messages }))
 }
 
-async fn channel_send(args: &Value, caller: Option<&str>) -> Result<Value> {
-    validate_channel_send_args(args)?;
-    let wait_seconds = wait::send_timeout(args)?;
-    if let Some(reply_to) = opt_string(args, "reply_to") {
-        if wait_seconds.is_some() {
-            anyhow::bail!("wait_seconds is only valid when sending a new message");
-        }
-        let params = with_session(
-            json!({
-                "id": reply_to,
-                "message": required_string(args, "message")?,
-            }),
-            args,
-        );
-        return daemon_identity("channel_reply", params, caller).await;
-    }
-    let send = daemon_identity("channel_send", channel_send_params(args)?, caller).await?;
-    let Some(timeout_seconds) = wait_seconds else {
-        return Ok(send);
-    };
-    let outcome = wait::for_reply(&send, timeout_seconds, args, caller).await?;
-    Ok(json!({ "send": send, "wait": outcome }))
-}
-
-async fn dispatch(args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn dispatch(args: &Value, identity: &Value) -> Result<Value> {
     let params = with_session(
         json!({
             "target": required_string(args, "target")?,
@@ -135,10 +133,10 @@ async fn dispatch(args: &Value, caller: Option<&str>) -> Result<Value> {
         }),
         args,
     );
-    daemon_identity("dispatch", params, caller).await
+    daemon_identity("dispatch", params, identity).await
 }
 
-async fn react(args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn react(args: &Value, identity: &Value) -> Result<Value> {
     let params = with_session(
         json!({
             "id": required_string(args, "message_id")?,
@@ -146,10 +144,10 @@ async fn react(args: &Value, caller: Option<&str>) -> Result<Value> {
         }),
         args,
     );
-    daemon_identity("channel_react", params, caller).await
+    daemon_identity("channel_react", params, identity).await
 }
 
-async fn channel_create(args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn channel_create(args: &Value, identity: &Value) -> Result<Value> {
     daemon_identity(
         "channel_create",
         with_session(
@@ -160,54 +158,21 @@ async fn channel_create(args: &Value, caller: Option<&str>) -> Result<Value> {
             }),
             args,
         ),
-        caller,
+        identity,
     )
     .await
 }
 
-async fn channel_mutation(method: &str, args: &Value, caller: Option<&str>) -> Result<Value> {
+async fn channel_mutation(method: &str, args: &Value, identity: &Value) -> Result<Value> {
     daemon_identity(
         method,
         with_session(
             json!({ "channel": required_string(args, "channel")? }),
             args,
         ),
-        caller,
+        identity,
     )
     .await
-}
-
-fn channel_send_params(args: &Value) -> Result<Value> {
-    validate_channel_send_args(args)?;
-    Ok(with_session(
-        json!({
-            "message": required_string(args, "message")?,
-            "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
-            "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
-            "channel": opt_string(args, "channel"),
-            "wait_intent": args.get("wait_seconds").is_some(),
-        }),
-        args,
-    ))
-}
-
-fn validate_channel_send_args(args: &Value) -> Result<()> {
-    const ALLOWED: &[&str] = &[
-        "message",
-        "tags",
-        "force",
-        "channel",
-        "session",
-        "wait_seconds",
-        "reply_to",
-    ];
-    let object = args
-        .as_object()
-        .context("mosaico.channel_send arguments must be an object")?;
-    if let Some(unknown) = object.keys().find(|key| !ALLOWED.contains(&key.as_str())) {
-        anyhow::bail!("unsupported mosaico.channel_send argument {unknown:?}");
-    }
-    Ok(())
 }
 
 fn with_session(mut value: Value, args: &Value) -> Value {
@@ -278,15 +243,12 @@ fn since_arg(args: &Value) -> Option<u64> {
     })
 }
 
-async fn daemon_identity(method: &str, extra: Value, caller: Option<&str>) -> Result<Value> {
-    daemon_raw(method, caller_params(extra, caller)).await
+async fn daemon_identity(method: &str, extra: Value, identity: &Value) -> Result<Value> {
+    daemon_raw(method, caller_params(extra, identity)).await
 }
 
-fn caller_params(mut extra: Value, caller: Option<&str>) -> Value {
-    if let (Some(caller), Some(object)) = (caller, extra.as_object_mut()) {
-        object.entry("session").or_insert_with(|| json!(caller));
-    }
-    crate::cli::rpc_params(extra)
+fn caller_params(extra: Value, identity: &Value) -> Value {
+    crate::cli::context::merge_rpc_params(identity.clone(), extra)
 }
 
 async fn daemon_raw(method: &str, params: Value) -> Result<Value> {

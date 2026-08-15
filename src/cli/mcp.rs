@@ -20,7 +20,7 @@ mod http;
 mod protocol;
 mod resources;
 mod skill;
-mod tools;
+pub(in crate::cli) mod tools;
 
 #[cfg(test)]
 pub(in crate::cli) fn embedded_skill_content(name: &str) -> String {

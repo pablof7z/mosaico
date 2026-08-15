@@ -1,7 +1,7 @@
 use super::*;
 
-pub(super) async fn ambient(args: &Value, caller: Option<&str>) -> Result<Value> {
-    daemon_identity("channel_wait", ambient_params(args)?, caller).await
+pub(super) async fn ambient(args: &Value, identity: &Value) -> Result<Value> {
+    daemon_identity("channel_wait", ambient_params(args)?, identity).await
 }
 
 pub(super) fn send_timeout(args: &Value) -> Result<Option<u64>> {
@@ -14,7 +14,7 @@ pub(super) async fn for_reply(
     send: &Value,
     timeout_seconds: u64,
     args: &Value,
-    caller: Option<&str>,
+    identity: &Value,
 ) -> Result<Value> {
     let event_id = send["event_id"]
         .as_str()
@@ -22,7 +22,7 @@ pub(super) async fn for_reply(
     daemon_identity(
         "channel_wait",
         reply_params(send, event_id, timeout_seconds, args),
-        caller,
+        identity,
     )
     .await
 }

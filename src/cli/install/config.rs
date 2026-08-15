@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/mosaico.ts");
 pub const PI_EXTENSION_TS: &str = include_str!("../../../integrations/pi/mosaico.ts");
+pub const PI_TOOLS_TS: &str = include_str!("../../../integrations/pi/tools.ts");
 pub const HERMES_PLUGIN_YAML: &str = include_str!("../../../integrations/hermes/plugin.yaml");
 pub const HERMES_PLUGIN_PY: &str = include_str!("../../../integrations/hermes/__init__.py");
 
