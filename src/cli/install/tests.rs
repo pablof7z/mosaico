@@ -2,6 +2,7 @@ use super::*;
 
 mod context_contracts;
 mod harness_inventory;
+mod pi_install;
 
 fn harness(id: &'static str, path: std::path::PathBuf) -> Harness {
     Harness {
@@ -236,37 +237,4 @@ fn installation_requires_at_least_one_wired_harness() {
     write_json(&codex.config_path, &root).unwrap();
 
     assert!([&codex, &opencode].into_iter().any(is_installed));
-}
-
-#[test]
-fn pi_installation_requires_the_current_owned_extension() {
-    let temp = tempfile::tempdir().unwrap();
-    let h = harness("pi", temp.path().join("mosaico"));
-    write_text(
-        &h.config_path.join("index.ts"),
-        "export default function stale() {}\n",
-    )
-    .unwrap();
-    assert!(!is_installed(&h));
-
-    write_text(&temp.path().join("mosaico.ts"), PI_EXTENSION_TS).unwrap();
-    write_text(&temp.path().join("tools.ts"), PI_TOOLS_TS).unwrap();
-    pi::install(&h, &InstallOpts::default(), false).unwrap();
-    assert!(is_installed(&h));
-    for (name, source) in PI_EXTENSION_FILES {
-        assert_eq!(
-            std::fs::read_to_string(h.config_path.join(name)).unwrap(),
-            *source
-        );
-    }
-    assert!(!temp.path().join("mosaico.ts").exists());
-    assert!(!temp.path().join("tools.ts").exists());
-
-    pi::install(
-        &h,
-        &InstallOpts::uninstall(Some("pi".to_string()), false),
-        false,
-    )
-    .unwrap();
-    assert!(!h.config_path.exists());
 }

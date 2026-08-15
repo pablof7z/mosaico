@@ -146,6 +146,7 @@ mod channel_send;
 mod channel_wait;
 mod channels_rpc;
 mod chat_target;
+mod chat_time;
 mod config_reload;
 mod config_state;
 mod coordination_reminder;

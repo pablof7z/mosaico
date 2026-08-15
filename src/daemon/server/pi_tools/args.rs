@@ -148,5 +148,5 @@ pub(super) fn search_time(args: &Value, key: &str) -> Result<Value> {
     let raw = value
         .as_str()
         .with_context(|| format!("{key} must be a timestamp or duration"))?;
-    Ok(json!(super::super::channel_search::parse_time(raw)?))
+    Ok(json!(super::super::chat_time::parse_time(raw)?))
 }
