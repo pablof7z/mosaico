@@ -71,7 +71,7 @@ fn session_has_live_delivery_path_true_only_for_a_live_locator() {
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: "claude-code".into(),
                 claimed_harness: String::new(),
-                bundle: "claude-pty".into(),
+                preset: String::new(),
                 transport: "pty".into(),
                 endpoint_provenance: "launch".into(),
             },
@@ -148,7 +148,7 @@ fn headless_mode_separates_output_visibility_from_reachability() {
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: "codex".into(),
                 claimed_harness: String::new(),
-                bundle: "codex-acp".into(),
+                preset: String::new(),
                 transport: "app-server".into(),
                 endpoint_provenance: "launch".into(),
             },

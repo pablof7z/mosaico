@@ -37,7 +37,7 @@ Capture:
 skills/mosaico-dev/scripts/probe-lab "${LAB_ENV}"
 ```
 
-Report the relay/run id, profiles and bundle metadata, exact commands, direct or
+Report the relay/run id, profiles and harness/preset metadata, exact commands, direct or
 launch mode, PTY/RPC session ids, auth result, relay/event evidence, log paths,
 and feature-specific result.
 

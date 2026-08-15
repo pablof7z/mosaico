@@ -38,7 +38,7 @@ capabilities, or identity-bearing environment variables affect a decision.
   a duplicate Mosaico agent JSON.
 - A workspace-local profile applies only in that workspace and takes precedence
   over the same harness's global profile there.
-- Explicit Mosaico agents remain pinned to their configured harness bundle.
+- Explicit Mosaico agents remain pinned to their configured canonical harness.
   Native profiles and generic detected harness agents acquire launch policy at
   realization time: interactive launch selects or creates PTY, while managed
   provisioning selects or creates the supported RPC transport. If one role is

@@ -101,7 +101,7 @@ mod tests {
             readiness_parent: "root".to_string(),
             observed_harness: "codex".to_string(),
             claimed_harness: String::new(),
-            admitted_bundle: String::new(),
+            admitted_preset: String::new(),
             admitted_transport: String::new(),
             endpoint_provenance: "hook".to_string(),
             child_pid: None,

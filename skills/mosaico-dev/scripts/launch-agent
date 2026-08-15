@@ -42,6 +42,14 @@ agent_slug_for_profile() {
   esac
 }
 
+transport_for_profile() {
+  case "$1" in
+    codex-app-server) echo "app-server" ;;
+    *-acp) echo "acp" ;;
+    *) echo "pty" ;;
+  esac
+}
+
 need jq
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,14 +78,15 @@ CONTAINER_CIDFILE="${WORK_DIR}/container-${SESSION}.cid"
 STATE_ROOT="${MOSAICO_DEV_STATE_ROOT:-${REPO_ROOT}/.container-state}"
 STATE_DIR="${MOSAICO_CONTAINER_STATE:-${STATE_ROOT}/${PROFILE}}"
 AGENT_CFG="${STATE_DIR}/mosaico/agents/${AGENT_SLUG}.json"
-HARNESSES_CFG="${STATE_DIR}/mosaico/harnesses.json"
+PRESETS_CFG="${STATE_DIR}/mosaico/presets.json"
 
-if [[ ! -f "${AGENT_CFG}" || ! -f "${HARNESSES_CFG}" ]]; then
-  printf 'profile %s has no generated harness/agent config; run write-container-profiles first\n' "${PROFILE}" >&2
+if [[ ! -f "${AGENT_CFG}" || ! -f "${PRESETS_CFG}" ]]; then
+  printf 'profile %s has no generated preset/agent config; run write-container-profiles first\n' "${PROFILE}" >&2
   exit 2
 fi
-BUNDLE="$(jq -er '.harness' "${AGENT_CFG}")"
-TRANSPORT="$(jq -er --arg bundle "${BUNDLE}" '.[$bundle].transport' "${HARNESSES_CFG}")"
+HARNESS="$(jq -er '.harness' "${AGENT_CFG}")"
+PRESET="$(jq -er '.preset' "${AGENT_CFG}")"
+TRANSPORT="$(transport_for_profile "${PROFILE}")"
 
 common=(env MOSAICO_CONTAINER_NAME="${CONTAINER_NAME}"
   MOSAICO_CONTAINER_CIDFILE="${CONTAINER_CIDFILE}"
@@ -92,7 +101,7 @@ case "${MODE}" in
       echo "smoke mode requires a managed RPC profile, got ${PROFILE} (${TRANSPORT})" >&2
       exit 2
     fi
-    cmd=("${common[@]}" mosaico __acp-smoke "${BUNDLE}" "$@")
+    cmd=("${common[@]}" mosaico __acp-smoke "${HARNESS}" --preset "${PRESET}" "$@")
     ;;
   launch)
     launch_args=("${AGENT_SLUG}")
@@ -114,7 +123,7 @@ case "${MODE}" in
     ;;
 esac
 
-echo "agent_session=${SESSION} profile=${PROFILE} agent=${AGENT_SLUG} bundle=${BUNDLE} transport=${TRANSPORT} mode=${MODE}"
+echo "agent_session=${SESSION} profile=${PROFILE} agent=${AGENT_SLUG} harness=${HARNESS} preset=${PRESET} transport=${TRANSPORT} mode=${MODE}"
 printf 'command='
 quote_cmd "${cmd[@]}"
 printf '\n'

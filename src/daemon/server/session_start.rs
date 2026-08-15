@@ -10,9 +10,8 @@ mod replacement;
 mod reservation;
 mod runtime;
 
-use params::SessionStartParams;
-
 pub(crate) use bootstrap::bootstrap_hosted_session_start;
+use params::SessionStartParams;
 pub(in crate::daemon::server) use reservation::rpc_session_start;
 
 pub(super) async fn rpc_session_start_inner(
@@ -72,6 +71,7 @@ pub(super) async fn rpc_session_start_inner(
                 &p.agent,
                 harness.as_str(),
                 p.profile.as_deref(),
+                None,
                 now_secs(),
             )
         })?

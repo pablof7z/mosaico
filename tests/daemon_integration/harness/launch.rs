@@ -73,16 +73,20 @@ pub(crate) fn configure_pty_agent(home: &Home, slug: &str, mode: &str) {
 
 pub(crate) fn configure_pty_agent_with_args(home: &Home, slug: &str, args: &[&str]) {
     std::fs::write(
-        home.dir.path().join("harnesses.json"),
+        home.dir.path().join("presets.json"),
         serde_json::json!({
-            "test-pty": {
-                "harness": "opencode",
-                "transport": "pty",
-                "args": args,
-            }
+            "test-pty": {"opencode": {"pty": args}}
         })
         .to_string(),
     )
     .unwrap();
-    mosaico::identity::add_local_agent(home.dir.path(), slug, "test-pty", None, 1).unwrap();
+    mosaico::identity::add_local_agent(
+        home.dir.path(),
+        slug,
+        "opencode",
+        None,
+        Some("test-pty"),
+        1,
+    )
+    .unwrap();
 }

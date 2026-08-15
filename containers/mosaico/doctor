@@ -6,35 +6,37 @@ HOST_AUTH="${2:?missing host-auth mode}"
 AGENT="${MOSAICO_AGENT:?missing MOSAICO_AGENT}"
 
 validate_mosaico_configs() {
-  if [[ ! -f "${MOSAICO_HOME}/harnesses.json" ]]; then
-    echo "harness bundles: none"
-    return 0
-  fi
-  jq -e '
-    type == "object" and
-    all(.[];
+  if [[ -f "${MOSAICO_HOME}/presets.json" ]]; then
+    jq -e '
       type == "object" and
-      ((keys - ["args", "harness", "transport"]) | length == 0) and
-      (.harness == "claude-code" or .harness == "codex" or
-        .harness == "opencode" or .harness == "grok" or .harness == "goose" or
-        .harness == "hermes" or .harness == "kimi" or .harness == "pi") and
-      (.transport == "pty" or .transport == "acp" or
-        .transport == "app-server" or .transport == "pi-rpc") and
-      ((.args // []) | type == "array") and
-      all((.args // [])[]; type == "string")
-    )
-  ' "${MOSAICO_HOME}/harnesses.json" >/dev/null
+      all(to_entries[];
+        (.key | type == "string" and length > 0) and
+        (.value | type == "object") and
+        all(.value | to_entries[];
+          (.key == "claude-code" or .key == "codex" or .key == "opencode" or
+            .key == "grok" or .key == "goose" or .key == "hermes" or .key == "kimi" or
+            .key == "pi") and
+          (.value | type == "object") and
+          (((.value | keys) - ["pty", "acp", "app-server", "pi-rpc"]) | length) == 0 and
+          all(.value[]; type == "array" and all(.[]; type == "string" and length > 0))
+        )
+      )
+    ' "${MOSAICO_HOME}/presets.json" >/dev/null
+  fi
   for agent_file in "${MOSAICO_HOME}"/agents/*.json; do
     [[ -e "${agent_file}" ]] || continue
     jq -e '
       type == "object" and
-      ((keys - ["byline", "created_at", "harness", "perSessionKey", "profile",
+      ((keys - ["byline", "created_at", "harness", "perSessionKey", "preset", "profile",
         "public_key", "secret_key", "slug"]) | length == 0) and
       (.slug | type == "string" and length > 0) and
-      (.harness | type == "string" and length > 0) and
+      (.harness == "claude-code" or .harness == "codex" or
+        .harness == "opencode" or .harness == "grok" or .harness == "goose" or
+        .harness == "hermes" or .harness == "kimi" or .harness == "pi") and
       (.created_at | type == "number") and
       ((.byline == null) or (.byline | type == "string")) and
       ((.profile == null) or (.profile | type == "string" and length > 0)) and
+      ((.preset == null) or (.preset | type == "string" and length > 0)) and
       ((.perSessionKey // true) | type == "boolean") and
       (if (.perSessionKey // true) then
         ((has("secret_key") or has("public_key")) | not)
@@ -44,7 +46,11 @@ validate_mosaico_configs() {
       end)
     ' "${agent_file}" >/dev/null
   done
-  echo "harness bundles: $(jq -r 'keys | join(",")' "${MOSAICO_HOME}/harnesses.json")"
+  if [[ -f "${MOSAICO_HOME}/presets.json" ]]; then
+    echo "launch presets: $(jq -r 'keys | join(",")' "${MOSAICO_HOME}/presets.json")"
+  else
+    echo "launch presets: none"
+  fi
 }
 
 if [[ "${MOSAICO_DOCTOR_CONFIG_ONLY:-0}" == "1" ]]; then

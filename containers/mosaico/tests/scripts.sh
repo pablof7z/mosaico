@@ -172,20 +172,20 @@ assert_pi_state_isolated
 CONFIG_HOME="${TMP}/mosaico"
 mkdir -p "${CONFIG_HOME}/agents"
 printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server","args":["-c","model=test"]},"goose-acp":{"harness":"goose","transport":"acp"},"hermes-acp":{"harness":"hermes","transport":"acp"},"kimi-acp":{"harness":"kimi","transport":"acp"},"pi-rpc":{"harness":"pi","transport":"pi-rpc"}}' \
-  >"${CONFIG_HOME}/harnesses.json"
+  '{"lab":{"codex":{"app-server":["-c","model=test"]},"goose":{"acp":[]},"hermes":{"acp":[]},"kimi":{"acp":[]},"pi":{"pi-rpc":[]}}}' \
+  >"${CONFIG_HOME}/presets.json"
 printf '%s\n' \
-  '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex-app-server"}' \
+  '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex","preset":"lab"}' \
   >"${CONFIG_HOME}/agents/codex.json"
 MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=1 \
   bash "${ROOT}/containers/mosaico/doctor" codex 1 >/dev/null
-echo 'ok: doctor accepts current harness and keyless agent schemas'
+echo 'ok: doctor accepts current preset and keyless agent schemas'
 
 printf '%s\n' \
-  '{"codex-app-server":{"harness":"codex","transport":"app-server"}}' \
-  >"${CONFIG_HOME}/harnesses.json"
+  '{"lab":{"codex":{"app-server":[]}}}' \
+  >"${CONFIG_HOME}/presets.json"
 printf '%s\n' \
-  '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex-app-server","secret_key":"stale","public_key":"stale"}' \
+  '{"slug":"codex","created_at":1,"perSessionKey":true,"harness":"codex","preset":"lab","secret_key":"stale","public_key":"stale"}' \
   >"${CONFIG_HOME}/agents/codex.json"
 if MOSAICO_AGENT=codex MOSAICO_HOME="${CONFIG_HOME}" MOSAICO_DOCTOR_CONFIG_ONLY=1 \
   bash "${ROOT}/containers/mosaico/doctor" codex 1 >/dev/null 2>&1; then

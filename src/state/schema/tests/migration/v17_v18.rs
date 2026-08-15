@@ -48,7 +48,7 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
     assert_eq!(cleanup_due[0].channel_h, "cleanup");
     drop(store);
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 23);
+    assert_eq!(version(&conn), 24);
     assert_eq!(
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master

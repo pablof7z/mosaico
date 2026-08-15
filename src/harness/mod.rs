@@ -1,72 +1,76 @@
-//! Harness transport engine: `harnesses.json` bundles + a code-owned
-//! `(harness, transport)` capability table + profile-mechanism application.
+//! Harness transport engine: canonical harnesses + a code-owned
+//! `(harness, transport)` capability table + profile and preset application.
 //!
 //! This module is self-contained. It touches nothing under `src/identity*`.
 //! It supersedes the per-binary sniffing in `session_host::registry` with a
-//! static, `(harness, transport)`-keyed driver table and a bundle config
-//! surface (`harnesses.json`) that is independent of `agent.json`.
+//! static, `(harness, transport)`-keyed driver table. Agent configuration names
+//! the harness; launch intent chooses transport; `presets.json` only adds args.
 
 mod codex_profile;
-pub mod config;
 pub mod driver;
+pub mod presets;
 pub mod profile;
+mod transport;
 
 use std::path::Path;
 
-pub use config::{HarnessBundle, HarnessesConfig, Transport};
 pub use driver::{
     EnvDirective, HarnessDriver, ProfileMechanism, ResumeMechanism, SteerPrimitive, TurnModel,
 };
+pub use presets::PresetsConfig;
 pub use profile::ProfilePlan;
+pub use transport::Transport;
 
 use crate::session::Harness;
 
-/// A fully-resolved bundle: the driver row plus the concrete argv/profile plan.
+/// A fully resolved launch: driver row plus concrete argv/profile plan.
 pub struct ResolvedHarness {
-    pub bundle: String,
     pub harness: Harness,
     pub transport: Transport,
+    pub preset: Option<String>,
     pub driver: &'static HarnessDriver,
-    /// Driver argv + bundle args + translated agent profile selector.
+    /// Driver argv + preset args + translated agent profile selector.
     pub base_argv: Vec<String>,
     pub profile: ProfilePlan,
 }
 
-/// Resolve an explicit bundle plus the agent's optional harness-specific profile name.
+/// Resolve one canonical harness and selected transport plus optional profile and preset.
 pub fn resolve(
-    bundle: &str,
+    harness: Harness,
+    transport: Transport,
     profile: Option<&str>,
+    preset: Option<&str>,
     session_scratch: &Path,
 ) -> anyhow::Result<ResolvedHarness> {
-    let cfg = HarnessesConfig::load()?;
-    resolve_with(&cfg, bundle, profile, session_scratch)
-}
-
-/// Resolve just the [`Transport`] a bundle drives, without planning its profile
-/// or argv. Used by transport selection, which only needs the capability axis.
-/// Missing bundle names fail loudly.
-pub fn bundle_transport_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Transport> {
-    cfg.get(bundle)
-        .map(|bundle| bundle.transport)
-        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))
-}
-
-/// Resolve just the [`Harness`] a bundle drives (the underlying CLI), without
-/// planning its profile.
-pub fn bundle_harness_with(cfg: &HarnessesConfig, bundle: &str) -> anyhow::Result<Harness> {
-    cfg.get(bundle)
-        .map(|bundle| bundle.harness)
-        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))
+    let presets = PresetsConfig::load()?;
+    resolve_with(
+        &presets,
+        harness,
+        transport,
+        profile,
+        preset,
+        session_scratch,
+    )
 }
 
 /// Testable core of [`resolve`] that takes the config explicitly.
 pub fn resolve_with(
-    cfg: &HarnessesConfig,
-    bundle: &str,
+    presets: &PresetsConfig,
+    harness: Harness,
+    transport: Transport,
     profile: Option<&str>,
+    preset: Option<&str>,
     session_scratch: &Path,
 ) -> anyhow::Result<ResolvedHarness> {
-    resolve_with_codex_home(cfg, bundle, profile, session_scratch, None)
+    resolve_with_codex_home(
+        presets,
+        harness,
+        transport,
+        profile,
+        preset,
+        session_scratch,
+        None,
+    )
 }
 
 pub fn apply_native_agent(
@@ -90,7 +94,7 @@ pub fn apply_native_agent(
         }
         crate::agent_catalog::NativeAgentActivation::CodexRoot(agent) => {
             if resolved.harness != Harness::Codex {
-                anyhow::bail!("Codex custom-agent activation requires a Codex bundle");
+                anyhow::bail!("Codex custom-agent activation requires the Codex harness");
             }
             if resolved.transport == Transport::AppServer {
                 ProfilePlan::default()
@@ -119,21 +123,17 @@ pub fn supports_native_agent(harness: Harness, transport: Transport) -> bool {
 }
 
 fn resolve_with_codex_home(
-    cfg: &HarnessesConfig,
-    bundle: &str,
+    presets: &PresetsConfig,
+    harness: Harness,
+    transport: Transport,
     profile: Option<&str>,
+    preset: Option<&str>,
     session_scratch: &Path,
     codex_home: Option<&Path>,
 ) -> anyhow::Result<ResolvedHarness> {
-    let configured = cfg
-        .get(bundle)
-        .ok_or_else(|| anyhow::anyhow!("no harness bundle {bundle:?} in harnesses.json"))?;
-    let harness = configured.harness;
-    let transport = configured.transport;
-
     let driver = driver::lookup(harness, transport).ok_or_else(|| {
         anyhow::anyhow!(
-            "invalid harness/transport combination: {} x {} (bundle {bundle:?})",
+            "unsupported harness/transport combination: {} x {}",
             harness.as_str(),
             transport.as_str()
         )
@@ -143,13 +143,13 @@ fn resolve_with_codex_home(
 
     let mut base_argv: Vec<String> = driver.base_argv.iter().map(|s| s.to_string()).collect();
     base_argv.splice(1..1, plan.global_argv.iter().cloned());
-    base_argv.extend(configured.args.iter().cloned());
+    base_argv.extend(presets.args(preset, harness, transport)?);
     base_argv.extend(plan.extra_argv.iter().cloned());
 
     Ok(ResolvedHarness {
-        bundle: bundle.to_string(),
         harness,
         transport,
+        preset: preset.map(str::to_string),
         driver,
         base_argv,
         profile: plan,

@@ -96,7 +96,7 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
     let rec = wait_for_alive(&home, agent, &channel);
     assert_eq!(rec.observed_harness, "opencode");
     assert_eq!(rec.claimed_harness, "");
-    assert_eq!(rec.admitted_bundle, "test-pty");
+    assert_eq!(rec.admitted_preset, "test-pty");
     assert_eq!(rec.admitted_transport, "pty");
     assert_eq!(rec.endpoint_provenance, "launch");
     let store = Store::open(&home.store_path()).unwrap();
@@ -207,7 +207,7 @@ fn late_session_start_hook_reasserts_pty_bootstrap_session() {
     let reasserted = store.get_session(&first.pubkey).unwrap().unwrap();
     assert_eq!(reasserted.observed_harness, "opencode");
     assert_eq!(reasserted.claimed_harness, "codex");
-    assert_eq!(reasserted.admitted_bundle, "test-pty");
+    assert_eq!(reasserted.admitted_preset, "test-pty");
     assert_eq!(reasserted.admitted_transport, "pty");
     assert_eq!(reasserted.endpoint_provenance, "launch");
 

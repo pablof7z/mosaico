@@ -7,6 +7,7 @@ fn ordinary_agent() -> crate::identity::AgentIdentity {
         per_session_key: true,
         harness: "codex".into(),
         profile: None,
+        preset: None,
     }
 }
 

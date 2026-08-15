@@ -78,7 +78,7 @@ fn operator_kind9_injects_into_working_launch_session() {
     let native_session = unique_session("launch-native");
     let agent = "launch-kind9";
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "opencode", None, None, 1)
         .expect("add launch agent");
 
     let pty_id = rt().block_on(async {
@@ -228,7 +228,7 @@ fn native_hermes_profile_persists_admission_and_receives_tagged_delivery() {
     let session = wait_for_alive_session(&home, "builder", &channel);
     wait_for_group_member(&home, &channel, &session.pubkey);
     assert_eq!(session.observed_harness, "hermes");
-    assert_eq!(session.admitted_bundle, "hermes-pty");
+    assert_eq!(session.admitted_preset, "");
     assert_eq!(session.admitted_transport, "pty");
 
     let store = Store::open(&home.store_path()).unwrap();

@@ -25,17 +25,7 @@ impl DaemonState {
             "mosaico-test-attachments-{}",
             backend_keys.public_key().to_hex()
         ));
-        let installed_harnesses = crate::harness::HarnessesConfig::load()
-            .unwrap_or_default()
-            .bundles
-            .into_values()
-            .map(|bundle| bundle.harness)
-            .fold(Vec::new(), |mut harnesses, harness| {
-                if !harnesses.contains(&harness) {
-                    harnesses.push(harness);
-                }
-                harnesses
-            });
+        let installed_harnesses = crate::config::detect_available_harnesses().unwrap_or_default();
         let cfg = Config {
             whitelisted_pubkeys: whitelisted_pubkeys.clone(),
             relays: relays.clone(),

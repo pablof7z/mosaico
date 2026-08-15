@@ -15,7 +15,7 @@ turns, persisted `session/load` resume, and the installed Mosaico plugin. Set
 same name as `--profile <name>` to the smoke so both fresh ACP processes use
 the exact discovered profile.
 
-The smoke proves the configured bundle, initialization, a real model turn, and
+The smoke proves the configured harness/preset, initialization, a real model turn, and
 resume.
 
 Use `kimi-acp` in the same commands to prove native `kimi acp` initialization,

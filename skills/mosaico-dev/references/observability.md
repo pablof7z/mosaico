@@ -24,13 +24,13 @@ Stop the launch container before same-profile CLI inspection.
 For a PTY launch, capture the public session handle/id, the attached UI, and the
 result of a narrow prompt. Do not open another container merely to reattach.
 
-ACP/app-server has no PTY. First capture a bundle smoke:
+ACP/app-server has no PTY. First capture a structured-driver smoke:
 
 ```bash
 skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" smoke claude-acp
 ```
 
-A pass includes the bundle, harness, transport, successful initialization,
+A pass includes the preset, harness, transport, successful initialization,
 session/thread creation, a completed turn, and resume. Then capture launch
 output such as:
 

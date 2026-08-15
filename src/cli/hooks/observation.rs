@@ -54,7 +54,7 @@ pub(super) async fn report_observation(
         "endpoint_kind": pty_session.as_ref().map(|_| "pty"),
         "session_name": session_name,
         // A direct `claude --agent <profile>` observation seeds only the
-        // agent-owned profile selection. Launch argv remains bundle-owned.
+        // agent-owned profile selection. Launch argv remains driver/preset-owned.
         "profile": profile,
     });
     let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {

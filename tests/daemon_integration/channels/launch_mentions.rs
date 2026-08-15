@@ -64,11 +64,6 @@ fn install_opencode_shim(
     let shim = bin.join("opencode");
     std::fs::write(&shim, harness_script(native_session, cwd, injected_log)).unwrap();
     std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::write(
-        home.dir.path().join("harnesses.json"),
-        r#"{"offline-test":{"harness":"opencode","transport":"pty"}}"#,
-    )
-    .unwrap();
     let old = std::env::var_os("PATH");
     let mut paths = vec![bin];
     paths.extend(std::env::split_paths(old.as_deref().unwrap_or_default()));

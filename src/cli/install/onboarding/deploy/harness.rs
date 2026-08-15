@@ -1,11 +1,10 @@
-//! Resolve an onboarding harness selection to an RPC (ACP / app-server) bundle
+//! Resolve an onboarding harness selection to an RPC (ACP / app-server) driver
 //! for the relay-assist modal. Terminal-only harnesses (Grok) are excluded.
 
 use anyhow::Result;
 use std::path::PathBuf;
 
-use crate::harness::config::{HarnessesConfig, Transport};
-use crate::harness::ResolvedHarness;
+use crate::harness::{PresetsConfig, ResolvedHarness, Transport};
 use crate::session::Harness as SessionHarness;
 
 /// The RPC transport an onboarding harness id can be driven over, or `None` for
@@ -37,22 +36,25 @@ pub(in crate::cli::install::onboarding) struct DeployTarget {
     pub cwd: PathBuf,
 }
 
-/// Resolve `id` to a spawnable RPC bundle, seeding a zero-argument bundle in
-/// memory when the operator has none configured (never persisted).
+/// Resolve `id` to a spawnable RPC driver with no implicit launch arguments.
 pub(in crate::cli::install::onboarding) fn resolve(id: &str) -> Result<DeployTarget> {
     let (harness, transport) = rpc_transport(id)
         .ok_or_else(|| anyhow::anyhow!("{id} is terminal-only and cannot host the assist modal"))?;
 
-    let mut cfg = HarnessesConfig::load()?;
-    let (bundle, _created) = cfg.resolve_or_create_hosted(harness, transport)?;
-
     let scratch = crate::config::mosaico_home()
         .join("harness-profiles")
-        .join(&bundle);
+        .join(harness.as_str());
     let cwd = crate::config::mosaico_home().join("relay-assist");
     std::fs::create_dir_all(&cwd)?;
 
-    let resolved = crate::harness::resolve_with(&cfg, &bundle, None, &scratch)?;
+    let resolved = crate::harness::resolve_with(
+        &PresetsConfig::load()?,
+        harness,
+        transport,
+        None,
+        None,
+        &scratch,
+    )?;
     Ok(DeployTarget { resolved, cwd })
 }
 

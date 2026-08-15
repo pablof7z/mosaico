@@ -95,7 +95,7 @@ production infrastructure.
 ## Reporting
 
 Record relay URL, run id, generated profile names, exact accepted commands,
-transport/bundle, session identity, event ids, provider auth result, relevant
+transport/preset, session identity, event ids, provider auth result, relevant
 logs, and cleanup status. Never include private keys or provider tokens.
 
 If a live check fails, preserve its work directory until the boundary is

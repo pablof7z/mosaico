@@ -102,7 +102,7 @@ fn operator_kind9_to_offline_session_resumes_the_exact_pubkey() {
     let log = home.dir.path().join("offline-injected.log");
     let native_session = unique_session("offline-native");
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "opencode", None, None, 1)
         .expect("add local agent");
 
     let (_, original) = launch_target(&home, agent, &channel, &work_dir);
@@ -143,7 +143,7 @@ fn operator_kind9_to_zero_turn_session_without_native_resume_relaunches_exact_pu
     let log = home.dir.path().join("pending-injected.log");
     let native_session = unique_session("pending-native");
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "opencode", None, None, 1)
         .expect("add local agent");
 
     let (_, original) = launch_target(&home, agent, &channel, &work_dir);
@@ -203,7 +203,7 @@ fn operator_kind9_to_used_session_without_native_resume_relaunches_exact_pubkey(
     let log = home.dir.path().join("used-pending-injected.log");
     let native_session = unique_session("used-pending-native");
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "opencode", None, None, 1)
         .expect("add local agent");
 
     let (_, original) = launch_target(&home, agent, &channel, &work_dir);
@@ -264,8 +264,9 @@ fn operator_kind9_to_stable_agent_starts_the_same_pubkey() {
         home.dir.path(),
         agent,
         identity::LocalAgentUpdate {
-            harness: "offline-test".to_string(),
+            harness: "opencode".to_string(),
             profile: None,
+            preset: None,
             per_session_key: Some(false),
             byline: None,
         },

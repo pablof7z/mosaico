@@ -22,7 +22,7 @@ fn reserve_rpc_session(
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: harness.into(),
                     claimed_harness: String::new(),
-                    bundle: format!("{harness}-{transport}"),
+                    preset: String::new(),
                     transport: transport.into(),
                     endpoint_provenance: "launch".into(),
                 },
@@ -97,7 +97,7 @@ async fn failed_pty_probe_immediately_persists_unavailable_and_clears_idle() {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: "codex-pty".into(),
+                    preset: String::new(),
                     transport: "pty".into(),
                     endpoint_provenance: "launch".into(),
                 },

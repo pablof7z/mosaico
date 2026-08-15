@@ -86,7 +86,7 @@ fn codex_hook_reasserts_launch_session_from_pty_anchor_without_native_id() {
     let reasserted = &alive[0];
     assert_eq!(reasserted.observed_harness, "opencode");
     assert_eq!(reasserted.claimed_harness, "codex");
-    assert_eq!(reasserted.admitted_bundle, "test-pty");
+    assert_eq!(reasserted.admitted_preset, "test-pty");
     assert_eq!(reasserted.admitted_transport, "pty");
     assert_eq!(reasserted.endpoint_provenance, "launch");
 

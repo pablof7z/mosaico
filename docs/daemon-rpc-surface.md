@@ -229,11 +229,10 @@ state.
 Sends keystrokes or text to a portable PTY session.
 
 ### `pty_spawn`
-Spawns an agent through either its explicit bundle binding or an unambiguous
-logical native/generic provider. This interactive boundary selects PTY launch
-policy and atomically creates the canonical zero-argument bundle when none is
-configured, optionally pre-loading a message. The RPC accepts no argv, command,
-or bundle override. Its response confirms the session is registered and ready;
+Spawns a configured agent or an unambiguous logical native/generic provider.
+This interactive boundary selects PTY transport and may optionally pre-load a
+message. The RPC accepts no argv, command, harness, preset, or transport
+override. Its response confirms the session is registered and ready;
 it does not claim that an optional opening prompt completed.
 
 ### `pty_attach`

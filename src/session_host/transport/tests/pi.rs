@@ -1,37 +1,30 @@
 use super::*;
 
 #[test]
-fn transport_kind_and_configured_bundle_remain_distinct() {
+fn pi_rpc_transport_kind_is_canonical() {
     let kind = TransportKind::parse("pi-rpc").unwrap();
     assert_eq!(kind.as_str(), "pi-rpc");
     assert_eq!(kind.locator_kind(), crate::state::LOCATOR_PI_RPC);
-
-    let cfg: HarnessesConfig =
-        serde_json::from_str(r#"{"pi-rpc":{"harness":"pi","transport":"pi-rpc"}}"#).unwrap();
-    assert_eq!(
-        select_transport_with(&cfg, "pi-rpc").unwrap().kind(),
-        TransportKind::PiRpc
-    );
 }
 
 #[test]
 fn pi_launches_publish_transport_and_endpoint_correlation() {
-    let cfg: HarnessesConfig = serde_json::from_str(
-        r#"{
-          "pi-pty":{"harness":"pi","transport":"pty"},
-          "pi-rpc":{"harness":"pi","transport":"pi-rpc"}
-        }"#,
-    )
-    .unwrap();
     let scratch = tempfile::tempdir().unwrap();
 
-    for (bundle, kind) in [
-        ("pi-pty", TransportKind::Pty),
-        ("pi-rpc", TransportKind::PiRpc),
+    for (transport, kind) in [
+        (Transport::Pty, TransportKind::Pty),
+        (Transport::PiRpc, TransportKind::PiRpc),
     ] {
-        let endpoint = format!("{bundle}-endpoint");
-        let mut resolved =
-            crate::harness::resolve_with(&cfg, bundle, None, scratch.path()).unwrap();
+        let endpoint = format!("{}-endpoint", kind.as_str());
+        let mut resolved = crate::harness::resolve_with(
+            &crate::harness::PresetsConfig::default(),
+            crate::session::Harness::Pi,
+            transport,
+            None,
+            None,
+            scratch.path(),
+        )
+        .unwrap();
         let prepared = transport_for_kind(kind)
             .prepare_launch(&mut resolved, endpoint.clone())
             .unwrap();

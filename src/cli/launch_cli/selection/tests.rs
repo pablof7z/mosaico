@@ -36,7 +36,6 @@ fn conflict_selector_is_forwarded_for_daemon_side_realization() {
             crate::session::Harness::Codex,
             crate::session::Harness::ClaudeCode,
         ],
-        &crate::harness::HarnessesConfig::default(),
         &catalog,
         Some(root.path()),
     );

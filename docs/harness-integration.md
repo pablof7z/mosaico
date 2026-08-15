@@ -7,8 +7,12 @@ approximated with aliases, wrappers, or compatibility shims.
 
 The ownership boundary is:
 
-- agent JSON selects a role, harness bundle, and optional profile;
-- `harnesses.json` owns configurable launch policy; and
+- agent JSON selects a role, canonical harness, optional native profile, and
+  optional named launch preset;
+- launch intent selects PTY, ACP, or app-server from the code-owned capability
+  matrix;
+- `presets.json` may add arguments for the selected harness and transport, but
+  never selects either one; and
 - Rust owns the supported `(harness, transport)` capability matrix and maps
   profiles onto each harness's native surface.
 
@@ -38,7 +42,7 @@ The ownership boundary is:
 - [ ] Add executable detection and inventory presentation.
 - [ ] Add interactive and managed transport preferences in
   `src/session_host/launch/source.rs`.
-- [ ] Ensure hosted sessions persist the observed harness, admitted bundle,
+- [ ] Ensure hosted sessions persist the observed harness, admitted preset,
   admitted transport, native session locator, and runtime endpoint.
 - [ ] Add the runtime endpoint and native resume locators needed to reconnect
   after process or daemon restart.

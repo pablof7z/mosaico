@@ -60,7 +60,7 @@ async fn missing_hosted_locators_never_fall_back_to_a_live_pid() {
                     &crate::state::AdmittedRuntimeFacts {
                         observed_harness: "codex".into(),
                         claimed_harness: String::new(),
-                        bundle: format!("codex-{transport}"),
+                        preset: String::new(),
                         transport: transport.into(),
                         endpoint_provenance: "launch".into(),
                     },
@@ -90,7 +90,7 @@ fn idle_eviction_and_exact_resume_reopen_presence_under_the_new_generation() {
     let facts = AdmittedRuntimeFacts {
         observed_harness: "codex".into(),
         claimed_harness: String::new(),
-        bundle: "codex-pty".into(),
+        preset: String::new(),
         transport: "pty".into(),
         endpoint_provenance: "launch".into(),
     };

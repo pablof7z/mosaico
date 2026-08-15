@@ -13,6 +13,8 @@ struct AgentSaveParams {
     #[serde(default)]
     profile: Option<String>,
     #[serde(default)]
+    preset: Option<String>,
+    #[serde(default)]
     per_session_key: Option<bool>,
 }
 
@@ -29,6 +31,7 @@ pub(super) fn rpc_agent_save(
             crate::identity::LocalAgentUpdate {
                 harness: params.harness,
                 profile: params.profile,
+                preset: params.preset,
                 per_session_key: params.per_session_key,
                 byline: None,
             },
@@ -120,14 +123,15 @@ mod tests {
             &state,
             &serde_json::json!({
                 "slug": "writer",
-                "harness": "codex-pty",
+                "harness": "codex",
                 "profile": "reviewer",
+                "preset": "unrestricted",
                 "per_session_key": true,
             }),
         )
         .unwrap();
         assert_eq!(saved["created"], true);
-        assert_eq!(saved["harness"], "codex-pty");
+        assert_eq!(saved["harness"], "codex");
         assert!(mosaico_home.join("agents/writer.json").is_file());
 
         let removed = rpc_agent_remove(&state, &serde_json::json!({ "slug": "writer" })).unwrap();
@@ -147,7 +151,7 @@ mod tests {
             &state,
             &serde_json::json!({
                 "slug": "writer",
-                "harness": "codex-pty",
+                "harness": "codex",
             }),
         )
         .unwrap_err();
@@ -169,7 +173,7 @@ mod tests {
   "slug": "chief-of-staff",
   "created_at": 7,
   "perSessionKey": false,
-  "harness": "codex-pty"
+  "harness": "codex"
 }"#,
         )
         .unwrap();
@@ -204,7 +208,7 @@ mod tests {
         let (root, _env) = isolated_home();
         let state = Arc::new(AgentConfigState::new());
         let start = Arc::new(Barrier::new(3));
-        let calls = ["codex-pty", "claude-acp"].map(|harness| {
+        let calls = ["codex", "claude-code"].map(|harness| {
             let state = Arc::clone(&state);
             let start = Arc::clone(&start);
             std::thread::spawn(move || {
@@ -229,7 +233,7 @@ mod tests {
         let stored: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(stored["slug"], "writer");
-        assert!(["codex-pty", "claude-acp"].contains(&stored["harness"].as_str().unwrap()));
+        assert!(["codex", "claude-code"].contains(&stored["harness"].as_str().unwrap()));
         assert!(!path.with_extension("json.tmp").exists());
     }
 
@@ -239,7 +243,7 @@ mod tests {
         let state = Arc::new(AgentConfigState::new());
         rpc_agent_save(
             &state,
-            &serde_json::json!({ "slug": "writer", "harness": "codex-pty" }),
+            &serde_json::json!({ "slug": "writer", "harness": "codex" }),
         )
         .unwrap();
         let start = Arc::new(Barrier::new(3));
@@ -250,7 +254,7 @@ mod tests {
                 start.wait();
                 rpc_agent_save(
                     &state,
-                    &serde_json::json!({ "slug": "writer", "harness": "claude-acp" }),
+                    &serde_json::json!({ "slug": "writer", "harness": "claude-code" }),
                 )
             })
         };
@@ -272,7 +276,7 @@ mod tests {
         if path.exists() {
             let stored: serde_json::Value =
                 serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            assert_eq!(stored["harness"], "claude-acp");
+            assert_eq!(stored["harness"], "claude-code");
         }
         assert!(!path.with_extension("json.tmp").exists());
     }

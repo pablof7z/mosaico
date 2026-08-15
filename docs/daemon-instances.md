@@ -86,7 +86,7 @@ clears the resolved `attachmentReceiveDirectory`, including a safely scoped
 external directory. The reset refuses root/home-wide targets and anything that
 overlaps configuration or native profile files.
 
-Configuration survives byte-for-byte: `config.json`, `harnesses.json`,
+Configuration survives byte-for-byte: `config.json`, `presets.json`,
 `agents/`, `workspaces.json`, registered MCP clients, harness definitions,
 agent profile declarations, and unrecognized files in the selected root.
 Transient `harness-profiles/` materializations are runtime and are deleted.

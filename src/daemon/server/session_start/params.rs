@@ -30,9 +30,9 @@ pub(super) struct SessionStartParams {
     /// Harness observed from launch admission or a recognized ancestor process.
     #[serde(default)]
     pub(super) observed_harness: Option<String>,
-    /// Launch-selected bundle. Empty for externally discovered sessions.
+    /// Explicit launch preset. Empty for external sessions or no preset.
     #[serde(default)]
-    pub(super) admitted_bundle: Option<String>,
+    pub(super) admitted_preset: Option<String>,
     /// Hosted transport recorded at admission (`pty`/`acp`/`app-server`).
     #[serde(default)]
     pub(super) admitted_transport: Option<String>,
@@ -79,7 +79,7 @@ impl SessionStartParams {
 pub(super) struct RuntimeFacts {
     pub(super) observed_harness: crate::session::Harness,
     pub(super) claimed_harness: String,
-    pub(super) admitted_bundle: String,
+    pub(super) admitted_preset: String,
     pub(super) admitted_transport: String,
     pub(super) endpoint_provenance: String,
 }
@@ -114,7 +114,7 @@ pub(super) fn runtime_facts(p: &SessionStartParams) -> anyhow::Result<RuntimeFac
     Ok(RuntimeFacts {
         observed_harness: observed,
         claimed_harness: claimed,
-        admitted_bundle: p.admitted_bundle.clone().unwrap_or_default(),
+        admitted_preset: p.admitted_preset.clone().unwrap_or_default(),
         admitted_transport: transport.to_string(),
         endpoint_provenance: provenance.to_string(),
     })

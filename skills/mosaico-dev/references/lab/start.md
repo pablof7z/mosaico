@@ -75,7 +75,7 @@ Each profile receives:
 
 ```text
 .container-state/<profile>/mosaico/config.json
-.container-state/<profile>/mosaico/harnesses.json
+.container-state/<profile>/mosaico/presets.json
 .container-state/<profile>/mosaico/agents/<slug>.json
 ```
 
@@ -91,9 +91,8 @@ Inspect the public shape:
 ```bash
 jq '{relays,indexerRelay,backendName,whitelistedPubkeys}' \
   .container-state/claude-acp/mosaico/config.json
-jq 'to_entries[] | {bundle:.key,harness:.value.harness,transport:.value.transport,args:(.value.args // [])}' \
-  .container-state/claude-acp/mosaico/harnesses.json
-jq '{slug,harness,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \
+jq . .container-state/claude-acp/mosaico/presets.json
+jq '{slug,harness,preset,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \
   .container-state/claude-acp/mosaico/agents/claude.json
 ```
 

@@ -140,7 +140,7 @@ mod tests {
                 &crate::state::AdmittedRuntimeFacts {
                     observed_harness: "codex".into(),
                     claimed_harness: String::new(),
-                    bundle: "codex-pty".into(),
+                    preset: String::new(),
                     transport: "pty".into(),
                     endpoint_provenance: "launch".into(),
                 },

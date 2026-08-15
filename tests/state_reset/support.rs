@@ -105,7 +105,7 @@ pub(super) fn seed_configuration_at(
     let files = vec![
         (config_path.to_path_buf(), config),
         (
-            home.join("harnesses.json"),
+            home.join("presets.json"),
             br#"{"codex":{"harness":"codex","transport":"pty"}}"#.to_vec(),
         ),
         (

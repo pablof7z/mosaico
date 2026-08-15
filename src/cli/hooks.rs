@@ -110,7 +110,7 @@ async fn hook_dispatch(
     // authoritative. Otherwise, look for a live Claude or Kimi ancestor using
     // its native `--agent <name>` selector (bypassing Mosaico hosting) and
     // treat it as that identity. The profile name is retained, but argv
-    // remains owned by harnesses.json.
+    // remains owned by the harness driver plus an explicitly selected preset.
     let env_slug = agent_env_slug();
     let (agent_slug, profile): (String, Option<String>) = match &env_slug {
         Some(s) => (s.clone(), None),

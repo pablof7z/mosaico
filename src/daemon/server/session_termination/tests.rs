@@ -25,7 +25,7 @@ fn register(
                     &crate::state::AdmittedRuntimeFacts {
                         observed_harness: "codex".into(),
                         claimed_harness: String::new(),
-                        bundle: format!("codex-{admitted_transport}"),
+                        preset: String::new(),
                         transport: admitted_transport.into(),
                         endpoint_provenance: "launch".into(),
                     },

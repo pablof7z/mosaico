@@ -3,14 +3,14 @@ use super::*;
 fn facts(
     observed: &str,
     claimed: &str,
-    bundle: &str,
+    preset: &str,
     transport: &str,
     provenance: &str,
 ) -> AdmittedRuntimeFacts {
     AdmittedRuntimeFacts {
         observed_harness: observed.into(),
         claimed_harness: claimed.into(),
-        bundle: bundle.into(),
+        preset: preset.into(),
         transport: transport.into(),
         endpoint_provenance: provenance.into(),
     }
@@ -23,7 +23,7 @@ fn hook_claim_cannot_rewrite_launch_facts_even_after_the_row_is_dead() {
     let generation = store
         .reserve_session_with_facts(
             &registration,
-            &facts("grok", "", "grok-pty", "pty", "launch"),
+            &facts("grok", "", "unrestricted", "pty", "launch"),
         )
         .unwrap();
     assert!(store
@@ -45,7 +45,7 @@ fn hook_claim_cannot_rewrite_launch_facts_even_after_the_row_is_dead() {
     let session = store.get_session("pk").unwrap().unwrap();
     assert_eq!(session.observed_harness, "grok");
     assert_eq!(session.claimed_harness, "claude-code");
-    assert_eq!(session.admitted_bundle, "grok-pty");
+    assert_eq!(session.admitted_preset, "unrestricted");
     assert_eq!(session.admitted_transport, "pty");
     assert_eq!(session.endpoint_provenance, "launch");
 }
@@ -57,7 +57,7 @@ fn diagnostic_claim_update_does_not_touch_admitted_facts() {
     store
         .reserve_session_with_facts(
             &registration,
-            &facts("codex", "", "codex-app", "app-server", "launch"),
+            &facts("codex", "", "", "app-server", "launch"),
         )
         .unwrap();
     store.record_claimed_harness("pk", "claude-code").unwrap();
@@ -65,7 +65,7 @@ fn diagnostic_claim_update_does_not_touch_admitted_facts() {
     let session = store.get_session("pk").unwrap().unwrap();
     assert_eq!(session.claimed_harness, "claude-code");
     assert_eq!(session.observed_harness, "codex");
-    assert_eq!(session.admitted_bundle, "codex-app");
+    assert_eq!(session.admitted_preset, "");
     assert_eq!(session.admitted_transport, "app-server");
     assert_eq!(session.endpoint_provenance, "launch");
 }
@@ -74,23 +74,19 @@ fn diagnostic_claim_update_does_not_touch_admitted_facts() {
 fn store_rejects_incomplete_or_inconsistent_runtime_facts() {
     let cases = [
         (
-            facts("", "", "codex-pty", "pty", "launch"),
+            facts("", "", "unrestricted", "pty", "launch"),
             "require observed_harness",
         ),
         (
-            facts("grok", "", "grok-pty", "pty", "launch"),
+            facts("grok", "", "unrestricted", "pty", "launch"),
             "does not match admitted facts",
         ),
         (
-            facts("codex", "codex", "codex-pty", "pty", "launch"),
+            facts("codex", "codex", "unrestricted", "pty", "launch"),
             "launch runtime facts forbid claimed_harness",
         ),
         (
-            facts("codex", "", "", "pty", "launch"),
-            "launch runtime facts require bundle",
-        ),
-        (
-            facts("codex", "", "codex-pty", "", "launch"),
+            facts("codex", "", "unrestricted", "", "launch"),
             "launch runtime facts require transport",
         ),
         (
@@ -98,8 +94,8 @@ fn store_rejects_incomplete_or_inconsistent_runtime_facts() {
             "hook runtime facts require claimed_harness",
         ),
         (
-            facts("codex", "codex", "codex-pty", "pty", "hook"),
-            "hook runtime facts forbid bundle",
+            facts("codex", "codex", "unrestricted", "pty", "hook"),
+            "hook runtime facts forbid preset",
         ),
         (
             facts("codex", "codex", "", "exec", "hook"),

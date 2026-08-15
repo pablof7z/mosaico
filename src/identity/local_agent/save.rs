@@ -1,6 +1,6 @@
 use super::super::{
     agents_dir, atomic_write, key_path, normalize_optional_config_name, read_stored_key,
-    validate_config_name, validate_slug, AgentIdentity, StoredKey,
+    validate_slug, AgentIdentity, StoredKey,
 };
 use anyhow::{Context, Result};
 use nostr::Keys;
@@ -15,6 +15,7 @@ use std::path::Path;
 pub struct LocalAgentUpdate {
     pub harness: String,
     pub profile: Option<String>,
+    pub preset: Option<String>,
     pub per_session_key: Option<bool>,
     pub byline: Option<Option<String>>,
 }
@@ -31,14 +32,16 @@ pub fn save_local_agent(
     now: u64,
 ) -> Result<(AgentIdentity, bool)> {
     validate_slug(slug)?;
-    let harness = validate_config_name("harness", &update.harness)?;
+    let harness = super::super::validate_harness(&update.harness)?;
     let profile = normalize_optional_config_name("profile", update.profile.as_deref())?;
+    let preset = normalize_optional_config_name("preset", update.preset.as_deref())?;
     let path = key_path(mosaico_home, slug);
     if path.exists() {
         let mut stored = read_stored_key(&path)?;
         stored.identity_keys()?;
         stored.harness = harness;
         stored.profile = profile;
+        stored.preset = preset;
         if let Some(byline) = update.byline {
             stored.byline = normalize_byline(byline);
         }
@@ -57,6 +60,7 @@ pub fn save_local_agent(
         per_session_key: update.per_session_key.unwrap_or(true),
         harness,
         profile,
+        preset,
     };
     let target_per_session_key = stored.per_session_key;
     apply_identity_mode(&mut stored, target_per_session_key);
@@ -86,6 +90,7 @@ fn identity_from_stored(stored: &StoredKey) -> Result<AgentIdentity> {
         per_session_key: stored.per_session_key,
         harness: stored.harness.clone(),
         profile: stored.profile.clone(),
+        preset: stored.preset.clone(),
     })
 }
 

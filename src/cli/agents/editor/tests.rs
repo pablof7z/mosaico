@@ -1,83 +1,32 @@
 use super::*;
 
 #[test]
-fn managed_mode_maps_to_each_harness_native_rpc_transport() {
-    assert_eq!(
-        mode_transport(Harness::ClaudeCode, OperationMode::Managed),
-        Transport::Acp
-    );
-    assert_eq!(
-        mode_transport(Harness::Codex, OperationMode::Managed),
-        Transport::AppServer
-    );
-    assert_eq!(
-        mode_transport(Harness::Hermes, OperationMode::Managed),
-        Transport::Acp
-    );
-    assert_eq!(
-        operation_modes(Harness::Hermes, false),
-        [OperationMode::Managed, OperationMode::Pty]
-    );
-    assert_eq!(
-        operation_modes(Harness::Kimi, false),
-        [OperationMode::Managed, OperationMode::Pty]
-    );
-    assert_eq!(
-        mode_transport(Harness::Pi, OperationMode::Managed),
-        Transport::PiRpc
-    );
-    assert_eq!(
-        operation_modes(Harness::Pi, false),
-        [OperationMode::Managed, OperationMode::Pty]
-    );
+fn preserves_valid_slug() {
+    assert_eq!(persistable_slug("reviewer"), "reviewer");
 }
 
 #[test]
-fn native_profiles_only_offer_transports_that_activate_them() {
-    assert_eq!(
-        operation_modes(Harness::ClaudeCode, true),
-        [OperationMode::Managed, OperationMode::Pty]
-    );
-    assert_eq!(
-        operation_modes(Harness::Opencode, true),
-        [OperationMode::Pty]
-    );
-    assert_eq!(operation_modes(Harness::Kimi, true), [OperationMode::Pty]);
+fn sanitizes_native_profile_name() {
+    assert_eq!(persistable_slug("Ava Chen"), "ava-chen");
 }
 
 #[test]
-fn compatible_bundle_filter_never_crosses_harnesses() {
-    let config: HarnessesConfig = serde_json::from_str(
-        r#"{"claude-acp":{"harness":"claude-code","transport":"acp"},"codex-pty":{"harness":"codex","transport":"pty"}}"#,
-    )
-    .unwrap();
-    assert_eq!(
-        compatible_bundles(&config, Harness::ClaudeCode, Transport::Acp),
-        ["claude-acp"]
-    );
+fn canonical_harness_choices_include_pi() {
+    assert!(Harness::ALL.contains(&Harness::Pi));
 }
 
 #[test]
-fn editing_a_configured_agent_preserves_its_explicit_profile() {
+fn native_profile_is_not_saved_as_generic_profile() {
     let row = AgentRow {
         slug: "reviewer".into(),
         agent_slug: "reviewer".into(),
-        description: "Reviews".into(),
+        description: String::new(),
         harness: Harness::ClaudeCode,
-        bundle: Some("claude-pty".into()),
-        transport: Some(Transport::Pty),
-        profile: Some("specialist".into()),
-        per_session_key: Some(true),
-        kind: AgentKind::Configured,
-        native_profile: Some(crate::agent_catalog::NativeAgentProfile {
-            slug: "reviewer".into(),
-            use_criteria: "Reviews".into(),
-            harness: Harness::ClaudeCode,
-            scope: crate::agent_catalog::AgentScope::Global,
-            path: "/tmp/reviewer.md".into(),
-            modified_at: 1,
-        }),
+        profile: None,
+        preset: None,
+        per_session_key: None,
+        kind: AgentKind::NativeProfile,
+        native_profile: None,
     };
-
-    assert_eq!(profile_for_save(&row).as_deref(), Some("specialist"));
+    assert_eq!(profile_for_save(&row), None);
 }

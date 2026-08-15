@@ -26,10 +26,10 @@ MOSAICO_DEV_PROMPT="Run mosaico my session." \
   skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" launch claude
 ```
 
-The bundle's `transport: "pty"` selects portable PTY hosting. The current launch
-surface is `mosaico <target> [prompt] [-- <args>...]`; durable provider flags
-belong in bundle `args`, while separator arguments apply to one launch. Use the
-attached terminal for UI evidence.
+The interactive `mosaico` boundary selects portable PTY hosting. The current
+launch surface is `mosaico <target> [prompt] [-- <args>...]`; reusable provider
+flags belong in the agent's selected preset and separator arguments apply to one
+launch. Use the attached terminal for UI evidence.
 
 Use [`../grok-pty-lab.md`](../grok-pty-lab.md) for native Grok hook provenance
 and p-tagged injection proof.
@@ -42,9 +42,10 @@ MOSAICO_DEV_PROMPT="Run mosaico my session and summarize the self header." \
   skills/mosaico-dev/scripts/launch-agent "${LAB_ENV}" launch claude-acp
 ```
 
-The bundle transport selects ACP or app-server. The helper keeps that container
-alive after the launch command returns because it owns the daemon and RPC child.
-Expected output contains an RPC session id; there is no PTY.
+The hosted launch boundary selects ACP, or app-server for Codex. The helper
+keeps that container alive after the launch command returns because it owns the
+daemon and RPC child. Expected output contains an RPC session id; there is no
+PTY.
 
 ## Launch inventory
 

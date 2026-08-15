@@ -14,7 +14,7 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
     let log = home.dir.path().join("routeless-injected.log");
     let native_session = unique_session("routeless-native");
     let _path = install_opencode_shim(&home, &native_session, &work_dir, &log);
-    identity::add_local_agent(home.dir.path(), agent, "offline-test", None, 1)
+    identity::add_local_agent(home.dir.path(), agent, "opencode", None, None, 1)
         .expect("add local agent");
 
     let (_, original) = launch_target(&home, agent, &root, &work_dir);

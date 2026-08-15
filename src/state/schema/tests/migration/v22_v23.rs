@@ -19,7 +19,7 @@ fn schema_twenty_two_admits_pi_rpc_without_losing_runtime_rows() {
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: "codex".into(),
                 claimed_harness: String::new(),
-                bundle: "codex-app".into(),
+                preset: "lab".into(),
                 transport: "app-server".into(),
                 endpoint_provenance: "launch".into(),
             },
@@ -27,7 +27,12 @@ fn schema_twenty_two_admits_pi_rpc_without_losing_runtime_rows() {
         .unwrap();
     drop(store);
     let conn = Connection::open(&path).unwrap();
-    conn.pragma_update(None, "user_version", 22).unwrap();
+    conn.execute_batch(
+        "ALTER TABLE sessions DROP COLUMN admitted_preset;
+         ALTER TABLE sessions ADD COLUMN admitted_bundle TEXT NOT NULL DEFAULT '';
+         PRAGMA user_version = 22;",
+    )
+    .unwrap();
     drop(conn);
 
     let store = Store::open(&path).unwrap();
@@ -46,7 +51,7 @@ fn schema_twenty_two_admits_pi_rpc_without_losing_runtime_rows() {
             &crate::state::AdmittedRuntimeFacts {
                 observed_harness: "pi".into(),
                 claimed_harness: String::new(),
-                bundle: "pi-rpc".into(),
+                preset: String::new(),
                 transport: "pi-rpc".into(),
                 endpoint_provenance: "launch".into(),
             },
@@ -58,5 +63,5 @@ fn schema_twenty_two_admits_pi_rpc_without_losing_runtime_rows() {
     drop(store);
 
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 23);
+    assert_eq!(version(&conn), 24);
 }

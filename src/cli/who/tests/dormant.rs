@@ -30,7 +30,7 @@ fn seed_stopped_member(store: &Store) {
             &AdmittedRuntimeFacts {
                 observed_harness: "codex".into(),
                 claimed_harness: String::new(),
-                bundle: "codex-acp".into(),
+                preset: String::new(),
                 transport: "app-server".into(),
                 endpoint_provenance: "launch".into(),
             },

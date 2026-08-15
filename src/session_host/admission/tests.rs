@@ -8,6 +8,7 @@ fn agent() -> crate::identity::AgentIdentity {
         per_session_key: true,
         harness: "codex".into(),
         profile: None,
+        preset: None,
     }
 }
 
@@ -19,7 +20,7 @@ async fn fresh_and_resumed_reservations_expose_the_same_assigned_signer() {
         &state,
         &agent,
         "codex",
-        "codex-pty",
+        Some("unrestricted"),
         "pty",
         "root",
         None,
@@ -37,7 +38,7 @@ async fn fresh_and_resumed_reservations_expose_the_same_assigned_signer() {
         &fresh.pubkey,
         "codex",
         "codex",
-        "codex-pty",
+        Some("unrestricted"),
         "pty",
         "root",
         "root",
@@ -58,17 +59,8 @@ async fn fresh_and_resumed_reservations_expose_the_same_assigned_signer() {
 #[tokio::test]
 async fn unscoped_reservation_has_no_channel_route() {
     let state = DaemonState::new_for_test().await;
-    let reservation = reserve_fresh(
-        &state,
-        &agent(),
-        "codex",
-        "codex-pty",
-        "pty",
-        "",
-        None,
-        None,
-    )
-    .unwrap();
+    let reservation =
+        reserve_fresh(&state, &agent(), "codex", None, "pty", "", None, None).unwrap();
     let session = state
         .with_store(|store| store.get_session(&reservation.pubkey))
         .unwrap()
@@ -84,12 +76,12 @@ async fn unscoped_reservation_has_no_channel_route() {
 #[tokio::test]
 async fn exact_resume_keeps_the_persisted_agent_slug() {
     let state = DaemonState::new_for_test().await;
-    let developer = crate::identity::AgentIdentity::per_session("developer", "claude-pty");
+    let developer = crate::identity::AgentIdentity::per_session("developer", "claude-code");
     let fresh = reserve_fresh(
         &state,
         &developer,
         "claude-code",
-        "claude-pty",
+        None,
         "pty",
         "mosaico",
         Some("mosaico"),
@@ -104,7 +96,7 @@ async fn exact_resume_keeps_the_persisted_agent_slug() {
         &fresh.pubkey,
         "developer",
         "claude-code",
-        "claude-pty",
+        None,
         "pty",
         "mosaico",
         "mosaico",
@@ -128,7 +120,7 @@ async fn exact_fresh_launch_requires_a_matching_durable_pubkey() {
         &state,
         &per_session,
         "codex",
-        "codex-pty",
+        None,
         "pty",
         "root",
         Some("root"),
@@ -151,12 +143,13 @@ async fn exact_fresh_launch_requires_a_matching_durable_pubkey() {
         per_session_key: false,
         harness: "codex".into(),
         profile: None,
+        preset: None,
     };
     let reservation = reserve_fresh_for_pubkey(
         &state,
         &durable,
         "codex",
-        "codex-pty",
+        None,
         "pty",
         "root",
         Some("root"),
@@ -175,7 +168,7 @@ async fn stopped_zero_turn_session_can_fresh_relaunch_with_exact_signer() {
         &state,
         &agent,
         "codex",
-        "codex-pty",
+        None,
         "pty",
         "root",
         Some("root"),
@@ -188,7 +181,7 @@ async fn stopped_zero_turn_session_can_fresh_relaunch_with_exact_signer() {
         &state,
         &agent,
         "codex",
-        "codex-pty",
+        None,
         "pty",
         "root",
         Some("root"),
