@@ -10,13 +10,22 @@ Install Mosaico first, then add the package to Pi:
 pi install npm:pi-mosaico
 ```
 
-`mosaico setup` installs the same extension source into Pi's global extension
+`mosaico setup` installs the same extension bundle under Pi's global extension
 directory. Both Pi's interactive PTY mode and Mosaico's native Pi RPC transport
 use this one extension; RPC owns its managed turn lifecycle while the extension
 owns lifecycle observation for PTY and manually launched sessions.
 
-The integration fails open when Mosaico is unavailable. It never delivers a
-prompt itself and never changes Pi's project trust policy.
+The integration fails open when Mosaico is unavailable and never changes Pi's
+project trust policy. It connects directly to Mosaico's existing local daemon:
+the extension registers its Pi-native session, leases exact directed inbox work,
+injects it as Pi custom context, and acknowledges only after Pi accepts it.
+Ambient channel chat is supplied as normal turn awareness rather than waking an
+agent by itself.
+
+In interactive Pi, the extension paints its own session-status chip into the
+footer from the `mosaico_session` snapshot: handle, workspace, public title,
+and `unhosted`/`headless` when those change delivery. The chip is hidden when
+the daemon is down.
 
 In interactive Pi, the extension paints its own session-status chip into the
 footer from the `mosaico_session` snapshot: handle, workspace, public title,
@@ -44,7 +53,7 @@ The extension registers native Pi tools for ordinary agent coordination:
 
 Operator and administration operations are intentionally absent.
 
-Tools do not scrape Mosaico's human CLI output. Each call sends one versioned
-JSON request to `mosaico harness pi`, including Pi's native session ID and cwd,
-and receives a structured Pi tool result as JSON. Expected tool failures are
-returned to the model; lifecycle hooks remain fail-open.
+Tools do not scrape or spawn Mosaico's human CLI. Each call uses the daemon's
+versioned UDS JSON protocol with Pi's native session ID and cwd, and receives a
+structured Pi tool result. Expected tool failures are returned to the model;
+lifecycle observation remains fail-open.

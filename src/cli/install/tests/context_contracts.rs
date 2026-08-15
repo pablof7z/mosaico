@@ -54,33 +54,79 @@ if (drainBoundaryWarnings(warnings) !== "") process.exit(13);
 
 #[test]
 fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
-    let source = config::PI_EXTENSION_TS;
+    // The extension is a direct UDS client of the Mosaico daemon: it registers
+    // the exact Pi session, pumps durable inbox deliveries as custom context,
+    // and routes native tool calls through `pi_tool_call`. The install path must
+    // ship every module the extension imports, and the daemon protocol depends
+    // on `caller()` anchoring harness="pi" plus the live session id.
+    let entry = config::PI_EXTENSION_TS;
     for contract in [
         "session_start",
         "before_agent_start",
         "tool_call",
         "tool_result",
         "agent_settled",
-        "MOSAICO_TRANSPORT",
-        "MOSAICO_ENDPOINT_ID",
         "session_shutdown",
-        "ctx.sessionManager.getSessionId()",
+        "message_start",
+        "MOSAICO_TRANSPORT",
+        "MOSAICO_PUBKEY",
+        "registerMosaicoTools",
+        "DeliveryPump",
+        "paintSessionStatus",
         "return { block: true, reason: result.message }",
     ] {
-        assert!(source.contains(contract), "missing Pi contract {contract}");
+        assert!(
+            entry.contains(contract),
+            "missing Pi entry contract {contract}"
+        );
     }
+
+    let protocol = config::PI_PROTOCOL_TS;
+    for contract in [
+        "ctx.sessionManager.getSessionId()",
+        "harness: \"pi\"",
+        "harness_session",
+        "watch_pid",
+        "MOSAICO_OBSERVED_HARNESS",
+        "pi_tool_call",
+        "channel_read",
+        "isHostedPi",
+    ] {
+        assert!(
+            protocol.contains(contract),
+            "missing Pi protocol contract {contract}"
+        );
+    }
+
     let tools = config::PI_TOOLS_TS;
-    for contract in ["registerTool", "mosaico_reply", "mosaico_channel_create"] {
+    for contract in [
+        "registerTool",
+        "registerMosaicoTools",
+        "mosaico_reply",
+        "mosaico_channel_create",
+        "mosaico_dispatch",
+        "execute",
+        "readChannel",
+    ] {
         assert!(
             tools.contains(contract),
             "missing Pi tool contract {contract}"
         );
     }
-    let protocol = config::PI_PROTOCOL_TS;
-    for contract in ["[\"harness\", \"pi\"]", "ctx.sessionManager.getSessionId()"] {
-        assert!(
-            protocol.contains(contract),
-            "missing Pi protocol contract {contract}"
-        );
+
+    // The installer must ship every module the extension imports, so a Pi load
+    // never fails on a missing sibling file.
+    let shipped: std::collections::HashSet<&str> = config::PI_EXTENSION_FILES
+        .iter()
+        .map(|(name, _)| *name)
+        .collect();
+    for name in [
+        "index.ts",
+        "delivery.ts",
+        "protocol.ts",
+        "status.ts",
+        "tools.ts",
+    ] {
+        assert!(shipped.contains(name), "Pi install missing {name}");
     }
 }

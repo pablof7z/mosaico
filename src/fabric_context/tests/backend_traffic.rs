@@ -41,6 +41,7 @@ fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
             local_host: "laptop",
             forced_messages: &[],
             warnings: &[],
+            extension_delivery_live: false,
             force: true,
         };
         let text = render_fabric_context(&store, build).expect("roster should render");
@@ -55,6 +56,7 @@ fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
             local_host: "laptop",
             forced_messages: &[],
             warnings: &[],
+            extension_delivery_live: false,
             force: true,
         };
         let captured = capture_inputs(&store, &cap_input).unwrap();
@@ -132,6 +134,7 @@ fn backend_traffic_excluded_from_chatter() {
             local_host: "laptop",
             forced_messages: &[],
             warnings: &[],
+            extension_delivery_live: false,
             force: false,
         };
         let text = render_fabric_context(&store, build).expect("chatter should render");
@@ -146,6 +149,7 @@ fn backend_traffic_excluded_from_chatter() {
             local_host: "laptop",
             forced_messages: &[],
             warnings: &[],
+            extension_delivery_live: false,
             force: false,
         };
         let captured = capture_inputs(&store, &cap_input).unwrap();

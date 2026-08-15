@@ -10,24 +10,57 @@ mod managed_turn;
 #[path = "prompt/tests.rs"]
 mod tests;
 
-struct PendingPrompt {
-    text: String,
-    chat_ids: Vec<String>,
-    channels: Vec<String>,
-    coordination_reminder_turn: Option<u64>,
+pub(crate) struct RenderedInboxPrompt {
+    pub(crate) text: String,
+    pub(crate) chat_ids: Vec<String>,
+    pub(crate) channels: Vec<String>,
+    pub(crate) coordination_reminder_turn: Option<u64>,
 }
 
 async fn collect_pending_prompt(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
     event_ids: &[String],
-) -> Result<Option<PendingPrompt>> {
+) -> Result<Option<RenderedInboxPrompt>> {
     let now = now_secs();
-    let mut chat_rows =
+    let chat_rows =
         state.with_store(|s| s.claim_pending_event_ids_for_pubkey(event_ids, &rec.pubkey, now))?;
     if chat_rows.is_empty() {
         return Ok(None);
     }
+    let channels = chat_rows
+        .iter()
+        .map(|row| row.channel_h.clone())
+        .collect::<Vec<_>>();
+    let rendered = render_inbox_rows(state, rec, chat_rows).await?;
+    let Some(rendered) = rendered else {
+        if let Err(e) = state.with_store(|s| s.reenqueue_pending(event_ids, &rec.pubkey)) {
+            tracing::error!(
+                pubkey = %rec.pubkey,
+                error = %e,
+                "failed to re-enqueue claimed-but-unrendered inbox rows; mention may be lost"
+            );
+            emit_delivery_failures(
+                state,
+                rec,
+                &channels,
+                format!("failed to re-enqueue claimed-but-unrendered inbox rows: {e:#}"),
+            );
+        }
+        return Ok(None);
+    };
+    Ok(Some(rendered))
+}
+
+/// Render already-claimed inbox rows for any transport. Claim ownership stays
+/// with the caller: PTY/RPC transports claim first, and native extensions hold
+/// a lease until their harness confirms acceptance.
+pub(crate) async fn render_inbox_rows(
+    state: &Arc<DaemonState>,
+    rec: &crate::state::Session,
+    mut chat_rows: Vec<crate::state::InboxRow>,
+) -> Result<Option<RenderedInboxPrompt>> {
+    let now = now_secs();
     let resolved_names = crate::profile::resolve_chat_labels(state, &mut chat_rows).await;
 
     let whitelisted = state.whitelisted_pubkeys().to_vec();
@@ -56,24 +89,7 @@ async fn collect_pending_prompt(
             show_guide,
         )
     });
-    let Some(text) = rendered else {
-        if let Err(e) = state.with_store(|s| s.reenqueue_pending(&chat_ids, &rec.pubkey)) {
-            tracing::error!(
-                pubkey = %rec.pubkey,
-                error = %e,
-                "failed to re-enqueue claimed-but-unrendered inbox rows; mention may be lost"
-            );
-            emit_delivery_failures(
-                state,
-                rec,
-                &channels,
-                format!("failed to re-enqueue claimed-but-unrendered inbox rows: {e:#}"),
-            );
-        }
-        return Ok(None);
-    };
-
-    Ok(Some(PendingPrompt {
+    Ok(rendered.map(|text| RenderedInboxPrompt {
         text,
         chat_ids,
         channels,
@@ -236,7 +252,7 @@ fn reenqueue_after_failure(
 fn finalize_injection(
     state: &Arc<DaemonState>,
     rec: &crate::state::Session,
-    prompt: &PendingPrompt,
+    prompt: &RenderedInboxPrompt,
     completion: &crate::session_host::transport::DeliveryCompletion,
 ) -> Result<()> {
     let now = now_secs();

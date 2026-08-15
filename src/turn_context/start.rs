@@ -37,6 +37,7 @@ pub(crate) fn render_turn_start_text_for_test(
         self_host,
         prev_turn_started_at,
         &hook_contexts,
+        false,
     )
     .unwrap()
     .text
@@ -49,6 +50,7 @@ pub(crate) fn assemble_turn_start(
     self_host: &str,
     _prev_turn_started_at: u64,
     hook_contexts: &super::HookContextStates,
+    extension_delivery_live: bool,
 ) -> Result<TurnContext> {
     let first_turn = rec.seen_cursor == 0;
     // A session has no mutable current channel. The renderer reads the complete
@@ -219,6 +221,7 @@ pub(crate) fn assemble_turn_start(
                 local_host: self_host,
                 forced_messages: &forced,
                 warnings: &warnings,
+                extension_delivery_live,
                 force: false,
             },
         )

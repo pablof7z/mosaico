@@ -21,7 +21,7 @@ mod registry;
 pub mod transport;
 
 pub use delivery::{deliver_spawn_prompt, inject_pending_messages_pty, ring_doorbells};
-pub(crate) use delivery::{session_has_live_delivery_path, session_is_headless};
+pub(crate) use delivery::{render_inbox_rows, session_has_live_delivery_path, session_is_headless};
 pub(crate) use launch::spawn_ephemeral_agent_for_pubkey;
 pub(crate) use launch::{
     adopt_native_session, resume_agent, resume_agent_in_channel, ResumeRequest,

@@ -46,6 +46,8 @@ pub(super) struct SessionRuntimeState {
     pub(super) hook_contexts: crate::turn_context::HookContextStates,
     pub(super) channel_nudges: Mutex<crate::channel_nudge::ChannelNudgeState>,
     pub(super) active_waits: Arc<Mutex<super::channel_wait::ActiveWaitRegistry>>,
+    pub(super) extension_delivery:
+        Arc<Mutex<super::session_delivery::ActiveExtensionDeliveryRegistry>>,
     pub(super) pty_probe_failures: Mutex<HashMap<(String, u64), u8>>,
 }
 
@@ -58,6 +60,9 @@ impl SessionRuntimeState {
             channel_nudges: Mutex::new(crate::channel_nudge::ChannelNudgeState::default()),
             active_waits: Arc::new(Mutex::new(
                 super::channel_wait::ActiveWaitRegistry::default(),
+            )),
+            extension_delivery: Arc::new(Mutex::new(
+                super::session_delivery::ActiveExtensionDeliveryRegistry::default(),
             )),
             pty_probe_failures: Mutex::new(HashMap::new()),
         }

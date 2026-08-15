@@ -3,10 +3,6 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub(in crate::cli) enum HarnessAction {
-    /// Serve one native Pi agent-tool request as strict JSON on stdin/stdout.
-    /// The request carries Pi's native session identity and a typed operation;
-    /// the response is a Pi AgentToolResult-shaped JSON object.
-    Pi,
     /// Handle a hook event from a supported agent harness.
     /// Reads hook JSON from stdin; emits context to inject into the model (if any).
     /// Usage: `mosaico harness hook <name> --type <hook-type>`
@@ -32,7 +28,6 @@ impl HarnessAction {
 
 pub(in crate::cli) async fn harness(action: HarnessAction) -> Result<()> {
     match action {
-        HarnessAction::Pi => super::harness_pi::run().await,
         HarnessAction::Hook { harness, hook_type } => {
             // Hooks fire on every turn of an unrelated harness session. An error
             // here (daemon down, config missing, RPC failure, …) must NEVER
@@ -53,14 +48,21 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn harness_pi_args_parse() {
-        let cli = crate::cli::args::Cli::try_parse_from(["mosaico", "harness", "pi"])
-            .expect("harness pi parses");
-        assert!(matches!(
-            cli.cmd,
-            Some(crate::cli::args::Cmd::Harness {
-                action: HarnessAction::Pi
-            })
-        ));
+    fn harness_hook_args_parse() {
+        let cli = crate::cli::args::Cli::try_parse_from([
+            "mosaico",
+            "harness",
+            "hook",
+            "--type",
+            "session-start",
+            "claude-code",
+        ])
+        .expect("harness hook parses");
+        match cli.cmd.expect("expected harness command") {
+            crate::cli::args::Cmd::Harness {
+                action: HarnessAction::Hook { hook_type, .. },
+            } => assert_eq!(hook_type.as_str(), "session-start"),
+            _ => panic!("expected harness hook command"),
+        }
     }
 }

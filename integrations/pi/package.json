@@ -16,6 +16,7 @@
   },
   "files": [
     "mosaico.ts",
+    "delivery.ts",
     "protocol.ts",
     "status.ts",
     "tools.ts",

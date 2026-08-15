@@ -22,6 +22,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
             &backend_pubkey,
             &host,
             now_secs(),
+            super::session_delivery::extension_delivery_live(state, &rec),
         )
     })?;
     Ok(serde_json::json!({ "fabric": fabric }))

@@ -31,10 +31,23 @@ pub(crate) fn local(
     session: &Session,
     published: Option<&Status>,
 ) -> PublicPresence {
+    local_with_extension(store, session, published, false)
+}
+
+/// Project local state with a live native-extension inbox path. This is not a
+/// process transport locator, but it is an authoritative return path while the
+/// extension renews its daemon delivery lease.
+pub(crate) fn local_with_extension(
+    store: &Store,
+    session: &Session,
+    published: Option<&Status>,
+    extension_delivery_live: bool,
+) -> PublicPresence {
     let state = SessionState::classify(
         session.is_running(),
         session.is_working(),
-        crate::session_host::session_has_live_delivery_path(store, session),
+        extension_delivery_live
+            || crate::session_host::session_has_live_delivery_path(store, session),
     );
     let matching = published.filter(|status| status.state == state);
     let title = if session.title.trim().is_empty() {
@@ -61,13 +74,22 @@ pub(crate) fn publication(
     store: &Store,
     session: &Session,
 ) -> crate::reconcile::PresenceProjection {
+    publication_with_extension(store, session, false)
+}
+
+pub(crate) fn publication_with_extension(
+    store: &Store,
+    session: &Session,
+    extension_delivery_live: bool,
+) -> crate::reconcile::PresenceProjection {
     let route_rows = store
         .list_session_routes(&session.pubkey)
         .unwrap_or_default();
     let published = route_rows
         .iter()
         .find_map(|(channel, _)| store.get_status(&session.pubkey, channel).ok().flatten());
-    let presence = local(store, session, published.as_ref());
+    let presence =
+        local_with_extension(store, session, published.as_ref(), extension_delivery_live);
     let channels = route_rows
         .into_iter()
         .map(|(channel, _)| channel)

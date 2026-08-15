@@ -60,6 +60,9 @@ pub(crate) struct FabricContextInput<'a> {
     pub(crate) local_host: &'a str,
     pub(crate) forced_messages: &'a [FabricMessageSeed],
     pub(crate) warnings: &'a [String],
+    /// A native extension's active daemon delivery lease is a real return path
+    /// even though it is not a process-hosting transport locator.
+    pub(crate) extension_delivery_live: bool,
     pub(crate) force: bool,
 }
 
@@ -173,6 +176,7 @@ fn root_input<'a>(
         local_host,
         forced_messages: &[],
         warnings: &[],
+        extension_delivery_live: false,
         force: true,
     }
 }
@@ -185,6 +189,7 @@ pub(crate) fn render_full_session_state(
     backend_pubkey: &str,
     local_host: &str,
     now: u64,
+    extension_delivery_live: bool,
 ) -> anyhow::Result<String> {
     let (view, _) = derive_view_with_inputs(
         store,
@@ -199,6 +204,7 @@ pub(crate) fn render_full_session_state(
             local_host,
             forced_messages: &[],
             warnings: &[],
+            extension_delivery_live,
             force: true,
         },
     )?;

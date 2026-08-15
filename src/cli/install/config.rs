@@ -5,9 +5,17 @@ use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/mosaico.ts");
 pub const PI_EXTENSION_TS: &str = include_str!("../../../integrations/pi/mosaico.ts");
+pub const PI_DELIVERY_TS: &str = include_str!("../../../integrations/pi/delivery.ts");
 pub const PI_PROTOCOL_TS: &str = include_str!("../../../integrations/pi/protocol.ts");
 pub const PI_STATUS_TS: &str = include_str!("../../../integrations/pi/status.ts");
 pub const PI_TOOLS_TS: &str = include_str!("../../../integrations/pi/tools.ts");
+pub const PI_EXTENSION_FILES: &[(&str, &str)] = &[
+    ("index.ts", PI_EXTENSION_TS),
+    ("delivery.ts", PI_DELIVERY_TS),
+    ("protocol.ts", PI_PROTOCOL_TS),
+    ("status.ts", PI_STATUS_TS),
+    ("tools.ts", PI_TOOLS_TS),
+];
 pub const HERMES_PLUGIN_YAML: &str = include_str!("../../../integrations/hermes/plugin.yaml");
 pub const HERMES_PLUGIN_PY: &str = include_str!("../../../integrations/hermes/__init__.py");
 
@@ -89,7 +97,7 @@ pub fn harnesses() -> Result<Vec<Harness>> {
         Harness {
             id: "pi",
             display: "Pi",
-            config_path: pi_agent_dir.join("extensions/mosaico.ts"),
+            config_path: pi_agent_dir.join("extensions/mosaico"),
             detected: available.contains(&crate::session::Harness::Pi),
         },
     ])

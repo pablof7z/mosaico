@@ -219,8 +219,8 @@ fn the_full_session_briefing_withholds_an_unnameable_member() {
     );
     let rec = session(&store);
 
-    let fabric =
-        render_full_session_state(&store, &rec, "coder", "", "laptop", 100).expect("briefing");
+    let fabric = render_full_session_state(&store, &rec, "coder", "", "laptop", 100, false)
+        .expect("briefing");
     assert!(
         !member_rows(&fabric).iter().any(|row| row.contains("ghost")),
         "{fabric}"

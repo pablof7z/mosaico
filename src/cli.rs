@@ -25,7 +25,6 @@ mod debug;
 mod dispatch;
 mod explain;
 mod harness;
-mod harness_pi;
 mod hooks;
 pub mod install;
 mod interactive;
