@@ -18,6 +18,11 @@ owns lifecycle observation for PTY and manually launched sessions.
 The integration fails open when Mosaico is unavailable. It never delivers a
 prompt itself and never changes Pi's project trust policy.
 
+In interactive Pi, the extension paints its own session-status chip into the
+footer from the `mosaico_session` snapshot: handle, workspace, public title,
+and `unhosted`/`headless` when those change delivery. The chip is hidden when
+the daemon is down.
+
 ## Native agent tools
 
 The extension registers native Pi tools for ordinary agent coordination:

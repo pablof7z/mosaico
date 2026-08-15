@@ -21,7 +21,8 @@ use owo_colors::OwoColorize;
 use args::InstallOpts;
 pub(super) use args::{setup, SetupArgs};
 pub(super) use config::{
-    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS, PI_TOOLS_TS,
+    harnesses, hook_entries, host_for_harness, OPENCODE_PLUGIN_TS, PI_EXTENSION_TS, PI_PROTOCOL_TS,
+    PI_STATUS_TS, PI_TOOLS_TS,
 };
 pub(super) use hooks::{is_installed, merge_hooks};
 pub(super) use io::{print_json_preview, read_json_or_default, write_json, write_text};
@@ -203,6 +204,18 @@ fn install_opencode(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()>
 
 fn install_pi(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     install_source_file(h, opts, render, PI_EXTENSION_TS)?;
+    install_source_path(
+        &h.config_path.with_file_name("protocol.ts"),
+        opts,
+        render,
+        PI_PROTOCOL_TS,
+    )?;
+    install_source_path(
+        &h.config_path.with_file_name("status.ts"),
+        opts,
+        render,
+        PI_STATUS_TS,
+    )?;
     install_source_path(
         &h.config_path.with_file_name("tools.ts"),
         opts,

@@ -207,21 +207,6 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
 
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.expect("connect");
-        let statusline = c
-            .call(
-                "statusline",
-                serde_json::json!({"session": &receiver_pubkey}),
-            )
-            .await
-            .expect("statusline");
-        let pending = statusline["pending"].as_array().expect("pending array");
-        // Profile observation is independent of exact-recipient delivery, so
-        // match the body and verify sender identity from the inbox row below.
-        assert!(
-            pending.iter().any(|row| { row["body"] == wire_body }),
-            "statusline should surface explicit chat mentions as pending: {statusline}"
-        );
-
         c.call(
             "turn_start",
             serde_json::json!({
@@ -231,18 +216,6 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
         )
         .await
         .expect("turn_start");
-        let statusline = c
-            .call(
-                "statusline",
-                serde_json::json!({"session": &receiver_pubkey}),
-            )
-            .await
-            .expect("statusline after drain");
-        let recent = statusline["recent"].as_array().expect("recent array");
-        assert!(
-            recent.iter().any(|row| { row["body"] == wire_body }),
-            "statusline should briefly linger drained chat mentions: {statusline}"
-        );
     });
 
     let store = Store::open(&home.store_path()).unwrap();

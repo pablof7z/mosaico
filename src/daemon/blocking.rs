@@ -69,8 +69,8 @@ where
 }
 
 /// One-shot call that NEVER spawns the daemon. For high-frequency fail-open
-/// surfaces (the statusline) that must render nothing when no daemon is running
-/// rather than booting one just to draw a line.
+/// surfaces that must render nothing when no daemon is running rather than
+/// booting one just to draw a line.
 pub fn call_no_spawn(method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
     call_no_spawn_with_attempt(method, &params, try_call)
 }

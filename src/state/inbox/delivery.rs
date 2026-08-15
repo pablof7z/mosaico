@@ -94,7 +94,7 @@ impl Store {
     }
 
     /// Completed inbound rows for an agent whose delivery is newer than
-    /// `since`, oldest-first. Powers statusline/integration peeks.
+    /// `since`, oldest-first. Powers integration peeks.
     pub fn recently_delivered_for_pubkey(
         &self,
         target_pubkey: &str,

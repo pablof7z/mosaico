@@ -134,7 +134,7 @@ impl Store {
 
     /// All pending inbound rows for an agent, oldest-first, WITHOUT consuming
     /// them — a read-only peek for callers that only display or warm caches
-    /// (statusline, `who`, profile warm-up, the doorbell's "has pending?"
+    /// (`who`, profile warm-up, the doorbell's "has pending?"
     /// filter). Delivery paths must use [`Store::claim_pending_for_pubkey`]
     /// instead, so the rows are claimed atomically.
     pub fn peek_pending_for_pubkey(&self, target_pubkey: &str) -> Result<Vec<InboxRow>> {

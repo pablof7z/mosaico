@@ -70,16 +70,17 @@ fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
         assert!(source.contains(contract), "missing Pi contract {contract}");
     }
     let tools = config::PI_TOOLS_TS;
-    for contract in [
-        "registerTool",
-        "mosaico_reply",
-        "mosaico_channel_create",
-        "[\"harness\", \"pi\"]",
-        "ctx.sessionManager.getSessionId()",
-    ] {
+    for contract in ["registerTool", "mosaico_reply", "mosaico_channel_create"] {
         assert!(
             tools.contains(contract),
             "missing Pi tool contract {contract}"
+        );
+    }
+    let protocol = config::PI_PROTOCOL_TS;
+    for contract in ["[\"harness\", \"pi\"]", "ctx.sessionManager.getSessionId()"] {
+        assert!(
+            protocol.contains(contract),
+            "missing Pi protocol contract {contract}"
         );
     }
 }

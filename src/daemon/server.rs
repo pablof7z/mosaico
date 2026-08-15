@@ -11,7 +11,7 @@ use crate::fabric::provider::Nip29Provider;
 use crate::identity;
 use crate::runtime::{self, EngineParams};
 use crate::session::Harness;
-use crate::state::{InboxRow, Store};
+use crate::state::Store;
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
 use nostr::{Event, Keys};
@@ -25,7 +25,6 @@ mod agent_discovery;
 mod agent_usage;
 mod backend_profile;
 mod background;
-mod chat_rows;
 mod delivery_drive;
 mod demux;
 mod direct_mentions;
@@ -45,7 +44,6 @@ mod session_dispatch_handler;
 mod session_records;
 mod state;
 use background::spawn_pruner;
-use chat_rows::chat_rows_to_json;
 use demux::spawn_demux;
 use management_command::{handle_management_command, is_management_command_for_backend};
 use orchestration_handler::handle_orchestration;
@@ -162,7 +160,6 @@ mod session_pty_wrap;
 mod session_signing;
 pub(crate) mod session_start;
 mod session_termination;
-mod statusline;
 mod subscriptions;
 #[cfg(test)]
 mod test_support;
@@ -194,7 +191,6 @@ pub(crate) use session_signing::{
     load_session_identity, prepare_session_identity, PreparedIdentity,
 };
 use session_start::rpc_session_start;
-use statusline::rpc_statusline;
 use subscriptions::{ensure_subscription, replay_channel_chat, sync_subscriptions};
 use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
@@ -253,7 +249,6 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
         "channel_leave" => rpc_channel_leave(state, &req.params).await,
         "channel_move_accept" => channel_move::rpc_accept(state, &req.params).await,
         "dispatch" => session_dispatch::rpc_dispatch(state, &req.params).await,
-        "statusline" => rpc_statusline(state, &req.params),
         "pty_status" => pty_rpc::rpc_pty_status(state).await,
         "pty_send" => pty_rpc::rpc_pty_send(state, &req.params).await,
         "pty_spawn" => pty_rpc::rpc_pty_spawn(state, &req.params).await,
@@ -303,9 +298,6 @@ impl DaemonState {
     fn emit_tail(&self, ev: TailEvent) {
         let _ = self.connections.tail_tx.send(ev);
     }
-}
-fn sort_message_json(rows: &mut [serde_json::Value]) {
-    rows.sort_by_key(|row| row["created_at"].as_i64().unwrap_or_default());
 }
 fn env_duration(key: &str, default: Duration) -> Duration {
     std::env::var(key)
