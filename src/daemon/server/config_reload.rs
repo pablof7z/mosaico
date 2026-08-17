@@ -73,19 +73,39 @@ fn reload(
         .config_reload
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
-    let previous = state.config();
+    let previous = state.snapshot();
     let (next, next_backend_keys) = super::lifecycle::auth_restore::load_backend()?;
-    if next == previous {
+    if next == previous.config {
         return Ok(false);
     }
 
-    if runtime_changed(&previous, &next) {
-        reload_relay_runtime(state, storage, &previous, &next, &next_backend_keys)?;
+    let next_nmp = if runtime_changed(&previous.config, &next) {
+        Arc::new(super::lifecycle::nmp_open::open(
+            &next,
+            storage,
+            &next_backend_keys,
+        )?)
     } else {
-        install_config(state, provider_for(state.nmp(), &next, &state.store), next);
-    }
-    super::lifecycle::auth_restore::restore(state)
+        previous.nmp.clone()
+    };
+    let candidate = Arc::new(RuntimeSnapshot {
+        generation: previous.generation + 1,
+        provider: provider_for(next_nmp.clone(), &next, &state.store),
+        nmp: next_nmp,
+        config: next,
+    });
+    super::lifecycle::auth_restore::restore_for(state, &candidate)
         .context("restoring identities after config reload")?;
+    let runtime_changed = !Arc::ptr_eq(&previous.nmp, &candidate.nmp);
+    let retired = state.install_snapshot(candidate);
+    if runtime_changed {
+        super::group_records::shutdown(state);
+        *state.subscriptions.reconciler.lock().unwrap() =
+            crate::reconcile::SubscriptionReconciler::new();
+        super::spawn_demux(state.clone());
+        sync_subscriptions(state);
+        retired.nmp.shutdown();
+    }
     reconcile_managed_admins(state);
     Ok(true)
 }
@@ -94,50 +114,6 @@ fn runtime_changed(previous: &Config, next: &Config) -> bool {
     previous.relays != next.relays
         || previous.indexer_relay != next.indexer_relay
         || previous.backend_nsec() != next.backend_nsec()
-}
-
-fn reload_relay_runtime(
-    state: &Arc<DaemonState>,
-    storage: &crate::daemon::storage_paths::StoragePaths,
-    previous: &Config,
-    next: &Config,
-    next_backend_keys: &Keys,
-) -> Result<()> {
-    super::group_records::shutdown(state);
-    *state.subscriptions.reconciler.lock().unwrap() =
-        crate::reconcile::SubscriptionReconciler::new();
-    state.nmp().shutdown();
-    match build_runtime(next, storage, next_backend_keys, &state.store) {
-        Ok((nmp, provider)) => install_runtime(state, nmp, provider, next.clone()),
-        Err(reload_error) => {
-            let prior_keys = backend_keys(previous)?;
-            let (nmp, provider) = build_runtime(previous, storage, &prior_keys, &state.store)
-                .context("restoring the prior relay runtime")?;
-            install_runtime(state, nmp, provider, previous.clone());
-            super::lifecycle::auth_restore::restore(state)
-                .context("restoring identities after failed config reload")?;
-            super::spawn_demux(state.clone());
-            sync_subscriptions(state);
-            return Err(reload_error);
-        }
-    }
-    super::spawn_demux(state.clone());
-    sync_subscriptions(state);
-    Ok(())
-}
-
-fn build_runtime(
-    config: &Config,
-    storage: &crate::daemon::storage_paths::StoragePaths,
-    backend_keys: &Keys,
-    store: &Arc<Mutex<Store>>,
-) -> Result<(Arc<crate::nmp_host::NmpHost>, Arc<Nip29Provider>)> {
-    let nmp = Arc::new(super::lifecycle::nmp_open::open(
-        config,
-        storage,
-        backend_keys,
-    )?);
-    Ok((nmp.clone(), provider_for(nmp, config, store)))
 }
 
 fn provider_for(
@@ -152,49 +128,6 @@ fn provider_for(
         config.user_nsec().cloned(),
         config.whitelisted_pubkeys.clone(),
     ))
-}
-
-fn backend_keys(config: &Config) -> Result<Keys> {
-    let key = config
-        .backend_nsec()
-        .context("prior configuration has no mosaicoPrivateKey")?;
-    Keys::parse(key).context("prior mosaicoPrivateKey is invalid")
-}
-
-fn install_runtime(
-    state: &DaemonState,
-    nmp: Arc<crate::nmp_host::NmpHost>,
-    provider: Arc<Nip29Provider>,
-    config: Config,
-) {
-    state
-        .store
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .bind_nmp_views(nmp.views_handle());
-    *state
-        .nmp
-        .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = nmp;
-    *state
-        .provider
-        .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = provider;
-    *state
-        .cfg
-        .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = config;
-}
-
-fn install_config(state: &DaemonState, provider: Arc<Nip29Provider>, config: Config) {
-    *state
-        .provider
-        .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = provider;
-    *state
-        .cfg
-        .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = config;
 }
 
 fn sync_subscriptions(state: &Arc<DaemonState>) {

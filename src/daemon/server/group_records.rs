@@ -119,19 +119,20 @@ pub(in crate::daemon::server) fn sync(
     }
     let Some(predicate) = coverage.predicate() else {
         handoff::cancel_all(&mut watch);
-        state.nmp().views().set_group_observation(None);
+        state.snapshot().nmp.views().set_group_observation(None);
         watch.coverage = Some(coverage);
         return Ok(());
     };
     // Open the replacement BEFORE withdrawing the old one, so a failure to
     // open leaves the daemon watching what it was already watching rather than
     // watching nothing.
-    let replacement = Arc::new(state.nmp().observe_group_records(predicate)?);
+    let replacement = Arc::new(state.snapshot().nmp.observe_group_records(predicate)?);
     let known_ids = coverage.ids.clone();
     handoff::cancel_candidate(&mut watch);
     if watch.published_observation.is_none() {
         state
-            .nmp()
+            .snapshot()
+            .nmp
             .views()
             .set_group_observation(Some(replacement.clone()));
         watch.published_observation = Some(replacement.clone());
@@ -162,7 +163,7 @@ pub(in crate::daemon::server) fn shutdown(state: &DaemonState) {
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     handoff::cancel_all(&mut watch);
-    state.nmp().views().set_group_observation(None);
+    state.snapshot().nmp.views().set_group_observation(None);
     watch.coverage = None;
 }
 
@@ -179,7 +180,7 @@ async fn drain(
 ) {
     let mut renamed: BTreeSet<String> = BTreeSet::new();
     let mut activated = handoff_coverage.is_none();
-    let mut advertised = managed_roots(&state, &state.nmp().views().group_snapshots());
+    let mut advertised = managed_roots(&state, &state.snapshot().nmp.views().group_snapshots());
     loop {
         let snapshots = match observation.next().await {
             Ok(Some(snapshots)) => snapshots,

@@ -70,7 +70,8 @@ pub(super) fn activate_if_ready(
     }
 
     state
-        .nmp()
+        .snapshot()
+        .nmp
         .views()
         .set_group_observation(Some(candidate.clone()));
     let predecessor = watch.published_observation.replace(candidate.clone());

@@ -224,7 +224,7 @@ pub(super) async fn rpc_session_start_inner(
         .spawn
         .context("session_start advisory plan did not include spawn intent")?;
     let engine = engine_params_for(
-        &state.config(),
+        &state.snapshot().config,
         prepared.identity,
         prepared.keys,
         runtime_generation,

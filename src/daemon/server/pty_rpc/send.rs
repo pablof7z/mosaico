@@ -115,7 +115,7 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         parent_hint,
         name: None,
     };
-    match tokio::time::timeout(timeout, state.provider().ensure_channel_ready(ctx)).await {
+    match tokio::time::timeout(timeout, state.snapshot().provider.ensure_channel_ready(ctx)).await {
         Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded(error)) => tracing::warn!(
             slug,
             channel = scope,

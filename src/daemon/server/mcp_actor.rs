@@ -84,7 +84,8 @@ async fn publish_profile(
     )
     .with_workspace(workspace.to_string());
     state
-        .provider()
+        .snapshot()
+        .provider
         .enqueue(
             &crate::domain::DomainEvent::Profile(profile),
             &prepared.keys,

@@ -23,11 +23,18 @@ impl SessionPublishFence<'_> {
         match self.confirmed_scope.as_ref() {
             Some(scope) => {
                 state
-                    .provider()
+                    .snapshot()
+                    .provider
                     .publish_chat_after_confirmed_membership(chat, keys, scope)
                     .await
             }
-            None => state.provider().publish_chat_checked(chat, keys).await,
+            None => {
+                state
+                    .snapshot()
+                    .provider
+                    .publish_chat_checked(chat, keys)
+                    .await
+            }
         }
     }
 }

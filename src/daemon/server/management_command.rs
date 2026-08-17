@@ -232,7 +232,11 @@ async fn publish_reply(
         mentioned_pubkeys: vec![requester.to_string()],
         attachments: Vec::new(),
     };
-    state.provider().publish_chat_checked(&chat, &keys).await?;
+    state
+        .snapshot()
+        .provider
+        .publish_chat_checked(&chat, &keys)
+        .await?;
     Ok(())
 }
 

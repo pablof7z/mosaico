@@ -9,7 +9,7 @@ pub(super) struct ManagedAdminTarget {
 }
 
 pub(in crate::daemon::server) fn reconcile_managed_admins(state: &Arc<DaemonState>) {
-    let provider = state.provider();
+    let provider = state.snapshot().provider.clone();
     let targets = match managed_admin_targets(state, &provider) {
         Ok(targets) => targets,
         Err(error) => {

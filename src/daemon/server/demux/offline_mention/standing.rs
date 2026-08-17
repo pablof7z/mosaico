@@ -48,7 +48,8 @@ pub(super) async fn confirm(state: &Arc<DaemonState>, pubkey: &str, channel: &st
         .with_store(|store| store.get_session(pubkey))?
         .with_context(|| format!("exact recovery target {pubkey} disappeared"))?;
     let outcome = state
-        .provider()
+        .snapshot()
+        .provider
         .grant_member_published(channel, pubkey)
         .await;
     if !outcome.is_published() {

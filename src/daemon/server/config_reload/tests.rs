@@ -19,7 +19,7 @@ fn replace(path: &std::path::Path, content: &str) {
 async fn wait_for(state: &Arc<DaemonState>, expected: CrossProjectBoundary) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if state.config().cross_project_boundary == expected {
+            if state.snapshot().config.cross_project_boundary == expected {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -35,7 +35,7 @@ async fn wait_for_relay_runtime(
 ) -> Arc<crate::nmp_host::NmpHost> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let current = state.nmp();
+            let current = state.snapshot().nmp.clone();
             if !Arc::ptr_eq(previous, &current) {
                 return current;
             }
@@ -58,12 +58,15 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
     env.set_var("MOSAICO_CONFIG", &path);
     let state = DaemonState::new_for_test().await;
     let initial = Config::load().unwrap();
-    install_config(
-        &state,
-        provider_for(state.nmp(), &initial, &state.store),
-        initial,
-    );
-    let daemon_before = state.nmp();
+    let initial_nmp = state.snapshot().nmp.clone();
+    state.install_snapshot(Arc::new(RuntimeSnapshot {
+        generation: 1,
+        provider: provider_for(initial_nmp.clone(), &initial, &state.store),
+        nmp: initial_nmp,
+        config: initial,
+    }));
+    let before = state.snapshot();
+    let daemon_before = before.nmp.clone();
     let _watcher = watch(
         state.clone(),
         crate::daemon::storage_paths::StoragePaths::current(),
@@ -82,8 +85,11 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
         },
     )
     .await;
-    let daemon_after = state.nmp();
+    let after_config = state.snapshot();
+    let daemon_after = after_config.nmp.clone();
     assert!(Arc::ptr_eq(&daemon_before, &daemon_after));
+    assert_eq!(after_config.generation, before.generation + 1);
+    assert!(Arc::ptr_eq(&after_config.nmp, &after_config.provider.nmp));
 
     let replacement_key = Keys::generate().secret_key().to_secret_hex();
     replace(
@@ -91,6 +97,9 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
         &document(&replacement_key, "wss://relay.example", "allow", "allow"),
     );
     let daemon_after = wait_for_relay_runtime(&state, &daemon_after).await;
+    let after_identity = state.snapshot();
+    assert_eq!(after_identity.generation, after_config.generation + 1);
+    assert!(Arc::ptr_eq(&after_identity.nmp, &after_identity.provider.nmp));
 
     replace(
         &path,
@@ -102,12 +111,16 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
         ),
     );
     let daemon_after = wait_for_relay_runtime(&state, &daemon_after).await;
+    let after_relay = state.snapshot();
+    assert_eq!(after_relay.generation, after_identity.generation + 1);
+    assert!(Arc::ptr_eq(&after_relay.nmp, &after_relay.provider.nmp));
 
     replace(&path, "{");
     tokio::time::sleep(SETTLE * 2).await;
-    assert!(Arc::ptr_eq(&daemon_after, &state.nmp()));
+    assert!(Arc::ptr_eq(&daemon_after, &state.snapshot().nmp));
+    assert_eq!(state.snapshot().generation, after_relay.generation);
     assert_eq!(
-        state.config().cross_project_boundary,
+        state.snapshot().config.cross_project_boundary,
         CrossProjectBoundary {
             read: BoundaryAction::Allow,
             write: BoundaryAction::Allow,
@@ -120,7 +133,7 @@ async fn managed_child_inherits_the_parents_desired_generation_without_roster_po
     let configured = Keys::generate().public_key().to_hex();
     let removed = Keys::generate().public_key().to_hex();
     let state = DaemonState::new_for_test_with_whitelisted(vec![configured.clone()]).await;
-    let management = state.provider().management_pubkey().unwrap();
+    let management = state.snapshot().provider.management_pubkey().unwrap();
     state
         .with_store(|store| {
             store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
@@ -141,7 +154,7 @@ async fn managed_child_inherits_the_parents_desired_generation_without_roster_po
         })
         .unwrap();
 
-    let targets = managed_admin_targets(&state, &state.provider()).unwrap();
+    let targets = managed_admin_targets(&state, &state.snapshot().provider).unwrap();
     assert_eq!(
         targets,
         vec![
@@ -177,7 +190,7 @@ async fn managed_child_of_an_external_group_inherits_the_observed_parent_admins(
         .unwrap();
 
     assert_eq!(
-        managed_admin_targets(&state, &state.provider()).unwrap(),
+        managed_admin_targets(&state, &state.snapshot().provider).unwrap(),
         vec![ManagedAdminTarget {
             channel: "child".into(),
             managed_parent: None,

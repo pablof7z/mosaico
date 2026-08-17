@@ -21,7 +21,7 @@ pub(in crate::daemon::server) async fn archive_channel(
 ) -> Result<serde_json::Value> {
     let channel_ref = state
         .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
-    let delivered = state.provider().group_snapshot(channel).await?;
+    let delivered = state.snapshot().provider.group_snapshot(channel).await?;
     let snapshots = [delivered];
     let groups = crate::nmp_views::GroupProjection::new(&snapshots);
     let current = groups
@@ -40,7 +40,8 @@ pub(in crate::daemon::server) async fn archive_channel(
             },
         ));
         let event_id = state
-            .nmp()
+            .snapshot()
+            .nmp
             .publish_group_and_wait(channel, builder, &mgmt_keys)
             .await
             .context("publishing archived channel metadata")?;
@@ -52,7 +53,8 @@ pub(in crate::daemon::server) async fn archive_channel(
     let remove_targets = archive_removal_targets(&members);
     if !remove_targets.is_empty() {
         let outcome = state
-            .provider()
+            .snapshot()
+            .provider
             .remove_members_published(channel, &remove_targets)
             .await;
         outcome.require_published(format!(

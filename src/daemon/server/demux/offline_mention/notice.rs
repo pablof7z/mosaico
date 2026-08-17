@@ -32,7 +32,12 @@ pub(super) async fn publish_start_failure_notice(
         mentioned_pubkeys: requester_pubkey.map(str::to_string).into_iter().collect(),
         attachments: Vec::new(),
     };
-    match state.provider().publish_chat_checked(&chat, &keys).await {
+    match state
+        .snapshot()
+        .provider
+        .publish_chat_checked(&chat, &keys)
+        .await
+    {
         Ok(_) => {}
         Err(error) => {
             state.emit_delivery_failure(channel, agent_slug, "spawn", body);

@@ -178,10 +178,14 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // first upload, so an overlong/unsafe request cannot orphan a Blossom blob.
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
-    let relays = &state.config().relays;
-    let uploaded_attachments =
-        crate::attachment::upload_all(&p.attachments, relays, &state.nmp(), &chat_signing_keys)
-            .await?;
+    let relays = &state.snapshot().config.relays;
+    let uploaded_attachments = crate::attachment::upload_all(
+        &p.attachments,
+        relays,
+        &state.snapshot().nmp,
+        &chat_signing_keys,
+    )
+    .await?;
     let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
     let body_to_send = formatted.wire;
     let chat = ChatMessage {
@@ -202,7 +206,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .await?;
     let event_id = published.event_id;
     let local_directory = match crate::attachment_receive::copy_local(
-        &state.config().attachment_receive_directory,
+        &state.snapshot().config.attachment_receive_directory,
         &event_id,
         &p.attachments,
     ) {

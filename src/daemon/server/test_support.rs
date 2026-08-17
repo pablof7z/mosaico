@@ -61,17 +61,22 @@ impl DaemonState {
             None,
             whitelisted_pubkeys,
         ));
-        let provider = Arc::new(std::sync::RwLock::new(provider));
-        let nmp = Arc::new(std::sync::RwLock::new(nmp));
-        let presence_publisher =
-            crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
+        let runtime_snapshot = Arc::new(RuntimeSnapshot {
+            generation: 0,
+            config: cfg,
+            nmp,
+            provider,
+        });
+        let runtime_snapshot = Arc::new(std::sync::RwLock::new(runtime_snapshot));
+        let presence_publisher = crate::presence_publisher::PresencePublisher::spawn(
+            runtime_snapshot.clone(),
+            store.clone(),
+        );
         let catalog = CatalogState::new();
         *catalog.harnesses.lock().unwrap() = installed_harnesses;
         Arc::new(DaemonState {
             store,
-            provider,
-            nmp,
-            cfg: std::sync::RwLock::new(cfg),
+            runtime_snapshot: runtime_snapshot.clone(),
             config_reload: Mutex::new(()),
             agent_config: AgentConfigState::new(),
             catalog,

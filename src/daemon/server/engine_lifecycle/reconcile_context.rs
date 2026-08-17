@@ -43,7 +43,8 @@ pub(super) async fn restore_routes(state: &Arc<DaemonState>, session: &Session, 
             continue;
         }
         let gate = state
-            .provider()
+            .snapshot()
+            .provider
             .ensure_channel_ready(ChannelCtx {
                 channel,
                 expect_member: &session.pubkey,

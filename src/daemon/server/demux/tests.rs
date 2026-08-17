@@ -47,7 +47,7 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
             .unwrap(),
         sources: BTreeSet::new(),
     };
-    let views = state.nmp().views_handle();
+    let views = state.snapshot().nmp.views_handle();
 
     let first = views.apply_frame(
         "mosaico-h-room",
@@ -99,7 +99,7 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
         sources: BTreeSet::new(),
     };
     let id = row.event.id;
-    let views = state.nmp().views_handle();
+    let views = state.snapshot().nmp.views_handle();
 
     let added = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row)], vec![]);
     apply_transition(&state, added).await;
@@ -151,7 +151,7 @@ async fn status_tail_events_follow_exact_observation_edges() {
         sources: BTreeSet::new(),
     };
     let id = row.event.id;
-    let views = state.nmp().views_handle();
+    let views = state.snapshot().nmp.views_handle();
 
     let entered_a = views.apply_frame(
         "mosaico-h-room-a",

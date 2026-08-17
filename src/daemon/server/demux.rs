@@ -35,7 +35,8 @@ pub(in crate::daemon::server) fn dispatch_offline_mentions(
 
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     let mut transitions = state
-        .nmp()
+        .snapshot()
+        .nmp
         .take_view_transitions()
         .expect("NMP view transition stream has one daemon owner");
     tokio::spawn(async move {
@@ -89,7 +90,8 @@ fn apply_observation_entry(
         return;
     };
     let Some(DomainEvent::Status(status)) = state
-        .provider()
+        .snapshot()
+        .provider
         .decode(&crate::fabric::RawEnvelope::Nostr(entered.row.event))
     else {
         return;
@@ -121,7 +123,8 @@ fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::Departe
         return;
     };
     let Some(DomainEvent::Status(status)) = state
-        .provider()
+        .snapshot()
+        .provider
         .decode(&crate::fabric::RawEnvelope::Nostr(departed.row.event))
     else {
         return;

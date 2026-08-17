@@ -81,19 +81,20 @@ pub(in crate::daemon::server) async fn lock_session_route_for_publish<'a>(
     // positively name the session as a member. Do not let an older in-process
     // readiness TTL suppress the exact re-check this send is joining.
     state
-        .provider()
+        .snapshot()
+        .provider
         .readiness
         .invalidate(channel, &session.pubkey);
     let gate = tokio::time::timeout(
         Duration::from_secs(45),
-        state
-            .provider()
-            .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
+        state.snapshot().provider.ensure_channel_ready(
+            crate::fabric::nip29::readiness::ChannelCtx {
                 channel,
                 expect_member: &session.pubkey,
                 parent_hint: parent.as_deref(),
                 name: None,
-            }),
+            },
+        ),
     )
     .await
     .context("session channel admission timed out before send")?;

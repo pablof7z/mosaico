@@ -3,17 +3,17 @@ use super::*;
 pub(in crate::daemon::server) async fn rpc_doctor(
     state: &Arc<DaemonState>,
 ) -> Result<serde_json::Value> {
-    let relays = state.config().relays.clone();
+    let relays = state.snapshot().config.relays.clone();
     let probe = state
         .keys_for(&state.hosted_pubkeys().first().cloned().unwrap_or_default())
         .map(|k| k.public_key().to_hex());
-    let write_probe = state.provider().doctor_probe().await;
+    let write_probe = state.snapshot().provider.doctor_probe().await;
     // NMP's publish queue is the ONE account of what this daemon still owes.
     // It is durable, so it survives a restart, and it is where a write parked
     // on a missing signer or permanently refused at acceptance is still
     // visible an hour later. Mosaico used to keep a second, process-local
     // receipt observer beside it; two answers to one question is one too many.
-    let publish_queue = state.nmp().publish_queue_snapshot();
+    let publish_queue = state.snapshot().nmp.publish_queue_snapshot();
     Ok(serde_json::json!({
         "storage": crate::daemon::storage_paths::StoragePaths::current(),
         "relays": relays,

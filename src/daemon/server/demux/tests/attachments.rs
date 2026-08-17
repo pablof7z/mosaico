@@ -66,7 +66,7 @@ async fn remote_attachment_is_verified_before_direct_inbox_routing() {
     inbound_dispatch::handle_for_test(&state, &event).await;
 
     let directory = crate::attachment_receive::existing_complete(
-        &state.config().attachment_receive_directory,
+        &state.snapshot().config.attachment_receive_directory,
         &event.id.to_hex(),
         &[received],
     )
@@ -108,7 +108,7 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
         assert_eq!(inbox[0].body, "Keep this body");
     });
     assert!(crate::attachment_receive::existing_complete(
-        &state.config().attachment_receive_directory,
+        &state.snapshot().config.attachment_receive_directory,
         &event.id.to_hex(),
         &[missing],
     )
@@ -194,7 +194,7 @@ async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             let downloaded = crate::attachment_receive::existing_complete(
-                &state.config().attachment_receive_directory,
+                &state.snapshot().config.attachment_receive_directory,
                 &slow.id.to_hex(),
                 std::slice::from_ref(&slow_attachment),
             )

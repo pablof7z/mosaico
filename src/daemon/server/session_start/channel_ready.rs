@@ -121,7 +121,7 @@ async fn ensure_existing_channel_ready(
             parent_hint: readiness_parent,
             name,
         };
-        state.provider().ensure_channel_ready(ctx).await
+        state.snapshot().provider.ensure_channel_ready(ctx).await
     };
 
     let gate = tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open)
@@ -211,11 +211,13 @@ mod tests {
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
         for _ in 0..4 {
             state
-                .nmp()
+                .snapshot()
+                .nmp
                 .script_group_snapshot(absent_group_snapshot("missing-root"));
         }
         state
-            .nmp()
+            .snapshot()
+            .nmp
             .script_write_error("scripted NMP publish refusal", FAILURE);
 
         let error = verify_start_channel_ready(

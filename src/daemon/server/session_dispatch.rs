@@ -70,11 +70,13 @@ pub(super) async fn rpc_dispatch(
     // The dispatch reaches this backend's own session-dispatch listener through
     // the same group subscription (NMP #1182), so nothing is driven inline.
     let dispatch_event_id = state
-        .nmp()
+        .snapshot()
+        .nmp
         .publish_group(&route_channel, builder, &keys)?
         .to_hex();
     let ack_events = state
-        .nmp()
+        .snapshot()
+        .nmp
         .observe(&dispatch_ack_query(&dispatch_event_id))?;
 
     let ack = wait_dispatch_ack(ack_events, dispatch_event_id.clone()).await?;
@@ -247,7 +249,11 @@ async fn send_dispatch_message(
         mentioned_pubkeys: vec![ack.pubkey.clone()],
         attachments: Vec::new(),
     };
-    let published = state.provider().publish_chat_checked(&chat, &keys).await?;
+    let published = state
+        .snapshot()
+        .provider
+        .publish_chat_checked(&chat, &keys)
+        .await?;
     Ok(published.event_id)
 }
 

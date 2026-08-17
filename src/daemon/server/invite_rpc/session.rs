@@ -146,7 +146,8 @@ async fn ensure_live_session_member(
     }
 
     let added = state
-        .provider()
+        .snapshot()
+        .provider
         .grant_member_published(channel_h, &rec.pubkey)
         .await;
     added.require_published(format!(

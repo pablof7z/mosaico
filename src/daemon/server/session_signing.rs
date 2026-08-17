@@ -177,7 +177,8 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
     );
     let domain = crate::domain::DomainEvent::Profile(profile);
     state
-        .provider()
+        .snapshot()
+        .provider
         .enqueue(&domain, &keys)
         .await
         .with_context(|| format!("queueing reclaimed handle retirement profile for {pubkey}"))?;

@@ -76,9 +76,10 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     // Refuse the doctor's active probe at NMP's publish door so it remains
     // bounded instead of inventing a successful relay handoff.
     state
-        .nmp()
+        .snapshot()
+        .nmp
         .script_write_error("doctor test probe", "relay probe deliberately unavailable");
-    state.nmp().script_read_settled_events(Vec::new());
+    state.snapshot().nmp.script_read_settled_events(Vec::new());
     let response = super::super::super::dispatch(
         &state,
         &Request {
@@ -98,7 +99,8 @@ async fn status_receipt_reaches_actual_doctor_rpc_json() {
     let stuck = queue["stuck"].as_array().unwrap();
     assert!(stuck.is_empty(), "a status write needs nobody: {queue}");
     let entries = state
-        .nmp()
+        .snapshot()
+        .nmp
         .publish_queue_entry_ids()
         .expect("the publish queue is readable");
     assert!(

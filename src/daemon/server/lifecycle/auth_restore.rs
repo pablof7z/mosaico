@@ -7,7 +7,7 @@ use nostr::Keys;
 
 use crate::{
     config::{self, Config},
-    daemon::server::DaemonState,
+    daemon::server::{DaemonState, RuntimeSnapshot},
 };
 
 pub(in crate::daemon::server) fn load_backend() -> Result<(Config, Keys)> {
@@ -28,9 +28,16 @@ pub(in crate::daemon::server) fn load_backend() -> Result<(Config, Keys)> {
 }
 
 pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()> {
-    if let Some(user_nsec) = state.config().user_nsec() {
+    restore_for(state, &state.snapshot())
+}
+
+pub(in crate::daemon::server) fn restore_for(
+    state: &Arc<DaemonState>,
+    snapshot: &RuntimeSnapshot,
+) -> Result<()> {
+    if let Some(user_nsec) = snapshot.config.user_nsec() {
         match Keys::parse(user_nsec) {
-            Ok(keys) => register(state, &keys, "operator")?,
+            Ok(keys) => register(snapshot, &keys, "operator")?,
             Err(error) => tracing::warn!(
                 error = %error,
                 "operator key is invalid; its NIP-42 capability was not restored"
@@ -41,7 +48,7 @@ pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()>
     let pubkeys = state.with_store(|store| store.list_local_session_pubkeys().unwrap_or_default());
     for pubkey in pubkeys {
         match state.session_signing_keys(&pubkey) {
-            Ok(keys) => register(state, &keys, "session")?,
+            Ok(keys) => register(snapshot, &keys, "session")?,
             Err(error) => tracing::warn!(
                 pubkey,
                 error = %error,
@@ -52,8 +59,8 @@ pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()>
     Ok(())
 }
 
-fn register(state: &Arc<DaemonState>, keys: &Keys, identity_kind: &'static str) -> Result<()> {
-    state.nmp().ensure_identity(keys).with_context(|| {
+fn register(snapshot: &RuntimeSnapshot, keys: &Keys, identity_kind: &'static str) -> Result<()> {
+    snapshot.nmp.ensure_identity(keys).with_context(|| {
         format!(
             "registering {identity_kind} NIP-42 identity {}",
             keys.public_key()
@@ -110,8 +117,8 @@ mod tests {
         let pubkey = keys.public_key();
         state.with_store(|store| store.bind_session_signer(&pubkey.to_hex(), &salt).unwrap());
 
-        assert!(!state.nmp().identity_registered(pubkey));
+        assert!(!state.snapshot().nmp.identity_registered(pubkey));
         restore(&state).unwrap();
-        assert!(state.nmp().identity_registered(pubkey));
+        assert!(state.snapshot().nmp.identity_registered(pubkey));
     }
 }

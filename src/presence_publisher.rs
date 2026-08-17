@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use nostr::Keys;
 use tokio::sync::mpsc;
 
+use crate::daemon::server::RuntimeSnapshot;
 use crate::domain::{DomainEvent, Status};
 use crate::fabric::provider::{ConfirmedGroupScope, Nip29Provider};
 use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
@@ -71,22 +72,22 @@ pub(crate) struct PresencePublisher {
 
 impl PresencePublisher {
     pub(crate) fn spawn(
-        provider: Arc<RwLock<Arc<Nip29Provider>>>,
+        runtime: Arc<RwLock<Arc<RuntimeSnapshot>>>,
         store: Arc<Mutex<Store>>,
     ) -> PresencePublisher {
         let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
         let (signal_tx, signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
         spawn_publish_worker(signal_rx, pending.clone(), move |job| {
-            let provider = provider.clone();
+            let runtime = runtime.clone();
             let store = store.clone();
             async move {
-                let provider = provider
+                let snapshot = runtime
                     .read()
                     .unwrap_or_else(|poison| poison.into_inner())
                     .clone();
                 let event_ids = apply_status_effects(
                     &job.outcome,
-                    &provider,
+                    &snapshot.provider,
                     &job.keys,
                     &job.trigger,
                     job.confirmed_scope.as_ref(),

@@ -230,7 +230,7 @@ async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roste
         &[],
     );
     for _ in 0..2 {
-        state.nmp().script_group_snapshot(snapshot.clone());
+        state.snapshot().nmp.script_group_snapshot(snapshot.clone());
     }
     state
         .with_store(|store| {
@@ -243,7 +243,8 @@ async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roste
         })
         .unwrap();
     state
-        .nmp()
+        .snapshot()
+        .nmp
         .script_write_error("terminal receipt", "relay explicitly rejected removal");
 
     let error = state

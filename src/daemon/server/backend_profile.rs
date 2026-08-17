@@ -33,7 +33,8 @@ pub(in crate::daemon::server) async fn publish_backend_profile(
     state: &Arc<DaemonState>,
 ) -> Result<BackendProfilePublishReport> {
     let backend_keys = state
-        .provider()
+        .snapshot()
+        .provider
         .management_keys()
         .context("backend profile requires a management key")?;
     let snapshot = backend_profile_snapshot(state)?;
@@ -57,7 +58,8 @@ pub(in crate::daemon::server) async fn publish_backend_profile(
     )
     .with_workspaces(snapshot.workspaces);
     state
-        .provider()
+        .snapshot()
+        .provider
         .enqueue(&crate::domain::DomainEvent::Profile(profile), &backend_keys)
         .await?;
     Ok(BackendProfilePublishReport {

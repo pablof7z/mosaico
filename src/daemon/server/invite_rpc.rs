@@ -211,7 +211,7 @@ pub(super) async fn ensure_backend_admin(
     let parent = state
         .with_store(|s| s.channel_parent(channel_h).unwrap_or(None))
         .filter(|p| !p.is_empty());
-    let provider = state.provider();
+    let provider = state.snapshot().provider.clone();
     let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
         channel: channel_h,
         expect_member: &mgmt_hex,
@@ -258,7 +258,8 @@ async fn publish_invite_orchestration(
     // the group subscription NMP injects the accepted row into (#1182), the
     // same path a peer's directive takes.
     Ok(state
-        .nmp()
+        .snapshot()
+        .nmp
         .publish_group(channel_h, builder, &keys)?
         .to_hex())
 }

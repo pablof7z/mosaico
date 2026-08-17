@@ -41,7 +41,7 @@ fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
         "incoming event"
     );
     let env = crate::fabric::RawEnvelope::Nostr(event.clone());
-    let decoded = state.with_store(|s| state.provider().decode_product_event(&env, s));
+    let decoded = state.with_store(|s| state.snapshot().provider.decode_product_event(&env, s));
     // Claim before spawning: duplicate observations never race the file writer.
     let first_sight = state.first_sight(&event.id.to_hex());
     Prepared {

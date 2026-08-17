@@ -22,7 +22,8 @@ pub(in crate::daemon::server) async fn ensure_session_room(
         }
     }
     let gate = state
-        .provider()
+        .snapshot()
+        .provider
         .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
             channel: room_h,
             expect_member: member_pubkey,

@@ -28,7 +28,8 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         ..nmp_nip29::GroupMetadataEdit::default()
     }));
     let event_id = state
-        .nmp()
+        .snapshot()
+        .nmp
         .publish_group_and_wait(&channel_h, builder, &mgmt_keys)
         .await
         .context("publishing channel description")?;

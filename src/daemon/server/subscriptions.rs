@@ -105,7 +105,7 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
             "closing NMP observation (last owner left)"
         );
     }
-    state.nmp().apply(effect)
+    state.snapshot().nmp.apply(effect)
 }
 
 /// Reopen the channel observation so NMP re-emits its canonical current rows to

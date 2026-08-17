@@ -122,7 +122,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // member is. Fail loudly if the relay could not provision it.
     let expect_member = creator.as_deref().unwrap_or(&mgmt_pk);
     let standing_lane = state.standing_sync.lock().await;
-    let provider = state.provider();
+    let provider = state.snapshot().provider.clone();
     let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
         channel: &child_h,
         expect_member,
@@ -169,7 +169,8 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             ..nmp_nip29::GroupMetadataEdit::default()
         }));
         state
-            .nmp()
+            .snapshot()
+            .nmp
             .publish_group_and_wait(&child_h, builder, &mgmt_keys)
             .await
             .context("publishing the new channel description")?;
@@ -195,7 +196,8 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         // subscription and `demux::chat_ops` routes it (NMP #1182). There is no
         // local fast-path, because there is no longer anything for it to fix.
         state
-            .nmp()
+            .snapshot()
+            .nmp
             .publish_group(&parent, builder, &mgmt_keys)?
             .to_hex()
     };

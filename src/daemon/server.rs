@@ -58,9 +58,7 @@ use state::{
 /// Shared daemon state. Store guards span synchronous rusqlite calls, never `.await`.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
-    provider: Arc<RwLock<Arc<Nip29Provider>>>,
-    nmp: Arc<RwLock<Arc<crate::nmp_host::NmpHost>>>,
-    cfg: RwLock<Config>,
+    runtime_snapshot: Arc<RwLock<Arc<RuntimeSnapshot>>>,
     config_reload: Mutex<()>,
     /// Serializes lifecycle-owned NIP-29 standing transitions. Relay writes
     /// are asynchronous, so an expired removal finishes before a concurrent
@@ -77,14 +75,27 @@ pub struct DaemonState {
     connections: ConnectionState,
     dedup: DedupState,
 }
+
+/// One complete, immutable relay-facing daemon generation.
+///
+/// A request takes this `Arc` once.  The config that selects its relays and
+/// policy, the NMP host that owns those relays, and the provider built over
+/// that host can therefore never be observed from separate reload generations.
+pub(crate) struct RuntimeSnapshot {
+    pub(crate) generation: u64,
+    pub(crate) config: Config,
+    pub(crate) nmp: Arc<crate::nmp_host::NmpHost>,
+    pub(crate) provider: Arc<Nip29Provider>,
+}
 impl DaemonState {
     /// Hex pubkey of the daemon-owned management identity.
     fn backend_pubkey(&self) -> Option<String> {
-        self.provider().management_pubkey()
+        self.snapshot().provider.management_pubkey()
     }
     /// Management signer for NIP-29 group ops; provisions `mosaicoPrivateKey`.
     fn management_keys(&self) -> Result<Keys> {
-        self.provider()
+        self.snapshot()
+            .provider
             .management_keys()
             .ok_or_else(|| anyhow::anyhow!("no signing key (mosaicoPrivateKey) set"))
     }
@@ -96,7 +107,7 @@ impl DaemonState {
         self.agent_config.mutate(operation)
     }
     pub(crate) fn per_session_rooms(&self) -> bool {
-        self.config().per_session_rooms
+        self.snapshot().config.per_session_rooms
     }
     pub(crate) fn emit_delivery_failure(
         &self,
@@ -114,7 +125,7 @@ impl DaemonState {
         ));
     }
     pub(crate) fn fabric_provider(&self) -> Arc<Nip29Provider> {
-        self.provider()
+        self.snapshot().provider.clone()
     }
     fn hosted_pubkeys(&self) -> Vec<String> {
         self.runtime
@@ -210,7 +221,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Response {
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
         #[cfg(feature = "stress-harness")]
-        "stress_nmp_snapshot" => Ok(state.nmp().stress_snapshot()),
+        "stress_nmp_snapshot" => Ok(state.snapshot().nmp.stress_snapshot()),
         "shutdown" => {
             state.connections.shutdown.notify_waiters();
             Ok(serde_json::json!({"stopped": true}))

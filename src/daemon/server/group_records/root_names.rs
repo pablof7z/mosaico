@@ -52,7 +52,12 @@ pub(super) fn repair_delivered(
     let state = state.clone();
     tokio::spawn(async move {
         for root in roots {
-            if !state.provider().nip29_set_group_name(&root, &root).await {
+            if !state
+                .snapshot()
+                .provider
+                .nip29_set_group_name(&root, &root)
+                .await
+            {
                 tracing::warn!(
                     channel = %root,
                     "workspace root name repair was rejected"

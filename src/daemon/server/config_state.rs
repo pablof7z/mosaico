@@ -1,37 +1,35 @@
 use super::*;
 
 impl DaemonState {
-    pub(crate) fn config(&self) -> Config {
-        self.cfg
+    /// Capture the complete relay-facing runtime generation for one operation.
+    pub(crate) fn snapshot(&self) -> Arc<RuntimeSnapshot> {
+        self.runtime_snapshot
             .read()
             .unwrap_or_else(|poison| poison.into_inner())
             .clone()
+    }
+
+    pub(super) fn install_snapshot(&self, next: Arc<RuntimeSnapshot>) -> Arc<RuntimeSnapshot> {
+        self.store
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .bind_nmp_views(next.nmp.views_handle());
+        let mut slot = self
+            .runtime_snapshot
+            .write()
+            .unwrap_or_else(|poison| poison.into_inner());
+        std::mem::replace(&mut *slot, next)
     }
 
     pub(crate) fn host(&self) -> String {
-        self.config().host
+        self.snapshot().config.host.clone()
     }
 
     pub(crate) fn owners(&self) -> Vec<String> {
-        self.config().whitelisted_pubkeys
+        self.snapshot().config.whitelisted_pubkeys.clone()
     }
 
-    pub(crate) fn provider(&self) -> Arc<Nip29Provider> {
-        self.provider
-            .read()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .clone()
-    }
-
-    pub(crate) fn nmp(&self) -> Arc<crate::nmp_host::NmpHost> {
-        self.nmp
-            .read()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .clone()
-    }
-
-    /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`);
-    /// classify a mention's sender as human vs agent for envelope presentation.
+    /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`).
     pub(crate) fn whitelisted_pubkeys(&self) -> Vec<String> {
         self.owners()
     }

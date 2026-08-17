@@ -69,7 +69,12 @@ pub(super) async fn handle_orchestration(
         return;
     }
 
-    match state.provider().try_fetch_group_parent(&op.child_h).await {
+    match state
+        .snapshot()
+        .provider
+        .try_fetch_group_parent(&op.child_h)
+        .await
+    {
         Ok(Some(declared)) if declared != op.parent && op.parent != op.child_h => {
             tracing::warn!(
                 event_id = %&event_id[..event_id.len().min(8)],

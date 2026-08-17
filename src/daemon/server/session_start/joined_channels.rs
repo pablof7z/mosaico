@@ -59,7 +59,8 @@ pub(super) fn schedule_admission(
                 continue;
             }
             let outcome = state
-                .provider()
+                .snapshot()
+                .provider
                 .grant_member_published(&channel, &pubkey)
                 .await;
             if !outcome.is_published() {

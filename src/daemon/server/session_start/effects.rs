@@ -146,11 +146,13 @@ mod tests {
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
         for _ in 0..4 {
             state
-                .nmp()
+                .snapshot()
+                .nmp
                 .script_group_snapshot(absent_group_snapshot("missing-root"));
         }
         state
-            .nmp()
+            .snapshot()
+            .nmp
             .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
         let error = channel_ready::verify_start_channel_ready(

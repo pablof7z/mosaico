@@ -18,7 +18,7 @@ pub(super) fn spawn(state_db: &Path, state: std::sync::Arc<crate::daemon::server
     let state_db = state_db.to_path_buf();
     tokio::spawn(async move {
         loop {
-            match drain_once(&state_db, &state.nmp()).await {
+            match drain_once(&state_db, &state.snapshot().nmp).await {
                 Ok(Drain::Complete { imported }) => {
                     if imported > 0 {
                         tracing::info!(imported, "schema migration pending writes imported");

@@ -46,7 +46,8 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
     // is passive awareness only. Do not add either without revisiting the
     // non-disruption guarantee.
     let event_id = state
-        .provider()
+        .snapshot()
+        .provider
         .publish_reaction_checked(&reaction, &keys)
         .await?;
     state.record_coordination_action(&rec);

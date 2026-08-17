@@ -5,7 +5,8 @@ pub(super) async fn compensate_due_admission(
     due: &crate::state::SessionStanding,
 ) {
     let removal = state
-        .provider()
+        .snapshot()
+        .provider
         .remove_member_published(&due.channel_h, &due.pubkey)
         .await;
     if !removal.is_published() {
@@ -118,7 +119,7 @@ async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) 
     let confirmed = matches!(
         tokio::time::timeout(
             Duration::from_secs(15),
-            state.provider().ensure_channel_ready(
+            state.snapshot().provider.ensure_channel_ready(
                 crate::fabric::nip29::readiness::ChannelCtx {
                     channel,
                     expect_member: &session.pubkey,

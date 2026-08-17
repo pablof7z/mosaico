@@ -266,7 +266,11 @@ async fn publish_running_only_moves(
     let builder = build_admit_running_event(parent, child_h, targets, &prose)?;
     // Delivered to this backend's own orchestration listener through the group
     // subscription, exactly as a peer's admit-running directive is (NMP #1182).
-    Ok(state.nmp().publish_group(parent, builder, &keys)?.to_hex())
+    Ok(state
+        .snapshot()
+        .nmp
+        .publish_group(parent, builder, &keys)?
+        .to_hex())
 }
 
 fn pointer_exists(

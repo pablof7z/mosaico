@@ -25,10 +25,11 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
     let keys = Keys::generate();
     state
-        .nmp()
+        .snapshot()
+        .nmp
         .publish_group("project", EventBuilder::new(Kind::TextNote, "owed"), &keys)
         .expect("acceptance never depends on a relay");
-    state.nmp().script_read_settled_events(Vec::new());
+    state.snapshot().nmp.script_read_settled_events(Vec::new());
 
     let response = super::super::dispatch(
         &state,
@@ -64,10 +65,13 @@ async fn doctor_rpc_reports_the_durable_publish_queue() {
 #[tokio::test]
 async fn doctor_rpc_never_reports_cached_rows_as_current_relay_io() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
-    state.nmp().script_read_timed_out_events(vec![event(
-        crate::fabric::nip29::wire::KIND_GROUP_METADATA,
-        vec![Tag::parse(["d", "cached-only"]).unwrap()],
-    )]);
+    state
+        .snapshot()
+        .nmp
+        .script_read_timed_out_events(vec![event(
+            crate::fabric::nip29::wire::KIND_GROUP_METADATA,
+            vec![Tag::parse(["d", "cached-only"]).unwrap()],
+        )]);
 
     let response = super::super::dispatch(
         &state,
@@ -97,7 +101,7 @@ async fn doctor_rpc_never_reports_cached_rows_as_current_relay_io() {
 #[tokio::test]
 async fn doctor_rpc_reports_a_disconnected_source_after_the_engine_started() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
-    state.nmp().script_disconnected_read();
+    state.snapshot().nmp.script_disconnected_read();
 
     let response = super::super::dispatch(
         &state,

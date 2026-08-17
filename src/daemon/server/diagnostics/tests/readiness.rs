@@ -114,10 +114,11 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
         &[],
     );
     for _ in 0..5 {
-        state.nmp().script_group_snapshot(project.clone());
+        state.snapshot().nmp.script_group_snapshot(project.clone());
     }
     state
-        .nmp()
+        .snapshot()
+        .nmp
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
     let response = super::super::super::dispatch(
@@ -169,13 +170,17 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
         &[nostr::PublicKey::from_hex(&management).unwrap()],
         &[],
     );
-    state.nmp().script_group_snapshot(absent_child.clone());
-    for _ in 0..6 {
-        state.nmp().script_group_snapshot(project.clone());
-    }
-    state.nmp().script_group_snapshot(absent_child);
     state
-        .nmp()
+        .snapshot()
+        .nmp
+        .script_group_snapshot(absent_child.clone());
+    for _ in 0..6 {
+        state.snapshot().nmp.script_group_snapshot(project.clone());
+    }
+    state.snapshot().nmp.script_group_snapshot(absent_child);
+    state
+        .snapshot()
+        .nmp
         .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
     let response = super::super::super::dispatch(

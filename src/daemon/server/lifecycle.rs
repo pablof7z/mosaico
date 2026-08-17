@@ -50,15 +50,20 @@ pub async fn run() -> Result<()> {
         cfg.user_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
     ));
-    let provider = Arc::new(std::sync::RwLock::new(provider));
-    let nmp = Arc::new(std::sync::RwLock::new(nmp));
-    let presence_publisher =
-        crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
+    let runtime_snapshot = Arc::new(RuntimeSnapshot {
+        generation: 0,
+        config: cfg,
+        nmp,
+        provider,
+    });
+    let runtime_snapshot = Arc::new(std::sync::RwLock::new(runtime_snapshot));
+    let presence_publisher = crate::presence_publisher::PresencePublisher::spawn(
+        runtime_snapshot.clone(),
+        store.clone(),
+    );
     let state = Arc::new(DaemonState {
         store,
-        provider,
-        nmp,
-        cfg: std::sync::RwLock::new(cfg),
+        runtime_snapshot: runtime_snapshot.clone(),
         config_reload: Mutex::new(()),
         agent_config: AgentConfigState::new(),
         catalog: CatalogState::new(),
@@ -146,7 +151,7 @@ pub async fn run() -> Result<()> {
     // Mosaico owns the group-records observation, so Mosaico withdraws it —
     // before the engine goes down under it.
     super::group_records::shutdown(&state);
-    state.nmp().shutdown();
+    state.snapshot().nmp.shutdown();
     drop(lock);
     Ok(())
 }

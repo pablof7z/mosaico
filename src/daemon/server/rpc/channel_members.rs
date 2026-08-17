@@ -114,7 +114,7 @@ pub async fn rpc_channel_add_member(
     let parent_hint = state
         .with_store(|s| s.channel_parent(&channel_h).unwrap_or(None))
         .filter(|parent| !parent.is_empty());
-    let provider = state.provider();
+    let provider = state.snapshot().provider.clone();
     let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
         channel: &channel_h,
         // This readiness pass establishes only group manageability. The one
@@ -142,12 +142,14 @@ pub async fn rpc_channel_add_member(
     // publication; the retained group observation alone updates the roster.
     let outcome = if p.admin {
         state
-            .provider()
+            .snapshot()
+            .provider
             .grant_admin_published(&channel_h, &pubkey_hex)
             .await
     } else {
         state
-            .provider()
+            .snapshot()
+            .provider
             .grant_member_published(&channel_h, &pubkey_hex)
             .await
     };
@@ -219,7 +221,8 @@ pub async fn rpc_channel_remove_member(
         };
 
     let outcome = state
-        .provider()
+        .snapshot()
+        .provider
         .remove_member_published(&channel_h, &pubkey_hex)
         .await;
     let published = outcome.is_published();
