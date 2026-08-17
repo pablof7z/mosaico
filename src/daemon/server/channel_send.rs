@@ -191,14 +191,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         mentioned_pubkeys: mentioned_pubkeys.clone(),
         attachments: uploaded_attachments.clone(),
     };
-    // Keep the exact lifecycle fence through local publish acceptance. A
-    // concurrent forget cannot delete the route/signing authority after this
-    // check and still let the retained key publish before relay cleanup.
-    let publish_fence =
-        super::managed_lifecycle::lock_session_route_for_publish(state, &rec, &publish_scope)
-            .await?;
-    let published = publish_fence
-        .publish_chat(state, &chat, &chat_signing_keys)
+    let published = state
+        .provider()
+        .publish_chat_checked(&chat, &chat_signing_keys)
         .await?;
     let event_id = published.event_id;
     let local_directory = match crate::attachment_receive::copy_local(

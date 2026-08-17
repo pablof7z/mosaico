@@ -36,18 +36,6 @@ impl ConfirmedGroupScope {
         }
     }
 
-    pub(super) fn require_membership(&self, channel: &str, signer: &str) -> Result<()> {
-        anyhow::ensure!(
-            self.permits(channel, signer, true),
-            "confirmed membership for {}/{} does not authorize {}/{}",
-            self.channel,
-            crate::util::pubkey_short(&self.signer),
-            channel,
-            crate::util::pubkey_short(signer),
-        );
-        Ok(())
-    }
-
     pub(super) fn permits(&self, channel: &str, signer: &str, require_member: bool) -> bool {
         self.channel == channel
             && self.signer == signer

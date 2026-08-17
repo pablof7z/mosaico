@@ -5,7 +5,7 @@
 //! a locally accepted write is injected into every matching live query, and
 //! Mosaico consumes that observed row on the same path as a peer's message.
 
-use super::{ConfirmedGroupScope, Nip29Provider};
+use super::Nip29Provider;
 use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::NostrEventCodec;
 use anyhow::Result;
@@ -43,22 +43,7 @@ impl Nip29Provider {
         chat: &ChatMessage,
         keys: &Keys,
     ) -> Result<PublishedChat> {
-        self.publish_chat(chat, None, keys, None).await
-    }
-
-    /// Publish under the exact membership result returned by the NMP readiness
-    /// operation that immediately precedes this call.
-    ///
-    /// The result authorizes only this channel/signer pair. It does not update
-    /// Mosaico's group view; that view still changes only when NMP delivers the
-    /// relay's current group snapshot.
-    pub(crate) async fn publish_chat_after_confirmed_membership(
-        &self,
-        chat: &ChatMessage,
-        keys: &Keys,
-        scope: &ConfirmedGroupScope,
-    ) -> Result<PublishedChat> {
-        self.publish_chat(chat, None, keys, Some(scope)).await
+        self.publish_chat(chat, None, keys).await
     }
 
     /// Like [`publish_chat_checked`] but threads the kind:9 as a reply to
@@ -69,7 +54,7 @@ impl Nip29Provider {
         reply_to: &str,
         keys: &Keys,
     ) -> Result<PublishedChat> {
-        self.publish_chat(chat, Some(reply_to), keys, None).await
+        self.publish_chat(chat, Some(reply_to), keys).await
     }
 
     async fn publish_chat(
@@ -77,18 +62,13 @@ impl Nip29Provider {
         chat: &ChatMessage,
         reply_to: Option<&str>,
         keys: &Keys,
-        confirmed_scope: Option<&ConfirmedGroupScope>,
     ) -> Result<PublishedChat> {
         let channel = chat.channel.as_str();
         if channel.is_empty() {
             anyhow::bail!("a chat message must name the group it is published into");
         }
         let signer = keys.public_key().to_hex();
-        if let Some(scope) = confirmed_scope {
-            scope.require_membership(channel, &signer)?;
-        } else {
-            self.verify_publish_scope(channel, &signer, true).await?;
-        }
+        self.verify_publish_scope(channel, &signer, true).await?;
         let created_at = crate::util::now_secs();
         let builder = self
             .chat_draft(chat, reply_to)?

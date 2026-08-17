@@ -5,14 +5,11 @@ use crate::state::{PresentationState, RuntimeState, Session, StopReason};
 
 mod eviction;
 mod presentation;
-mod publish_fence;
 mod standing;
 #[cfg(test)]
 #[path = "managed_lifecycle/tests.rs"]
 mod tests;
-pub(super) use standing::{
-    admission_is_current, commit_confirmed_admission, lock_session_route_for_publish,
-};
+pub(super) use standing::{admission_is_current, commit_confirmed_admission};
 
 pub(super) async fn reconcile_stopping(state: &Arc<DaemonState>) {
     eviction::reconcile_stopping(state).await;
