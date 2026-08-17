@@ -16,7 +16,10 @@ pub async fn run() -> Result<()> {
             return Ok(());
         }
     };
-    let listener = bind_socket()?;
+    // Do not bind the UDS until we are ready to accept. Binding early creates a
+    // "ghost socket": clients connect successfully but never receive a welcome
+    // while store/NMP open runs, and the handshake probe fails for the whole
+    // pre-accept window (often >30s on a large ~/.mosaico).
     tracing::info!(
         mosaico_home = %storage.mosaico_home.display(),
         config = %storage.config_path.display(),
@@ -29,7 +32,6 @@ pub async fn run() -> Result<()> {
         mosaico_home_is_default = storage.mosaico_home_is_default,
         "daemon storage paths"
     );
-    tracing::info!(socket = %socket_path().display(), "daemon listening");
     let (cfg, backend_keys) = auth_restore::load_backend()?;
     let host = cfg.host.clone();
     let owners = cfg.whitelisted_pubkeys.clone();
@@ -90,6 +92,8 @@ pub async fn run() -> Result<()> {
     // mistaken for an orphan left by the previous process.
     let startup_sessions = state.with_store(|store| store.list_running_sessions())?;
 
+    let listener = bind_socket()?;
+    tracing::info!(socket = %socket_path().display(), "daemon listening");
     let accept_state = state.clone();
     let accept = tokio::spawn(async move {
         loop {

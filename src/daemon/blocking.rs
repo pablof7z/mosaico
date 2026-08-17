@@ -285,7 +285,7 @@ fn spawn_if_absent() -> Result<()> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    bail!("daemon socket exists but did not answer the handshake within 30s");
+    bail!("daemon socket exists but did not answer the handshake within {DAEMON_STARTUP_TIMEOUT:?}");
 }
 
 fn daemon_answers_ping() -> bool {

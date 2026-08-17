@@ -29,9 +29,13 @@ pub fn protocol_version() -> u32 {
 }
 
 /// Maximum time a spawning client waits for a daemon to become handshake-ready.
-pub(crate) const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+/// Large `state.db` / `nmp.redb` opens plus auth restore can exceed 30s on a
+/// well-used host profile; the UDS is only bound once that work finishes.
+pub(crate) const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 /// Per-connect/read timeout for the daemon hello/welcome handshake.
-pub(crate) const DAEMON_HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(2);
+/// Under post-restart demux/profile-warm load, accept can lag past 2s even
+/// after the socket is live.
+pub(crate) const DAEMON_HANDSHAKE_IO_TIMEOUT: Duration = Duration::from_secs(5);
 /// Short grace period after asking an older daemon to exit before respawning.
 pub(crate) const DAEMON_RESPAWN_GRACE: Duration = Duration::from_millis(200);
 
