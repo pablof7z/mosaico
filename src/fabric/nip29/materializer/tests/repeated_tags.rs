@@ -29,7 +29,11 @@ fn parks_every_distinct_p_tag() {
         attachments: Vec::new(),
     };
 
-    assert!(Nip29Materializer::materialize_event(&store, &event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &event,
+        &provenance(event.id.to_hex())
+    ));
     assert!(route_for_test(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&first_pk).unwrap().len(), 1);
     assert_eq!(store.peek_pending_for_pubkey(&second_pk).unwrap().len(), 1);

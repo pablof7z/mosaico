@@ -7,6 +7,8 @@
 //! reports the role the relay wrote, or reports that it wrote none.
 
 use super::*;
+use crate::fabric::ProjectionProvenance;
+use crate::state::ProjectionKind;
 use nmp::nip29::GroupSnapshot;
 
 impl Nip29Materializer {
@@ -17,16 +19,27 @@ impl Nip29Materializer {
     /// predicate — and NMP's group-records door takes a predicate by
     /// construction. That feed carries metadata alone, so it has no roster to
     /// fold and needs no snapshot.
-    pub fn materialize_channel(store: &Store, event: &Event) {
+    pub(crate) fn materialize_channel(
+        store: &Store,
+        event: &Event,
+        provenance: &ProjectionProvenance,
+    ) {
         let Some(channel_h) = super::super::nostr_tag(event, "d") else {
             return;
         };
         let name = super::super::nostr_tag(event, "name").unwrap_or("");
         let about = super::super::nostr_tag(event, "about").unwrap_or("");
         let parent = super::super::nostr_tag(event, "parent").unwrap_or("");
-        if let Err(e) =
-            store.upsert_channel(channel_h, name, about, parent, event.created_at.as_secs())
-        {
+        let projected = store
+            .upsert_channel(channel_h, name, about, parent, event.created_at.as_secs())
+            .and_then(|()| {
+                store.set_projection_source(
+                    ProjectionKind::Channel,
+                    channel_h,
+                    &provenance.source_event_id,
+                )
+            });
+        if let Err(e) = projected {
             tracing::error!(
                 channel = channel_h,
                 error = %e,
@@ -45,7 +58,7 @@ impl Nip29Materializer {
     /// published an EMPTY kind:39002. The first must not clear the cache and
     /// the second must, so the per-host records — not the folded vector —
     /// decide whether a replacement happens at all.
-    pub fn materialize_group_snapshot(store: &Store, snapshot: &GroupSnapshot) {
+    pub(crate) fn materialize_group_snapshot(store: &Store, snapshot: &GroupSnapshot) {
         let channel_h = snapshot.id.as_str();
 
         if let Some(metadata) = &snapshot.metadata {

@@ -97,11 +97,7 @@ impl Nip29Provider {
         if matches!(ev, DomainEvent::Profile(_)) {
             let builder = self.wire.encode(ev)?;
             let signed = self.nmp.sign_event(builder, keys).await?;
-            let event_id = self.nmp.enqueue_profile_event(&signed)?;
-            self.with_store(|store| {
-                self.materialize(&RawEnvelope::Nostr(signed), store);
-            });
-            return Ok(event_id);
+            return self.nmp.enqueue_profile_event(&signed);
         }
         let signer = keys.public_key().to_hex();
         match ev {

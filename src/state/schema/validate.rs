@@ -20,6 +20,9 @@ const TABLES: &[&str] = &[
     "relay_channels",
     "relay_events",
     "relay_profiles",
+    "relay_projection_observations",
+    "relay_projection_owners",
+    "relay_projection_rows",
     "relay_reactions",
     "relay_status",
     "relay_status_sets",
@@ -43,6 +46,9 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "event_claims",
         "native_turn_attempts",
         "relay_status_sets",
+        "relay_projection_observations",
+        "relay_projection_owners",
+        "relay_projection_rows",
     ] {
         ensure_table(conn, table, path)?;
     }

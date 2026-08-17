@@ -35,16 +35,8 @@ fn schema_twelve_backfills_semantic_state_time() {
 
     drop(Store::open(&path).expect("schema twelve upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 21);
-    assert_eq!(
-        conn.query_row(
-            "SELECT state_since FROM relay_status WHERE pubkey='peer'",
-            [],
-            |row| row.get::<_, u64>(0),
-        )
-        .unwrap(),
-        17
-    );
+    assert_eq!(version(&conn), 22);
+    assert_eq!(count(&conn, "relay_status"), 0);
     assert_eq!(
         conn.query_row(
             "SELECT state_changed_at FROM sessions WHERE pubkey='working'",

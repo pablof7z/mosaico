@@ -84,7 +84,6 @@ impl Nip29Provider {
     /// rows are usable with durable coverage, but never merely because a cache
     /// row exists after a timeout, disconnect, or acquisition shortfall.
     pub async fn fetch_and_materialize_channel(&self, group: &str) -> Result<bool> {
-        use crate::fabric::nip29::materializer::Nip29Materializer;
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
         let read = self
             .nmp
@@ -95,13 +94,16 @@ impl Nip29Provider {
         let Some(newest) = read
             .rows
             .iter()
-            .map(|row| &row.event)
-            .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
-            .max_by_key(|event| event.created_at.as_secs())
+            .filter(|row| row.event.kind.as_u16() == KIND_GROUP_METADATA)
+            .max_by_key(|row| row.event.created_at.as_secs())
         else {
             return Ok(false);
         };
-        self.with_store(|s| Nip29Materializer::materialize_channel(s, newest));
+        self.materialize_bounded_row(
+            &format!("bounded-group-metadata:{group}"),
+            newest,
+            &read.evidence,
+        )?;
         Ok(true)
     }
 }

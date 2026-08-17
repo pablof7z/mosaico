@@ -15,6 +15,8 @@ mod v18_v19;
 mod v19_v20;
 #[path = "migration/steps/v20_v21.rs"]
 mod v20_v21;
+#[path = "migration/steps/v21_v22.rs"]
+mod v21_v22;
 
 pub(crate) use journal::{load_pending_writes, replace_pending_writes};
 
@@ -98,6 +100,10 @@ const MIGRATIONS: [Migration; (version::SCHEMA_VERSION - OLDEST_SUPPORTED_VERSIO
     Migration {
         from: 20,
         apply: v20_v21::migrate,
+    },
+    Migration {
+        from: 21,
+        apply: v21_v22::migrate,
     },
 ];
 

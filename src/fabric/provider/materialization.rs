@@ -1,16 +1,76 @@
 use super::Nip29Provider;
 use crate::fabric::nip29::{nostr_tag, wire};
-use crate::fabric::{MaterializationOutcome, RawEnvelope};
+use crate::fabric::{MaterializationOutcome, ProjectionProvenance, RawEnvelope};
 use crate::state::Store;
+use anyhow::{Context, Result};
 
 impl Nip29Provider {
     /// Decode one raw envelope and apply all store side-effects.
-    pub fn materialize(&self, env: &RawEnvelope, store: &Store) -> MaterializationOutcome {
-        let outcome = crate::fabric::materialize(env, store);
-        if let Some(channel) = roster_snapshot_channel(env) {
+    pub(crate) fn materialize_observed(
+        &self,
+        event: &nostr::Event,
+        provenance: &ProjectionProvenance,
+        store: &Store,
+    ) -> MaterializationOutcome {
+        let outcome = crate::fabric::materialize_observed(event, provenance, store);
+        let env = RawEnvelope::Nostr(event.clone());
+        if let Some(channel) = roster_snapshot_channel(&env) {
             self.readiness.invalidate_channel(channel);
         }
         outcome
+    }
+
+    /// Apply one row returned by a bounded NMP read through the same
+    /// provenance reducer as the retained observation stream.
+    pub(super) fn materialize_bounded_row(
+        &self,
+        observation_id: &str,
+        row: &nmp::Row,
+        evidence: &[nmp::AcquisitionEvidence],
+    ) -> Result<MaterializationOutcome> {
+        let generation = self.nmp.allocate_projection_generation();
+        let evidence_json = crate::nmp_host::scoped_evidence_json(evidence)?;
+        let relay_settled = crate::nmp_host::relay_settled(evidence);
+        let sources_json = serde_json::to_string(
+            &row.sources
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        )?;
+        self.with_store(|store| {
+            anyhow::ensure!(
+                store.begin_projection_frame(
+                    observation_id,
+                    generation,
+                    &evidence_json,
+                    relay_settled,
+                )?,
+                "stale bounded projection generation"
+            );
+            store.claim_projection_event(
+                observation_id,
+                generation,
+                &row.event.id.to_hex(),
+                &sources_json,
+            )?;
+            let outcome = self.materialize_observed(
+                &row.event,
+                &ProjectionProvenance {
+                    source_event_id: row.event.id.to_hex(),
+                },
+                store,
+            );
+            if relay_settled {
+                for event_id in store.settle_projection_frame(observation_id, generation)? {
+                    store
+                        .retract_projection_source(&event_id)
+                        .with_context(|| {
+                            format!("retracting stale bounded projection source {event_id}")
+                        })?;
+                }
+            }
+            Ok(outcome)
+        })
     }
 }
 

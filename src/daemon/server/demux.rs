@@ -56,6 +56,9 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
         .expect("NMP materialization stream has one daemon owner");
     tokio::spawn(async move {
         while let Some(batch) = batches.recv().await {
+            if !state.nmp().accepts_materialization(&batch) {
+                continue;
+            }
             apply_batch(&state, batch);
         }
     });
@@ -77,25 +80,141 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
 /// removal reveal an older current row in the same batch without emitting a
 /// transient absence."*).
 fn apply_batch(state: &Arc<DaemonState>, batch: crate::nmp_host::MaterializationBatch) {
-    state.with_store(|store| retract_all(store, &batch.removed));
-    for event in &batch.added {
-        inbound_dispatch::dispatch(state, event);
+    if batch.phase == crate::nmp_host::MaterializationPhase::Closed {
+        let orphaned =
+            state.with_store(|store| store.close_projection_observation(&batch.observation_id));
+        retract_orphans(state, orphaned, &batch.observation_id);
+        return;
     }
-}
 
-fn retract_all(store: &crate::state::Store, removed: &[nostr::EventId]) {
-    for id in removed {
-        let id = id.to_hex();
-        match store.retract_event(&id) {
-            Ok(true) => tracing::debug!(id = %&id[..8], "retracted — NMP dropped the row"),
+    let evidence_json = match batch.evidence_json() {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            tracing::error!(
+                observation = %batch.observation_id,
+                %error,
+                "NMP frame evidence serialization failed; projection frame refused"
+            );
+            return;
+        }
+    };
+    let relay_settled = batch.relay_settled();
+    let accepted = state.with_store(|store| {
+        store.begin_projection_frame(
+            &batch.observation_id,
+            batch.generation,
+            &evidence_json,
+            relay_settled,
+        )
+    });
+    match accepted {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            tracing::error!(
+                observation = %batch.observation_id,
+                %error,
+                "recording NMP frame evidence failed; projection frame refused"
+            );
+            return;
+        }
+    }
+
+    for id in &batch.removed {
+        let event_id = id.to_hex();
+        match state
+            .with_store(|store| store.release_projection_event(&batch.observation_id, &event_id))
+        {
+            Ok(true) => retract_orphans(state, Ok(vec![event_id]), &batch.observation_id),
             Ok(false) => {}
             Err(error) => tracing::error!(
-                id = %&id[..8],
+                observation = %batch.observation_id,
+                event_id,
                 %error,
-                "retraction failed; a deleted or expired event stays cached"
+                "releasing NMP projection owner failed"
             ),
         }
     }
+    for growth in &batch.sources_grew {
+        let sources_json = match growth.sources_json() {
+            Ok(sources) => sources,
+            Err(error) => {
+                tracing::error!(event_id = %growth.id, %error, "serializing relay sources failed");
+                continue;
+            }
+        };
+        if let Err(error) = state.with_store(|store| {
+            store.grow_projection_event_sources(
+                &batch.observation_id,
+                &growth.id.to_hex(),
+                &sources_json,
+            )
+        }) {
+            tracing::error!(event_id = %growth.id, %error, "recording relay source growth failed");
+        }
+    }
+    for row in &batch.added {
+        let sources_json = match row.sources_json() {
+            Ok(sources) => sources,
+            Err(error) => {
+                tracing::error!(event_id = %row.event.id, %error, "serializing relay sources failed");
+                continue;
+            }
+        };
+        let event_id = row.event.id.to_hex();
+        if let Err(error) = state.with_store(|store| {
+            store.claim_projection_event(
+                &batch.observation_id,
+                batch.generation,
+                &event_id,
+                &sources_json,
+            )
+        }) {
+            tracing::error!(event_id, %error, "recording NMP projection owner failed");
+            continue;
+        }
+        inbound_dispatch::dispatch(
+            state,
+            &row.event,
+            crate::fabric::ProjectionProvenance {
+                source_event_id: event_id,
+            },
+        );
+    }
+
+    if relay_settled {
+        let orphaned = state.with_store(|store| {
+            store.settle_projection_frame(&batch.observation_id, batch.generation)
+        });
+        retract_orphans(state, orphaned, &batch.observation_id);
+    }
+}
+
+fn retract_orphans(
+    state: &Arc<DaemonState>,
+    orphaned: anyhow::Result<Vec<String>>,
+    observation_id: &str,
+) {
+    let orphaned = match orphaned {
+        Ok(orphaned) => orphaned,
+        Err(error) => {
+            tracing::error!(observation = observation_id, %error, "releasing projection owners failed");
+            return;
+        }
+    };
+    state.with_store(|store| {
+        for id in orphaned {
+            match store.retract_projection_source(&id) {
+                Ok(true) => tracing::debug!(id = %&id[..8], "retracted — NMP dropped the row"),
+                Ok(false) => {}
+                Err(error) => tracing::error!(
+                    id = %&id[..8],
+                    %error,
+                    "retraction failed; a deleted or expired event stays cached"
+                ),
+            }
+        }
+    });
 }
 
 fn finish_incoming(

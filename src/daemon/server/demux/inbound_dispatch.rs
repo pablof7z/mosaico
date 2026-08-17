@@ -11,8 +11,12 @@ struct Prepared {
 
 /// Materialize synchronously, then move only attachment network I/O off the
 /// relay's global demux loop. Routing for that event remains after its files.
-pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event) {
-    let prepared = prepare(state, event);
+pub(super) fn dispatch(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    provenance: crate::fabric::ProjectionProvenance,
+) {
+    let prepared = prepare(state, event, &provenance);
     if prepared.first_sight && attachments::required(&prepared.outcome) {
         let state = state.clone();
         let event = event.clone();
@@ -27,21 +31,30 @@ pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event) {
 
 #[cfg(test)]
 pub(super) async fn handle_for_test(state: &Arc<DaemonState>, event: &Event) {
-    let prepared = prepare(state, event);
+    let prepared = prepare(
+        state,
+        event,
+        &crate::fabric::ProjectionProvenance {
+            source_event_id: event.id.to_hex(),
+        },
+    );
     if prepared.first_sight {
         attachments::materialize(state, &prepared.outcome, event).await;
     }
     finish(state, event, prepared);
 }
 
-fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
+fn prepare(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    provenance: &crate::fabric::ProjectionProvenance,
+) -> Prepared {
     tracing::debug!(
         kind = event.kind.as_u16(),
         id = %&event.id.to_hex()[..8],
         from = %crate::util::pubkey_short(&event.pubkey.to_hex()),
         "incoming event"
     );
-    let env = crate::fabric::RawEnvelope::Nostr(event.clone());
     let mut hosted = state.hosted_pubkeys();
     hosted.extend(crate::identity::list_local_pubkeys(
         &crate::config::mosaico_home(),
@@ -49,7 +62,7 @@ fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
     hosted.extend(state.with_store(|s| s.list_local_session_pubkeys().unwrap_or_default()));
     hosted.sort_unstable();
     hosted.dedup();
-    let outcome = state.with_store(|s| state.provider().materialize(&env, s));
+    let outcome = state.with_store(|s| state.provider().materialize_observed(event, provenance, s));
     // Claim before spawning: duplicate observations never race the file writer.
     let first_sight = state.first_sight(&event.id.to_hex());
     Prepared {

@@ -27,6 +27,12 @@ fn build_at(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>, created_at:
         .unwrap()
 }
 
+fn provenance(source_event_id: impl Into<String>) -> crate::fabric::ProjectionProvenance {
+    crate::fabric::ProjectionProvenance {
+        source_event_id: source_event_id.into(),
+    }
+}
+
 /// Fold one host's relay-signed records into the snapshot NMP delivers.
 ///
 /// The per-record projection is NMP's own (`listed_record_at`), so this fixture
@@ -109,7 +115,7 @@ fn channel_metadata_materializes() {
             make_tag(&["parent", ""]),
         ],
     );
-    Nip29Materializer::materialize_channel(&store, &event);
+    Nip29Materializer::materialize_channel(&store, &event, &provenance(event.id.to_hex()));
     let ch = store.get_channel("proj").unwrap().unwrap();
     assert_eq!(ch.name, "Channel");
     assert_eq!(ch.about, "the thing");
@@ -161,7 +167,12 @@ fn profile_materializes_to_relay_profiles() {
     );
     let de = crate::fabric::nip29::wire::Nip29WireCodec.decode_event(&event);
     if let Some(crate::domain::DomainEvent::Profile(pf)) = de {
-        Nip29Materializer::materialize_profile(&store, &pf, event.created_at.as_secs());
+        Nip29Materializer::materialize_profile(
+            &store,
+            &pf,
+            event.created_at.as_secs(),
+            &provenance(event.id.to_hex()),
+        );
     }
     assert_eq!(
         store.resolve_slug_for_pubkey(&pk).unwrap().as_deref(),
@@ -200,7 +211,12 @@ fn retired_profile_materializes_npub_without_recreating_handle() {
     else {
         panic!("expected profile");
     };
-    Nip29Materializer::materialize_profile(&store, &profile, event.created_at.as_secs());
+    Nip29Materializer::materialize_profile(
+        &store,
+        &profile,
+        event.created_at.as_secs(),
+        &provenance(event.id.to_hex()),
+    );
 
     let cached = store.get_profile(&pk).unwrap().unwrap();
     assert_eq!(cached.name, npub);
@@ -231,7 +247,12 @@ fn status_materializes_and_reads_live() {
     );
     let de = crate::fabric::nip29::wire::Nip29WireCodec.decode_event(&event);
     if let Some(crate::domain::DomainEvent::Status(st)) = de {
-        Nip29Materializer::materialize_status(&store, &st, event.created_at.as_secs());
+        Nip29Materializer::materialize_status(
+            &store,
+            &st,
+            event.created_at.as_secs(),
+            &provenance(event.id.to_hex()),
+        );
     }
     let raw = store.get_status(&pk, "proj").unwrap().unwrap();
     assert_eq!(raw.title, "build");
@@ -270,7 +291,11 @@ fn direct_parking_targets_exact_pubkey_and_skips_sender() {
         mentioned_pubkeys: Vec::new(),
         attachments: Vec::new(),
     };
-    assert!(Nip29Materializer::materialize_event(&store, &ambient_event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &ambient_event,
+        &provenance(ambient_event.id.to_hex())
+    ));
     assert!(!route_for_test(&store, &ambient_event, &ambient_chat));
     assert!(store
         .peek_pending_for_pubkey(&receiver_pk)
@@ -291,7 +316,11 @@ fn direct_parking_targets_exact_pubkey_and_skips_sender() {
         mentioned_pubkeys: vec![receiver_pk.clone()],
         attachments: Vec::new(),
     };
-    assert!(Nip29Materializer::materialize_event(&store, &mention_event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &mention_event,
+        &provenance(mention_event.id.to_hex())
+    ));
     assert!(route_for_test(&store, &mention_event, &mention_chat));
 
     let pending = store.peek_pending_for_pubkey(&receiver_pk).unwrap();
@@ -335,7 +364,11 @@ fn direct_parking_does_not_substitute_a_sibling_ordinal() {
         mentioned_pubkeys: vec![ord0_pk.clone()],
         attachments: Vec::new(),
     };
-    assert!(Nip29Materializer::materialize_event(&store, &event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &event,
+        &provenance(event.id.to_hex())
+    ));
     assert!(route_for_test(&store, &event, &chat));
 
     assert_eq!(
@@ -379,7 +412,11 @@ fn direct_parking_survives_a_stopped_exact_session() {
         mentioned_pubkeys: vec![target_pk.clone()],
         attachments: Vec::new(),
     };
-    assert!(Nip29Materializer::materialize_event(&store, &event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &event,
+        &provenance(event.id.to_hex())
+    ));
     assert!(route_for_test(&store, &event, &chat));
     assert_eq!(store.peek_pending_for_pubkey(&target_pk).unwrap().len(), 1);
     assert!(store
@@ -393,7 +430,11 @@ fn other_kind_lands_in_relay_events() {
     let store = Store::open_memory().unwrap();
     let agent = Keys::generate();
     let event = build(&agent, 1, "a social note", vec![make_tag(&["h", "proj"])]);
-    assert!(Nip29Materializer::materialize_event(&store, &event));
+    assert!(Nip29Materializer::materialize_event(
+        &store,
+        &event,
+        &provenance(event.id.to_hex())
+    ));
     let stored = store.get_event(&event.id.to_hex()).unwrap().unwrap();
     assert_eq!(stored.kind, 1);
     assert_eq!(stored.channel_h, "proj");

@@ -48,8 +48,15 @@ fn a_retraction_removes_exactly_the_named_row() {
     let bystander = event_id("bb").to_hex();
     store.insert_event(&chat_row(&doomed)).unwrap();
     store.insert_event(&chat_row(&bystander)).unwrap();
+    store
+        .set_projection_source(crate::state::ProjectionKind::Event, &doomed, &doomed)
+        .unwrap();
+    store
+        .claim_projection_event("contents", 1, &doomed, "[]")
+        .unwrap();
 
-    retract_all(&store, &[event_id("aa")]);
+    assert!(store.release_projection_event("contents", &doomed).unwrap());
+    store.retract_projection_source(&doomed).unwrap();
 
     assert!(
         !cached(&store, &doomed),
@@ -67,21 +74,33 @@ fn a_retraction_removes_exactly_the_named_row() {
 fn removals_are_applied_before_additions_so_a_replaced_row_survives() {
     let store = Store::open_memory().unwrap();
     let id = event_id("cc");
+    let id = id.to_hex();
 
     // Removals first, then the addition: the row is present afterwards.
-    retract_all(&store, &[id]);
-    store.insert_event(&chat_row(&id.to_hex())).unwrap();
+    store
+        .claim_projection_event("contents", 1, &id, "[]")
+        .unwrap();
+    store.release_projection_event("contents", &id).unwrap();
+    store.retract_projection_source(&id).unwrap();
+    store.insert_event(&chat_row(&id)).unwrap();
+    store
+        .set_projection_source(crate::state::ProjectionKind::Event, &id, &id)
+        .unwrap();
+    store
+        .claim_projection_event("contents", 1, &id, "[]")
+        .unwrap();
     assert!(
-        cached(&store, &id.to_hex()),
+        cached(&store, &id),
         "a Removed+Added pair for one id must leave the row present"
     );
 
     // The order this replaces: the addition, then the removal that was meant
     // to precede it. The row is gone.
-    store.insert_event(&chat_row(&id.to_hex())).unwrap();
-    retract_all(&store, &[id]);
+    store.insert_event(&chat_row(&id)).unwrap();
+    store.release_projection_event("contents", &id).unwrap();
+    store.retract_projection_source(&id).unwrap();
     assert!(
-        !cached(&store, &id.to_hex()),
+        !cached(&store, &id),
         "NOTHING TO OBSERVE — additions-first must actually lose the row, \
          otherwise this test proves nothing about the ordering"
     );

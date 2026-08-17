@@ -27,33 +27,47 @@ fn a_frame_carries_removals_alongside_additions_instead_of_discarding_them() {
 
     // The republish shape: Removed(old) and Added(new) in ONE frame, plus a
     // provenance-only delta that carries no event at all.
-    let batch = MaterializationBatch::from_deltas(&[
-        nmp::RowDelta::Removed(old.id),
-        nmp::RowDelta::SourcesGrew {
-            id: elsewhere.id,
-            sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
-        },
-        nmp::RowDelta::Added(nmp::Row {
-            event: new.clone(),
-            sources: BTreeSet::new(),
-        }),
-    ]);
+    let frame = nmp::Frame {
+        deltas: vec![
+            nmp::RowDelta::Removed(old.id),
+            nmp::RowDelta::SourcesGrew {
+                id: elsewhere.id,
+                sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
+            },
+            nmp::RowDelta::Added(nmp::Row {
+                event: new.clone(),
+                sources: BTreeSet::new(),
+            }),
+        ],
+        window: None,
+        evidence: Vec::new(),
+        execution: Vec::new(),
+    };
+    let batch = MaterializationBatch::from_frame("contents", 7, &frame);
 
+    assert_eq!(batch.observation_id, "contents");
+    assert_eq!(batch.generation, 7);
     assert_eq!(batch.removed, vec![old.id]);
-    assert_eq!(batch.added, vec![new]);
-    assert!(!batch.is_empty());
+    assert_eq!(batch.added[0].event, new);
+    assert_eq!(batch.sources_grew[0].id, elsewhere.id);
 }
 
 #[test]
-fn a_frame_of_only_provenance_growth_produces_no_work() {
+fn a_frame_of_only_provenance_growth_remains_materialization_work() {
     let event = EventBuilder::new(Kind::from(9u16), "hello")
         .sign_with_keys(&Keys::generate())
         .unwrap();
-    let batch = MaterializationBatch::from_deltas(&[nmp::RowDelta::SourcesGrew {
-        id: event.id,
-        sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
-    }]);
-    assert!(batch.is_empty());
+    let frame = nmp::Frame {
+        deltas: vec![nmp::RowDelta::SourcesGrew {
+            id: event.id,
+            sources: BTreeSet::from([RelayUrl::parse("wss://a.example.com").unwrap()]),
+        }],
+        window: None,
+        evidence: Vec::new(),
+        execution: Vec::new(),
+    };
+    let batch = MaterializationBatch::from_frame("profiles", 3, &frame);
+    assert_eq!(batch.sources_grew.len(), 1);
 }
 
 #[test]

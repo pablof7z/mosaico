@@ -1,5 +1,4 @@
 use super::Nip29Provider;
-use crate::fabric::RawEnvelope;
 use std::time::Duration;
 
 const PROFILE_FETCH_TIMEOUT: Duration = Duration::from_secs(4);
@@ -21,14 +20,9 @@ impl Nip29Provider {
             .fetch_profiles(filter, 1, PROFILE_FETCH_TIMEOUT)
             .await
             .ok()?;
-        let event = read
-            .rows
-            .into_iter()
-            .map(|row| row.event)
-            .max_by_key(|event| event.created_at)?;
-        self.with_store(|store| {
-            self.materialize(&RawEnvelope::Nostr(event), store);
-        });
+        let row = read.rows.iter().max_by_key(|row| row.event.created_at)?;
+        self.materialize_bounded_row(&format!("bounded-profile:{pubkey}"), row, &read.evidence)
+            .ok()?;
         self.with_store(|store| {
             store
                 .get_profile(pubkey)

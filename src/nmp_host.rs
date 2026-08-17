@@ -10,15 +10,17 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use nmp::{AccessContext, Engine, EngineConfig, ObservationCancel, RelayUrl};
+use nmp::{AccessContext, Engine, EngineConfig, RelayUrl};
 use nostr::Keys;
 use tokio::sync::mpsc;
 
 use crate::reconcile::{SubEffect, SubscriptionQuery};
 mod auth;
+mod materialization;
 mod query;
 pub(crate) mod read;
 mod scrub;
@@ -30,55 +32,12 @@ mod test_io;
 pub(crate) mod write;
 
 use auth::IdentityRegistration;
+use materialization::ActiveObservation;
+pub(crate) use materialization::{relay_settled, scoped_evidence_json};
+pub(crate) use materialization::{MaterializationBatch, MaterializationPhase};
 
 const MATERIALIZATION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
-
-/// One NMP frame's row transition, carried and applied as a UNIT.
-///
-/// The unit is the point. A relay republishing an addressable event — every
-/// NIP-29 roster change does this — arrives as `Removed(old_id)` and
-/// `Added(new_id)` **in the same frame**, and `Removed` carries only an id.
-/// The delivered delta order is event-id ascending, not causal
-/// (`nmp::runtime::row_channel` re-folds a frame through a `BTreeMap`), so a
-/// consumer that acts on each delta as it arrives can render a momentarily
-/// empty roster purely on hex ordering. Handing the whole frame across, and
-/// applying removals before additions, is the only shape under which the
-/// batch's final state is the batch's intent.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(crate) struct MaterializationBatch {
-    /// Rows that left the observation's row set.
-    pub(crate) removed: Vec<nostr::EventId>,
-    /// Rows that entered it, carrying the full event.
-    pub(crate) added: Vec<nostr::Event>,
-}
-
-impl MaterializationBatch {
-    fn from_deltas(deltas: &[nmp::RowDelta]) -> Self {
-        let mut batch = Self::default();
-        for delta in deltas {
-            match delta {
-                nmp::RowDelta::Added(row) => batch.added.push(row.event.clone()),
-                nmp::RowDelta::Removed(id) => batch.removed.push(*id),
-                // A relay that already held this exact event id now also
-                // serves it. Mosaico's read model is keyed by event id and
-                // coordinate and carries no provenance column, and no product
-                // surface asks "which relays hold this" — so there is nothing
-                // to project. The arm is spelled out rather than folded into a
-                // wildcard so the decision stays a decision: NMP owns
-                // provenance, and a surface that ever needs it must read
-                // `Row.sources` at the point of the question rather than
-                // mirror it into a second store here.
-                nmp::RowDelta::SourcesGrew { .. } => {}
-            }
-        }
-        batch
-    }
-
-    fn is_empty(&self) -> bool {
-        self.removed.is_empty() && self.added.is_empty()
-    }
-}
 
 pub(crate) struct NmpHost {
     engine: Engine,
@@ -86,7 +45,9 @@ pub(crate) struct NmpHost {
     profile_relays: BTreeSet<RelayUrl>,
     identities: Mutex<BTreeMap<nostr::PublicKey, IdentityRegistration>>,
     signing: Mutex<()>,
-    subscriptions: Mutex<BTreeMap<String, ObservationCancel>>,
+    subscriptions: Mutex<BTreeMap<String, ActiveObservation>>,
+    observation_generations: Mutex<BTreeMap<String, u64>>,
+    next_observation_generation: AtomicU64,
     materialization_tx: Mutex<Option<mpsc::Sender<MaterializationBatch>>>,
     materialization_rx: Mutex<Option<mpsc::Receiver<MaterializationBatch>>>,
     #[cfg(test)]
@@ -145,6 +106,8 @@ impl NmpHost {
             identities: Mutex::new(BTreeMap::new()),
             signing: Mutex::new(()),
             subscriptions: Mutex::new(BTreeMap::new()),
+            observation_generations: Mutex::new(BTreeMap::new()),
+            next_observation_generation: AtomicU64::new(observation_generation_seed()),
             materialization_tx: Mutex::new(Some(materialization_tx)),
             materialization_rx: Mutex::new(Some(materialization_rx)),
             #[cfg(test)]
@@ -203,8 +166,8 @@ impl NmpHost {
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner()),
         );
-        for (_, cancel) in subscriptions {
-            cancel.cancel();
+        for (_, observation) in subscriptions {
+            observation.cancel.cancel();
         }
         self.materialization_tx
             .lock()
@@ -236,14 +199,20 @@ impl NmpHost {
             .unwrap_or_else(|poison| poison.into_inner())
             .clone()
             .context("NMP host is shut down")?;
+        let generation = self
+            .next_observation_generation
+            .fetch_add(1, Ordering::Relaxed);
+        self.observation_generations
+            .lock()
+            .expect("NMP observation-generation mutex poisoned")
+            .insert(id.to_string(), generation);
+        let observation_id = id.to_string();
         std::thread::Builder::new()
             .name(format!("nmp-{id}"))
             .spawn(move || {
                 while let Ok(frame) = subscription.recv() {
-                    let batch = MaterializationBatch::from_deltas(&frame.deltas);
-                    if batch.is_empty() {
-                        continue;
-                    }
+                    let batch =
+                        MaterializationBatch::from_frame(&observation_id, generation, &frame);
                     if materialization.blocking_send(batch).is_err() {
                         return;
                     }
@@ -254,22 +223,66 @@ impl NmpHost {
             .subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
-            .insert(id.to_string(), cancel);
+            .insert(id.to_string(), ActiveObservation { generation, cancel });
         if let Some(previous) = previous {
-            previous.cancel();
+            previous.cancel.cancel();
         }
         Ok(())
     }
 
     fn close_subscription(&self, id: &str) {
-        if let Some(cancel) = self
+        if let Some(observation) = self
             .subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
             .remove(id)
         {
-            cancel.cancel();
+            observation.cancel.cancel();
+            let materialization = self
+                .materialization_tx
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone();
+            let observation_id = id.to_string();
+            std::thread::spawn(move || {
+                if let Some(materialization) = materialization {
+                    let _ = materialization.blocking_send(MaterializationBatch::closed(
+                        observation_id,
+                        observation.generation,
+                    ));
+                }
+            });
         }
+    }
+
+    pub(crate) fn accepts_materialization(&self, batch: &MaterializationBatch) -> bool {
+        let latest = self
+            .observation_generations
+            .lock()
+            .expect("NMP observation-generation mutex poisoned")
+            .get(&batch.observation_id)
+            .copied();
+        if latest != Some(batch.generation) {
+            return false;
+        }
+        match batch.phase {
+            MaterializationPhase::Frame => self
+                .subscriptions
+                .lock()
+                .expect("NMP subscription mutex poisoned")
+                .get(&batch.observation_id)
+                .is_some_and(|active| active.generation == batch.generation),
+            MaterializationPhase::Closed => !self
+                .subscriptions
+                .lock()
+                .expect("NMP subscription mutex poisoned")
+                .contains_key(&batch.observation_id),
+        }
+    }
+
+    pub(crate) fn allocate_projection_generation(&self) -> u64 {
+        self.next_observation_generation
+            .fetch_add(1, Ordering::Relaxed)
     }
 }
 
@@ -290,6 +303,15 @@ fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<
         // SSRF opt-in. NMP handles it as a separate trust class.
         .filter(|host| !host.ends_with(".onion"))
         .collect()
+}
+
+fn observation_generation_seed() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock predates Unix epoch")
+        .as_nanos()
+        .try_into()
+        .expect("Unix nanosecond timestamp exceeds u64")
 }
 
 #[cfg(test)]

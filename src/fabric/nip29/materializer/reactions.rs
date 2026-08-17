@@ -1,6 +1,7 @@
 use super::Nip29Materializer;
 use crate::domain::Reaction;
-use crate::state::Store;
+use crate::fabric::ProjectionProvenance;
+use crate::state::{ProjectionKind, Store};
 use nostr::Event;
 
 impl Nip29Materializer {
@@ -9,16 +10,30 @@ impl Nip29Materializer {
     /// `message_recipients` edge, so no live-delivery/doorbell path can ever pick
     /// it up. Idempotent by the reaction event id (a relay echo collapses onto the
     /// same row).
-    pub fn materialize_reaction(store: &Store, event: &Event, rx: &Reaction) {
+    pub(crate) fn materialize_reaction(
+        store: &Store,
+        event: &Event,
+        rx: &Reaction,
+        provenance: &ProjectionProvenance,
+    ) {
         let reaction_id = event.id.to_hex();
-        if let Err(e) = store.upsert_reaction(
-            &reaction_id,
-            &rx.target_event_id,
-            &rx.channel,
-            &event.pubkey.to_hex(),
-            &rx.emoji,
-            event.created_at.as_secs(),
-        ) {
+        let projected = store
+            .upsert_reaction(
+                &reaction_id,
+                &rx.target_event_id,
+                &rx.channel,
+                &event.pubkey.to_hex(),
+                &rx.emoji,
+                event.created_at.as_secs(),
+            )
+            .and_then(|_| {
+                store.set_projection_source(
+                    ProjectionKind::Reaction,
+                    &reaction_id,
+                    &provenance.source_event_id,
+                )
+            });
+        if let Err(e) = projected {
             tracing::error!(
                 reaction_id = %reaction_id,
                 target = %rx.target_event_id,

@@ -1,6 +1,6 @@
 use super::*;
 use axum::{body::Bytes, routing::get, Router};
-use nostr::{EventBuilder, Keys, Kind, Tag};
+use nostr::{Event, EventBuilder, Keys, Kind, Tag};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -155,8 +155,11 @@ async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
         .sign_with_keys(&sender)
         .unwrap();
 
-    inbound_dispatch::dispatch(&state, &slow);
-    inbound_dispatch::dispatch(&state, &slow);
+    let provenance = |event: &Event| crate::fabric::ProjectionProvenance {
+        source_event_id: event.id.to_hex(),
+    };
+    inbound_dispatch::dispatch(&state, &slow, provenance(&slow));
+    inbound_dispatch::dispatch(&state, &slow, provenance(&slow));
     tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
         .await
         .unwrap();
@@ -167,7 +170,7 @@ async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
         ])
         .sign_with_keys(&sender)
         .unwrap();
-    inbound_dispatch::dispatch(&state, &fast);
+    inbound_dispatch::dispatch(&state, &fast, provenance(&fast));
 
     state.with_store(|store| {
         assert!(store

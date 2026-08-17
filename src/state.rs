@@ -255,6 +255,8 @@ pub use native_turn_attempts::{
     NewNativeTurnAttempt,
 };
 mod profiles;
+mod projection_provenance;
+pub(crate) use projection_provenance::ProjectionKind;
 mod workspace_roots;
 pub use workspace_roots::WorkspaceBinding;
 mod reactions;

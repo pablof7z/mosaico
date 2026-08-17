@@ -90,20 +90,7 @@ async fn publish_profile(
             &prepared.keys,
         )
         .await?;
-    let npub = crate::idref::npub(&prepared.identity.pubkey)
-        .unwrap_or_else(|| prepared.identity.pubkey.clone());
-    state.with_store(|s| {
-        s.upsert_profile_with_agent_slug(
-            &prepared.identity.pubkey,
-            &prepared.identity.handle,
-            &npub,
-            &prepared.identity.slug,
-            &state.host(),
-            false,
-            now_secs(),
-        )?;
-        Ok::<_, anyhow::Error>(())
-    })
+    Ok(())
 }
 
 #[cfg(test)]

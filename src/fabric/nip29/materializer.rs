@@ -10,7 +10,8 @@
 //! identical for local and remote agents, rebuildable from the relay at any time.
 
 use crate::domain::Profile;
-use crate::state::{RelayEvent, Store};
+use crate::fabric::ProjectionProvenance;
+use crate::state::{ProjectionKind, RelayEvent, Store};
 use nostr::Event;
 
 mod group_state;
@@ -25,7 +26,12 @@ impl Nip29Materializer {
     /// Materialise a decoded kind:0 profile into `relay_profiles`. Newer
     /// `updated_at` wins. Agent profile `name`/`slug` are the canonical
     /// `sessionCode-agent` handle; backend profiles keep their backend name.
-    pub fn materialize_profile(store: &Store, pf: &Profile, updated_at: u64) {
+    pub(crate) fn materialize_profile(
+        store: &Store,
+        pf: &Profile,
+        updated_at: u64,
+        provenance: &ProjectionProvenance,
+    ) {
         let slug = pf.agent.slug.as_str();
         let name = if pf.is_backend {
             slug.to_string()
@@ -37,17 +43,26 @@ impl Nip29Materializer {
         } else {
             name.clone()
         };
-        if let Err(e) = store.upsert_profile_snapshot(
-            &pf.agent.pubkey,
-            &name,
-            &slug,
-            &pf.agent_slug,
-            &pf.host,
-            pf.is_backend,
-            &pf.agents,
-            &pf.workspaces,
-            updated_at,
-        ) {
+        let projected = store
+            .upsert_profile_snapshot(
+                &pf.agent.pubkey,
+                &name,
+                &slug,
+                &pf.agent_slug,
+                &pf.host,
+                pf.is_backend,
+                &pf.agents,
+                &pf.workspaces,
+                updated_at,
+            )
+            .and_then(|()| {
+                store.set_projection_source(
+                    ProjectionKind::Profile,
+                    &pf.agent.pubkey,
+                    &provenance.source_event_id,
+                )
+            });
+        if let Err(e) = projected {
             tracing::error!(
                 pubkey = %pf.agent.pubkey,
                 slug = %slug,
@@ -64,7 +79,12 @@ impl Nip29Materializer {
     /// `h` tags; each becomes a channel row with the same session title/activity.
     /// Liveness is computed on READ from the NIP-40 `expiration`; the row is stored
     /// regardless of freshness (older `updated_at` writes are dropped by the store).
-    pub fn materialize_status(store: &Store, st: &crate::domain::Status, updated_at: u64) {
+    pub(crate) fn materialize_status(
+        store: &Store,
+        st: &crate::domain::Status,
+        updated_at: u64,
+        provenance: &ProjectionProvenance,
+    ) {
         let slug = if !st.agent.slug.is_empty() {
             st.agent.slug.clone()
         } else {
@@ -92,7 +112,16 @@ impl Nip29Materializer {
                 expiration: st.expires_at.unwrap_or(0),
             })
             .collect::<Vec<_>>();
-        if let Err(e) = store.replace_status_channels(&st.agent.pubkey, &statuses, updated_at) {
+        let projected = store
+            .replace_status_channels(&st.agent.pubkey, &statuses, updated_at)
+            .and_then(|_| {
+                store.set_projection_source(
+                    ProjectionKind::StatusSet,
+                    &st.agent.pubkey,
+                    &provenance.source_event_id,
+                )
+            });
+        if let Err(e) = projected {
             tracing::error!(
                 pubkey = %st.agent.pubkey,
                 error = %e,
@@ -106,8 +135,20 @@ impl Nip29Materializer {
     /// Cache one relay event verbatim in `relay_events` (NIP-01 replacement is
     /// applied inside the store). Used for every kind that has no dedicated cache:
     /// chat (9), notes/activity (1), orchestration, and other unprojected kinds.
-    pub fn materialize_event(store: &Store, event: &Event) -> bool {
-        store.insert_event(&to_relay_event(event)).unwrap_or(false)
+    pub(crate) fn materialize_event(
+        store: &Store,
+        event: &Event,
+        provenance: &ProjectionProvenance,
+    ) -> bool {
+        let inserted = store.insert_event(&to_relay_event(event)).unwrap_or(false);
+        if let Err(error) = store.set_projection_source(
+            ProjectionKind::Event,
+            &event.id.to_hex(),
+            &provenance.source_event_id,
+        ) {
+            tracing::error!(%error, event_id = %event.id, "recording relay event provenance failed");
+        }
+        inserted
     }
 }
 

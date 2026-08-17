@@ -48,7 +48,7 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
     assert_eq!(cleanup_due[0].channel_h, "cleanup");
     drop(store);
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 21);
+    assert_eq!(version(&conn), 22);
     assert_eq!(
         conn.query_row(
             "SELECT COUNT(*) FROM sqlite_master
@@ -106,30 +106,21 @@ fn schema_seventeen_migrates_single_channel_pointer_without_losing_existing_memb
             ("passive".into(), 9, 2),
         ]
     );
-    assert_eq!(
-        conn.query_row(
-            "SELECT workspace || ':' || branch FROM relay_status WHERE pubkey='peer'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .unwrap(),
-        ":"
-    );
-    assert_eq!(
-        conn.query_row(
-            "SELECT updated_at FROM relay_status_sets WHERE pubkey='peer'",
-            [],
-            |row| row.get::<_, u64>(0),
-        )
-        .unwrap(),
-        0
-    );
+    assert_eq!(count(&conn, "relay_status"), 0);
+    assert_eq!(count(&conn, "relay_status_sets"), 0);
 
     conn.execute(
         "INSERT INTO relay_channels
              (channel_h, name, parent, created_at, updated_at)
          VALUES ('other-root', 'general', '', 2, 2)",
         [],
+    )
+    .unwrap();
+    conn.execute_batch(
+        "INSERT INTO relay_channels
+             (channel_h, name, parent, created_at, updated_at)
+         VALUES ('existing-root', 'general', '', 2, 2),
+                ('named-a', 'named', 'existing-root', 2, 2);",
     )
     .unwrap();
     for channel_h in ["unnamed-a", "unnamed-b"] {

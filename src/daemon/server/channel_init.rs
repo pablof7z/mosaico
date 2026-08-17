@@ -23,7 +23,7 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
         .with_context(|| format!("canonicalizing workspace path {}", path.display()))?;
 
     state.with_store(|store| {
-        store.upsert_channel(&channel, &channel, "", "", now_secs())?;
+        store.reserve_channel_resolution_intent("", &channel, &channel, now_secs())?;
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bind_root_path(
             &channel,
             &canonical,

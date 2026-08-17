@@ -176,18 +176,6 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
         state.owners().clone(),
     );
     let domain = crate::domain::DomainEvent::Profile(profile);
-    state.with_store(|store| {
-        store.upsert_profile_with_agent_slug(
-            pubkey,
-            &npub,
-            &npub,
-            &session.agent_slug,
-            &state.host(),
-            false,
-            now_secs(),
-        )?;
-        Ok::<_, anyhow::Error>(())
-    })?;
     state
         .provider()
         .enqueue(&domain, &keys)

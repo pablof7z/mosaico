@@ -19,6 +19,12 @@ pub enum RawEnvelope {
     Nostr(nostr::Event),
 }
 
+/// Exact NMP row identity carried into every rebuildable projection write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProjectionProvenance {
+    pub(crate) source_event_id: String,
+}
+
 /// Encode/decode between `DomainEvent` and Nostr event envelopes.
 ///
 /// The return type is `nostr::EventBuilder`, so this boundary is explicitly
@@ -47,18 +53,22 @@ pub struct MaterializationOutcome {
 /// Relay acceptance is the sender/channel admission boundary. Chat is cached
 /// without a second local membership decision; daemon-owned p-tag execution is
 /// handled by the server after materialization.
-pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> MaterializationOutcome {
+pub(crate) fn materialize_observed(
+    event: &nostr::Event,
+    provenance: &ProjectionProvenance,
+    store: &crate::state::Store,
+) -> MaterializationOutcome {
     use crate::domain::DomainEvent;
     use crate::fabric::nip29::materializer::Nip29Materializer;
     use crate::fabric::nip29::wire::Nip29WireCodec;
 
-    let RawEnvelope::Nostr(event) = env;
+    let env = RawEnvelope::Nostr(event.clone());
 
     // Relay-authored NIP-29 state events go straight to their dedicated caches and
     // never decode into a domain event (no tail).
     match event.kind.as_u16() {
         39000 => {
-            Nip29Materializer::materialize_channel(store, event);
+            Nip29Materializer::materialize_channel(store, event, provenance);
             return MaterializationOutcome::default();
         }
         // 39001/39002 never reach this projection: the roster is read through
@@ -74,10 +84,10 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
 
     // Unknown kinds land in relay_events except dedicated-cache kinds.
     let codec = Nip29WireCodec;
-    let Some(de) = codec.decode(env) else {
+    let Some(de) = codec.decode(&env) else {
         let k = event.kind.as_u16();
         if k != 0 && k != 30315 {
-            Nip29Materializer::materialize_event(store, event);
+            Nip29Materializer::materialize_event(store, event, provenance);
         }
         return MaterializationOutcome::default();
     };
@@ -89,15 +99,15 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
 
     match de {
         DomainEvent::Profile(ref pf) => {
-            Nip29Materializer::materialize_profile(store, pf, created_at);
+            Nip29Materializer::materialize_profile(store, pf, created_at, provenance);
         }
 
         DomainEvent::Status(ref st) => {
-            Nip29Materializer::materialize_status(store, st, created_at);
+            Nip29Materializer::materialize_status(store, st, created_at, provenance);
         }
 
         DomainEvent::ChatMessage(ref chat) => {
-            Nip29Materializer::materialize_event(store, event);
+            Nip29Materializer::materialize_event(store, event, provenance);
             Nip29Materializer::materialize_chat_message(store, event, chat);
             let sender_pk = event.pubkey.to_hex();
             if let Some(slug) = store
@@ -117,12 +127,24 @@ pub fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> Materializ
         // projection ONLY, so a reaction can never enter direct-mention routing,
         // wake an idle agent, or inject mid-turn. No tail (nothing live-delivers).
         DomainEvent::Reaction(ref rx) => {
-            Nip29Materializer::materialize_reaction(store, event, rx);
+            Nip29Materializer::materialize_reaction(store, event, rx, provenance);
             outcome.tail = None;
         }
     }
 
     outcome
+}
+
+#[cfg(test)]
+fn materialize(env: &RawEnvelope, store: &crate::state::Store) -> MaterializationOutcome {
+    let RawEnvelope::Nostr(event) = env;
+    materialize_observed(
+        event,
+        &ProjectionProvenance {
+            source_event_id: event.id.to_hex(),
+        },
+        store,
+    )
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

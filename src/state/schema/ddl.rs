@@ -102,6 +102,34 @@ CREATE TABLE IF NOT EXISTS relay_reactions (
 CREATE INDEX IF NOT EXISTS idx_relay_reactions_target
     ON relay_reactions(target_message_id, created_at);
 
+-- Exact provenance for every current relay-derived projection. Observation
+-- ownership is many-to-many: one NMP row may be delivered by several product
+-- observations, and one observation may own many rows. A typed projection is
+-- retracted only after its source event has no remaining observation owner.
+CREATE TABLE IF NOT EXISTS relay_projection_observations (
+    observation_id TEXT PRIMARY KEY,
+    generation     INTEGER NOT NULL,
+    evidence_json  TEXT NOT NULL DEFAULT '[]',
+    relay_settled  INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS relay_projection_owners (
+    observation_id TEXT NOT NULL,
+    event_id       TEXT NOT NULL,
+    generation     INTEGER NOT NULL,
+    sources_json   TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (observation_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_relay_projection_owners_event
+    ON relay_projection_owners(event_id);
+CREATE TABLE IF NOT EXISTS relay_projection_rows (
+    projection_kind TEXT NOT NULL,
+    projection_key  TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    PRIMARY KEY (projection_kind, projection_key)
+);
+CREATE INDEX IF NOT EXISTS idx_relay_projection_rows_source
+    ON relay_projection_rows(source_event_id);
+
 CREATE TABLE IF NOT EXISTS messages (
     message_id      TEXT PRIMARY KEY,
     thread_id       TEXT NOT NULL DEFAULT '',
