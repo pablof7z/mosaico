@@ -27,6 +27,14 @@ pub(in crate::daemon::server) async fn ensure_subscription(
 pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonState>) -> Result<()> {
     let _serial = state.subscriptions.sync.lock().await;
     let snapshot = build_coverage_snapshot(state);
+    // The retained kind:0 profile feed is scoped to the current member set —
+    // the backend identity plus every channel's members and admins — which
+    // `build_coverage_snapshot` already computes as `profile_pubkeys`. Drive
+    // it here so every coverage refresh (startup + every group-state change)
+    // re-scopes the feed's one retained `authors:[members]` observation.
+    state
+        .profile_feed()
+        .set_members(snapshot.profile_pubkeys.clone());
     // The relay-signed group records ride ONE retained observation rather than
     // the per-entity refcount, because their branch count is set by the host
     // set and not by how many groups are named.
@@ -220,3 +228,7 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         sessions,
     }
 }
+
+#[cfg(test)]
+#[path = "subscriptions/tests.rs"]
+mod tests;

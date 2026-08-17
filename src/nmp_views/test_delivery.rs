@@ -32,4 +32,10 @@ impl TestRelayDelivery {
     pub(crate) fn event_ids(&self) -> impl Iterator<Item = &str> {
         self.events.iter().map(|event| event.id.as_str())
     }
+
+    /// The profiles this delivery carries, for routing to the profile feed's
+    /// test seam when `Store::get_profile` reads from the feed.
+    pub(crate) fn profiles_for_feed(&self) -> Vec<Profile> {
+        self.profiles.clone()
+    }
 }

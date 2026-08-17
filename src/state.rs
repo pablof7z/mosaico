@@ -29,11 +29,26 @@ pub(crate) use test_group_delivery::{TestGroup, TestGroupDelivery, TestRelayDeli
 pub struct Store {
     conn: Connection,
     nmp_views: Arc<crate::nmp_views::NmpViews>,
+    profile_feed: Arc<crate::nmp_host::ProfileFeed>,
 }
 
 impl Store {
-    pub(crate) fn bind_nmp_views(&mut self, views: Arc<crate::nmp_views::NmpViews>) {
+    /// Bind both NMP-backed views in one call: the legacy `NmpViews` mirror and
+    /// the retained profile feed that owns `Store::get_profile`. The two are
+    /// always bound together from the same live [`NmpHost`](crate::nmp_host::NmpHost).
+    pub(crate) fn bind_nmp_views_and_feed(
+        &mut self,
+        views: Arc<crate::nmp_views::NmpViews>,
+        host: Arc<crate::nmp_host::NmpHost>,
+    ) {
         self.nmp_views = views;
+        self.profile_feed = Arc::new(crate::nmp_host::ProfileFeed::new(host));
+    }
+
+    /// The retained profile feed driving `Store::get_profile`. The coverage
+    /// refresh calls `set_members` on this `Arc`.
+    pub(crate) fn profile_feed(&self) -> Arc<crate::nmp_host::ProfileFeed> {
+        Arc::clone(&self.profile_feed)
     }
 }
 

@@ -35,4 +35,10 @@ impl DaemonState {
     pub(crate) fn whitelisted_pubkeys(&self) -> Vec<String> {
         self.owners()
     }
+
+    /// The retained kind:0 profile feed driving `Store::get_profile`. The
+    /// coverage refresh calls `set_members` on this `Arc`.
+    pub(crate) fn profile_feed(&self) -> Arc<crate::nmp_host::ProfileFeed> {
+        self.with_store(|store| store.profile_feed())
+    }
 }

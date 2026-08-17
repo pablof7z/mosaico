@@ -36,7 +36,7 @@ pub async fn run() -> Result<()> {
     let mut store = Store::open(&store_path())?;
     reconcile::leftover_startup_state(&store)?;
     let nmp = Arc::new(nmp_open::open(&cfg, &storage, &backend_keys)?);
-    store.bind_nmp_views(nmp.views_handle());
+    store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
     let store = Arc::new(Mutex::new(store));
     let provider = Arc::new(Nip29Provider::new(
         nmp.clone(),

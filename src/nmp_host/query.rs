@@ -143,6 +143,32 @@ impl NmpHost {
         Ok(LiveQuery::single(demand))
     }
 
+    /// kind:0 for the current member set, pinned to the profile relays,
+    /// `Agnostic`. This is the retained profile feed's query (mosaico#837):
+    /// one observation scoped to `authors:[members]`, draining into a small
+    /// bounded per-pubkey profile map. kind:0 is self-authenticating, so the
+    /// cache stays provenance-agnostic exactly like the single-profile read.
+    pub(crate) fn profile_feed_query(&self, authors: &BTreeSet<String>) -> Result<LiveQuery> {
+        let mut filter = kinds_filter(&BTreeSet::from([0u16]));
+        filter.authors = Some(Binding::Literal(authors.clone()));
+        self.host_pinned_query(
+            &self.profile_relays,
+            filter,
+            AccessContext::Public,
+            CacheMode::Agnostic,
+        )
+    }
+
+    /// Open a caller-owned NMP observation over an already-built live query.
+    /// The caller owns the [`nmp::Subscription`] and its drain. Used by
+    /// retained feeds that keep their own projection rather than the daemon
+    /// demux transition stream.
+    pub(crate) fn observe_query(&self, query: LiveQuery) -> Result<nmp::Subscription> {
+        self.engine
+            .observe(query, None)
+            .context("opening NMP observation")
+    }
+
     pub(super) fn live_query(
         &self,
         query: &SubscriptionQuery,

@@ -171,7 +171,7 @@ fn install_runtime(
         .store
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
-        .bind_nmp_views(nmp.views_handle());
+        .bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
     *state
         .nmp
         .write()

@@ -42,7 +42,7 @@ impl DaemonState {
                 .expect("in-memory NMP engine"),
         );
         let mut store = Store::open_memory().expect("in-memory store");
-        store.bind_nmp_views(nmp.views_handle());
+        store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
         let store = Arc::new(Mutex::new(store));
         let provider = Arc::new(Nip29Provider::new(
             nmp.clone(),

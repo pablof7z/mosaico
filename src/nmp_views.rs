@@ -22,6 +22,7 @@ mod profile_status;
 mod reactions;
 pub(crate) use reactions::ReactionProjection;
 mod relay;
+pub(crate) use relay::observed_profile_from_row;
 #[cfg(test)]
 mod test_delivery;
 #[cfg(test)]

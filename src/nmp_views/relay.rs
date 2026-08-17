@@ -239,7 +239,7 @@ pub(crate) fn observed_status_from_row(row: Row) -> Option<ObservedStatus> {
 }
 
 impl ObservedProfile {
-    pub(super) fn as_state_profile(&self) -> Profile {
+    pub(crate) fn as_state_profile(&self) -> Profile {
         let name = self.profile.agent.slug.clone();
         Profile {
             pubkey: self.profile.agent.pubkey.clone(),

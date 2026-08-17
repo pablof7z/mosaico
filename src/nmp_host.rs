@@ -32,6 +32,13 @@ pub(crate) mod write;
 use crate::nmp_views::{NmpViews, RowTransition};
 use auth::IdentityRegistration;
 
+mod profile_feed;
+pub(crate) use profile_feed::ProfileFeed;
+#[cfg(test)]
+mod test_relay;
+#[cfg(test)]
+pub(crate) use test_relay::PlainRelay;
+
 const VIEW_TRANSITION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
 

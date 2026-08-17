@@ -4,7 +4,7 @@ use super::*;
 
 impl Store {
     pub fn get_profile(&self, pubkey: &str) -> Result<Option<Profile>> {
-        Ok(self.nmp_views.profile(pubkey))
+        Ok(self.profile_feed.profile(pubkey))
     }
 
     pub fn list_backend_profiles(&self) -> Result<Vec<Profile>> {

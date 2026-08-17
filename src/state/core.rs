@@ -45,6 +45,7 @@ impl Store {
         Ok(Self {
             conn,
             nmp_views: Default::default(),
+            profile_feed: Default::default(),
         })
     }
 
@@ -54,6 +55,7 @@ impl Store {
         Ok(Self {
             conn,
             nmp_views: Default::default(),
+            profile_feed: Default::default(),
         })
     }
 

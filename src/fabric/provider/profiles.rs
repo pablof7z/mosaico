@@ -46,7 +46,7 @@ mod tests {
             crate::nmp_host::NmpHost::open(&[], None, None, &backend).expect("in-memory NMP host"),
         );
         let mut store = Store::open_memory().expect("in-memory state store");
-        store.bind_nmp_views(nmp.views_handle());
+        store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
         let store = Arc::new(Mutex::new(store));
         let management_nsec = backend.secret_key().to_secret_hex();
         (

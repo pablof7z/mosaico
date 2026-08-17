@@ -17,6 +17,11 @@ impl Store {
             self.record_nmp_arrival(event_id)
                 .expect("recording test NMP arrival");
         }
+        let profiles = delivery.profiles_for_feed();
         self.nmp_views.install_test_relay_delivery(delivery);
+        // `Store::get_profile` reads from the retained profile feed; route the
+        // synthetic profiles to the feed's test seam so Store-logic tests that
+        // need profile data (without a real NMP engine) keep working.
+        self.profile_feed.install_test_profiles(profiles);
     }
 }
