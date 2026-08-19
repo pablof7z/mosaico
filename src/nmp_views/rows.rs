@@ -149,11 +149,6 @@ impl RowViews {
         self.rows_for_ids(self.ids_by_kind_author.get(&(kind, author.to_string())))
     }
 
-    #[allow(dead_code)] // mirror index surface being retired; deleted with the mirror
-    pub(super) fn rows_for_kind_channel(&self, kind: u16, channel: &str) -> Vec<ViewRow> {
-        self.rows_for_ids(self.ids_by_kind_channel.get(&(kind, channel.to_string())))
-    }
-
     /// Rows owned by one retained observation, irrespective of whether another
     /// observation also owns the same canonical NMP row.
     ///

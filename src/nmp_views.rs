@@ -209,14 +209,6 @@ impl NmpViews {
             .expect("NMP row views poisoned")
             .rows_for_kind_author(kind, author)
     }
-
-    #[allow(dead_code)] // mirror row-read surface being retired; deleted with the mirror
-    fn rows_for_kind_channel(&self, kind: u16, channel: &str) -> Vec<rows::ViewRow> {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .rows_for_kind_channel(kind, channel)
-    }
 }
 
 #[cfg(test)]
