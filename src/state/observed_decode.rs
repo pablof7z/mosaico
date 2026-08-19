@@ -105,3 +105,118 @@ fn reply_target(tags: &[Vec<String>]) -> Option<String> {
     }
     fallback
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::RelayEvent;
+
+    fn relay(
+        id: &str,
+        kind: u32,
+        channel: &str,
+        pubkey: &str,
+        content: &str,
+        tags_json: &str,
+    ) -> RelayEvent {
+        RelayEvent {
+            id: id.into(),
+            kind,
+            pubkey: pubkey.into(),
+            created_at: 100,
+            channel_h: channel.into(),
+            d_tag: String::new(),
+            content: content.into(),
+            tags_json: tags_json.into(),
+        }
+    }
+
+    #[test]
+    fn decode_message_projects_body_recipients_and_reply_target() {
+        let event = relay(
+            "m1",
+            KIND_CHAT as u32,
+            "room",
+            "author",
+            "hello",
+            r#"[["p","alice"],["p","bob"],["p","alice"],["e","parent","","reply"]]"#,
+        );
+        let projected = decode_message(event).expect("chat decodes");
+        assert_eq!(projected.message.message_id, "m1");
+        assert_eq!(projected.message.channel_h, "room");
+        assert_eq!(projected.message.author_pubkey, "author");
+        assert_eq!(projected.message.body, "hello");
+        assert_eq!(projected.reply_target.as_deref(), Some("parent"));
+        // Recipients deduped + sorted.
+        let recipients: Vec<_> = projected
+            .recipients
+            .into_iter()
+            .map(|r| r.recipient_pubkey)
+            .collect();
+        assert_eq!(recipients, vec!["alice", "bob"]);
+    }
+
+    #[test]
+    fn decode_message_falls_back_to_first_e_tag_without_reply_marker() {
+        let event = relay(
+            "m2",
+            KIND_CHAT as u32,
+            "room",
+            "author",
+            "top-level",
+            r#"[["e","root"]]"#,
+        );
+        let projected = decode_message(event).expect("chat decodes");
+        assert_eq!(projected.reply_target.as_deref(), Some("root"));
+    }
+
+    #[test]
+    fn decode_message_drops_rows_with_no_channel_or_wrong_kind() {
+        let no_channel = relay("m3", KIND_CHAT as u32, "", "author", "x", "[]");
+        assert!(decode_message(no_channel).is_none());
+        let wrong_kind = relay("m4", KIND_REACTION as u32, "room", "author", "x", "[]");
+        assert!(decode_message(wrong_kind).is_none());
+    }
+
+    #[test]
+    fn decode_reaction_projects_target_emoji_and_reactor() {
+        let event = relay(
+            "r1",
+            KIND_REACTION as u32,
+            "room",
+            "reactor",
+            "👍",
+            r#"[["e","target-msg"]]"#,
+        );
+        let reaction = decode_reaction(event).expect("reaction decodes");
+        assert_eq!(reaction.reaction_id, "r1");
+        assert_eq!(reaction.target_message_id, "target-msg");
+        assert_eq!(reaction.channel_h, "room");
+        assert_eq!(reaction.reactor_pubkey, "reactor");
+        assert_eq!(reaction.emoji, "👍");
+    }
+
+    #[test]
+    fn decode_reaction_drops_invalid_emoji_or_missing_target() {
+        let bad_emoji = relay(
+            "r2",
+            KIND_REACTION as u32,
+            "room",
+            "reactor",
+            "not an emoji",
+            r#"[["e","t"]]"#,
+        );
+        assert!(decode_reaction(bad_emoji).is_none());
+        let no_target = relay("r3", KIND_REACTION as u32, "room", "reactor", "👍", "[]");
+        assert!(decode_reaction(no_target).is_none());
+        let wrong_kind = relay(
+            "r4",
+            KIND_CHAT as u32,
+            "room",
+            "reactor",
+            "👍",
+            r#"[["e","t"]]"#,
+        );
+        assert!(decode_reaction(wrong_kind).is_none());
+    }
+}
