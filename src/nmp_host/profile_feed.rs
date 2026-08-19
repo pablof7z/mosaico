@@ -159,15 +159,15 @@ impl ProfileFeed {
     /// loop so the upsert/remove/latest-wins logic is testable in isolation.
     fn apply_delta(&self, delta: RowDelta) {
         match delta {
-            RowDelta::Added(row) => {
-                if row.event.kind.as_u16() != 0 {
+            RowDelta::Added(row) | RowDelta::Updated(row) => {
+                if row.kind().as_u16() != 0 {
                     return;
                 }
                 let Some(observed) = observed_profile_from_row(row) else {
                     return;
                 };
                 let pubkey = observed.profile.agent.pubkey.clone();
-                let event_id = observed.row.event.id;
+                let event_id = observed.row.id();
                 let profile = observed.as_state_profile();
                 // Track only the CURRENT event id per pubkey: a newer kind:0
                 // supersedes the old, so the old id is retired from the reverse

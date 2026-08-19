@@ -139,7 +139,7 @@ fn group_pubkeys(pubkeys: &[String]) -> anyhow::Result<Vec<PublicKey>> {
 pub(super) fn group_users(
     pubkeys: &[String],
     role: Option<String>,
-) -> anyhow::Result<Vec<nmp::nip29::GroupUser>> {
+) -> anyhow::Result<Vec<nmp_nip29::GroupUser>> {
     if pubkeys.is_empty() {
         anyhow::bail!("a group role change must name at least one user");
     }
@@ -147,7 +147,7 @@ pub(super) fn group_users(
         .iter()
         .map(|pubkey| {
             PublicKey::parse(pubkey)
-                .map(|pubkey| nmp::nip29::GroupUser::new(pubkey, role.clone()))
+                .map(|pubkey| nmp_nip29::GroupUser::new(pubkey, role.clone()))
                 .map_err(anyhow::Error::from)
         })
         .collect()
@@ -167,11 +167,11 @@ mod tests {
         assert_eq!(users.len(), 2);
         assert_eq!(
             users[0],
-            nmp::nip29::GroupUser::new(first, Some("admin".into()))
+            nmp_nip29::GroupUser::new(first, Some("admin".into()))
         );
         assert_eq!(
             users[1],
-            nmp::nip29::GroupUser::new(second, Some("admin".into()))
+            nmp_nip29::GroupUser::new(second, Some("admin".into()))
         );
     }
 

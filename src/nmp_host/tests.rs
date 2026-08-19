@@ -8,18 +8,6 @@ mod boot_recovery;
 use auth_harness::AuthRequiredRelay;
 
 #[test]
-fn configured_local_hosts_are_explicitly_allowed_but_onion_is_not() {
-    let local = RelayUrl::parse("ws://127.0.0.1:7777").unwrap();
-    let public = RelayUrl::parse("wss://relay.example.com").unwrap();
-    let onion = RelayUrl::parse("ws://examplehiddenservice.onion").unwrap();
-
-    assert_eq!(
-        local_relay_hosts([&local, &public, &onion]),
-        vec!["127.0.0.1"]
-    );
-}
-
-#[test]
 fn canonical_nmp_view_stream_has_exactly_one_owner() {
     let host = NmpHost::open(&[], None, None, &Keys::generate()).unwrap();
     let receiver = host.take_view_transitions().unwrap();
@@ -48,7 +36,7 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
             &SubscriptionQuery::Kinds {
                 kinds: BTreeSet::from([9000]),
             },
-            AccessContext::Nip42(backend.public_key()),
+            Some(backend.public_key()),
         )
         .expect("open authenticated read");
     let acquired = tokio::time::timeout(
@@ -57,7 +45,11 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
             let frame = subscription
                 .recv()
                 .expect("authenticated observation remains open");
-            if let Some(event) = frame.deltas.iter().find_map(|delta| delta.event().cloned()) {
+            if let Some(event) = frame
+                .deltas
+                .iter()
+                .find_map(|delta| delta.row()?.signed_event())
+            {
                 break event;
             }
         }),

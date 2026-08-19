@@ -17,7 +17,7 @@ impl Nip29Provider {
 fn roster_snapshot_channel(env: &RawEnvelope) -> Option<&str> {
     let RawEnvelope::Nostr(event) = env;
     match event.kind.as_u16() {
-        wire::KIND_GROUP_ADMINS | wire::KIND_GROUP_MEMBERS => nostr_tag(event, "d"),
+        wire::KIND_GROUP_ADMINS | wire::KIND_GROUP_MEMBERS => nostr_tag(&event.tags, "d"),
         _ => None,
     }
 }

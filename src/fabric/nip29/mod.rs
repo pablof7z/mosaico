@@ -52,8 +52,8 @@ pub(crate) fn signed_into_group(
 ///
 /// This is a small helper local to the fabric crate; it does NOT disturb the
 /// `event_tag` helper in `daemon/server.rs`.
-pub(crate) fn nostr_tag<'a>(event: &'a nostr::Event, name: &str) -> Option<&'a str> {
-    event.tags.iter().find_map(|t| {
+pub(crate) fn nostr_tag<'a>(tags: &'a nostr::Tags, name: &str) -> Option<&'a str> {
+    tags.iter().find_map(|t| {
         let s = t.as_slice();
         if s.first().map(String::as_str) == Some(name) {
             s.get(1).map(String::as_str)

@@ -10,8 +10,8 @@ fn ready_group_snapshot(
     name: &str,
     admins: &[nostr::PublicKey],
     members: &[nostr::PublicKey],
-) -> nmp::nip29::GroupSnapshot {
-    use nmp::nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
+) -> nmp_nip29::GroupSnapshot {
+    use nmp_nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
     let host = nostr::RelayUrl::parse("wss://relay.example").unwrap();
     let subjects = |keys: &[nostr::PublicKey]| {
         keys.iter()
@@ -39,7 +39,7 @@ fn ready_group_snapshot(
         event_id: nostr::EventId::all_zeros(),
         host: host.clone(),
     };
-    nmp::nip29::GroupSnapshot {
+    nmp_nip29::GroupSnapshot {
         id: group.to_string(),
         metadata: Some(metadata.clone()),
         admins: admins.clone(),
@@ -58,13 +58,13 @@ fn ready_group_snapshot(
     }
 }
 
-fn absent_group_snapshot(group: &str) -> nmp::nip29::GroupSnapshot {
-    nmp::nip29::GroupSnapshot {
+fn absent_group_snapshot(group: &str) -> nmp_nip29::GroupSnapshot {
+    nmp_nip29::GroupSnapshot {
         id: group.to_string(),
         metadata: None,
         admins: Vec::new(),
         members: Vec::new(),
-        availability: nmp::nip29::GroupAvailability::Ready,
+        availability: nmp_nip29::GroupAvailability::Ready,
         per_host: BTreeMap::new(),
         disagreements: BTreeSet::new(),
     }

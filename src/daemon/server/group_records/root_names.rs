@@ -26,7 +26,7 @@ use super::DaemonState;
 /// This function only borrows NMP's current delivery.
 pub(super) fn repair_delivered(
     state: &Arc<DaemonState>,
-    snapshots: &[nmp::nip29::GroupSnapshot],
+    snapshots: &[nmp_nip29::GroupSnapshot],
     attempted: &mut BTreeSet<String>,
 ) {
     let Some(backend_pubkey) = state.backend_pubkey() else {
@@ -68,7 +68,7 @@ pub(super) fn repair_delivered(
 /// binding: a root bound to a directory on this machine is this backend's to
 /// keep named even while the admin record is in flight.
 fn roots_needing_workspace_name(
-    snapshots: &[nmp::nip29::GroupSnapshot],
+    snapshots: &[nmp_nip29::GroupSnapshot],
     backend_pubkey: &str,
     bound_roots: &BTreeSet<String>,
     attempted: &BTreeSet<String>,
@@ -102,8 +102,8 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    use nmp::nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
     use nmp::RelayUrl;
+    use nmp_nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
     use nostr::{EventId, Keys, Timestamp};
 
     fn snapshot(

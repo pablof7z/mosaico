@@ -9,8 +9,7 @@ use common::TestRelay;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
 use nmp::{
-    AccessContext, Binding, Demand, Engine, EngineConfig, Filter as NmpFilter, LiveQuery, RelayUrl,
-    SourceAuthority,
+    Binding, Demand, Engine, EngineConfig, Filter as NmpFilter, LiveQuery, ReadRouting, RelayUrl,
 };
 use nmp_client::NmpRelayClient;
 use nostr::{Alphabet, EventBuilder, Filter, Keys, Kind, SingleLetterTag, Tag, TagKind};
@@ -90,14 +89,13 @@ async fn publishes_and_decodes_all_event_types() {
 }
 
 #[tokio::test]
-async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
+async fn nmp_acquires_from_a_local_relay() {
     let relay = TestRelay::start();
     let author = Keys::generate();
     let author_hex = author.public_key().to_hex();
     let relay_url = RelayUrl::parse(&relay.url).expect("valid relay URL");
     let engine = Engine::new(EngineConfig {
         app_relays: vec![relay.url.clone()],
-        allowed_local_relay_hosts: vec!["127.0.0.1".into()],
         ..EngineConfig::default()
     })
     .expect("NMP engine starts");
@@ -108,8 +106,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
                 authors: Some(Binding::Literal(BTreeSet::from([author_hex]))),
                 ..NmpFilter::default()
             },
-            SourceAuthority::Pinned(BTreeSet::from([relay_url])),
-            AccessContext::Public,
+            ReadRouting::Explicit(vec![relay_url]),
         )
         .expect("valid pinned demand"),
     );
@@ -127,7 +124,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
             found = frame
                 .deltas
                 .iter()
-                .filter_map(|delta| delta.event())
+                .filter_map(|delta| delta.row()?.signed_event())
                 .any(|event| event.content == "hello from NMP");
         }
     }

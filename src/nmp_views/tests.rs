@@ -6,16 +6,16 @@ use std::collections::{BTreeMap, BTreeSet};
 mod availability;
 
 fn row(content: &str) -> Row {
-    Row {
-        event: EventBuilder::new(Kind::TextNote, content)
+    Row::from_relay_event(
+        EventBuilder::new(Kind::TextNote, content)
             .sign_with_keys(&Keys::generate())
             .unwrap(),
-        sources: BTreeSet::new(),
-    }
+        BTreeSet::new(),
+    )
 }
 
-fn group(id: &str, availability: nmp::nip29::GroupAvailability) -> nmp::nip29::GroupSnapshot {
-    nmp::nip29::GroupSnapshot {
+fn group(id: &str, availability: nmp_nip29::GroupAvailability) -> nmp_nip29::GroupSnapshot {
+    nmp_nip29::GroupSnapshot {
         id: id.to_string(),
         metadata: None,
         admins: vec![],
@@ -26,8 +26,8 @@ fn group(id: &str, availability: nmp::nip29::GroupAvailability) -> nmp::nip29::G
     }
 }
 
-fn subject(keys: &Keys, role: &str, host: &RelayUrl) -> nmp::nip29::ListedSubject {
-    nmp::nip29::ListedSubject {
+fn subject(keys: &Keys, role: &str, host: &RelayUrl) -> nmp_nip29::ListedSubject {
+    nmp_nip29::ListedSubject {
         pubkey: keys.public_key(),
         role: Some(role.to_string()),
         hosts: BTreeSet::from([host.clone()]),
@@ -40,8 +40,8 @@ fn metadata(
     about: &str,
     parent: &str,
     as_of: u64,
-) -> nmp::nip29::GroupMetadata {
-    nmp::nip29::GroupMetadata {
+) -> nmp_nip29::GroupMetadata {
+    nmp_nip29::GroupMetadata {
         name: Some(name.to_string()),
         about: Some(about.to_string()),
         picture: None,
@@ -55,19 +55,19 @@ fn metadata(
 #[test]
 fn group_projection_uses_only_the_snapshot_slice_the_caller_supplies() {
     let first = [
-        group("a", nmp::nip29::GroupAvailability::Ready),
-        group("b", nmp::nip29::GroupAvailability::Ready),
+        group("a", nmp_nip29::GroupAvailability::Ready),
+        group("b", nmp_nip29::GroupAvailability::Ready),
     ];
-    let latest = [group("b", nmp::nip29::GroupAvailability::CachedOnly)];
+    let latest = [group("b", nmp_nip29::GroupAvailability::CachedOnly)];
 
     assert_eq!(
         GroupProjection::new(&first).group_availability("a"),
-        Some(nmp::nip29::GroupAvailability::Ready)
+        Some(nmp_nip29::GroupAvailability::Ready)
     );
     let projection = GroupProjection::new(&latest);
     assert_eq!(
         projection.group_availability("b"),
-        Some(nmp::nip29::GroupAvailability::CachedOnly)
+        Some(nmp_nip29::GroupAvailability::CachedOnly)
     );
     assert_eq!(projection.group_availability("a"), None);
 }
@@ -77,20 +77,20 @@ fn test_delivery_replaces_atomically_and_uses_the_common_projection() {
     let views = NmpViews::default();
     views.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("old")
         .metadata("Old", "", "", 1)
-        .availability(nmp::nip29::GroupAvailability::Ready)]));
+        .availability(nmp_nip29::GroupAvailability::Ready)]));
     assert_eq!(
         views.with_groups(|groups| groups.group_availability("old")),
-        Some(nmp::nip29::GroupAvailability::Ready)
+        Some(nmp_nip29::GroupAvailability::Ready)
     );
 
     views.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("current")
         .metadata("Current", "", "", 2)
-        .availability(nmp::nip29::GroupAvailability::CachedOnly)]));
+        .availability(nmp_nip29::GroupAvailability::CachedOnly)]));
     views.with_groups(|groups| {
         assert!(groups.get_channel("old").is_none());
         assert_eq!(
             groups.group_availability("current"),
-            Some(nmp::nip29::GroupAvailability::CachedOnly)
+            Some(nmp_nip29::GroupAvailability::CachedOnly)
         );
     });
 }
@@ -106,13 +106,13 @@ fn group_queries_use_the_nmp_aggregate_without_merging_host_records() {
     let member_subject = subject(&member, "relay-member-role", &aggregate_host);
     let host_only_subject = subject(&host_only, "admin", &other_host);
     let other_metadata = metadata(&other_host, "host-only", "host-only", "wrong", 99);
-    let other_record = nmp::nip29::ListedRecord {
+    let other_record = nmp_nip29::ListedRecord {
         subjects: vec![host_only_subject],
         as_of: Timestamp::from(99),
         event_id: EventId::all_zeros(),
         host: other_host.clone(),
     };
-    let snapshot = nmp::nip29::GroupSnapshot {
+    let snapshot = nmp_nip29::GroupSnapshot {
         id: "child".to_string(),
         metadata: Some(metadata(
             &aggregate_host,
@@ -123,14 +123,14 @@ fn group_queries_use_the_nmp_aggregate_without_merging_host_records() {
         )),
         admins: vec![admin_subject.clone()],
         members: vec![admin_subject, member_subject],
-        availability: nmp::nip29::GroupAvailability::CachedOnly,
+        availability: nmp_nip29::GroupAvailability::CachedOnly,
         per_host: BTreeMap::from([(
             other_host,
-            nmp::nip29::HostRecords {
+            nmp_nip29::HostRecords {
                 metadata: Some(other_metadata),
                 admins: Some(other_record),
                 members: None,
-                availability: nmp::nip29::GroupAvailability::Ready,
+                availability: nmp_nip29::GroupAvailability::Ready,
             },
         )]),
         disagreements: BTreeSet::new(),
@@ -151,7 +151,7 @@ fn group_queries_use_the_nmp_aggregate_without_merging_host_records() {
     );
     assert_eq!(
         projection.group_availability("child"),
-        Some(nmp::nip29::GroupAvailability::CachedOnly)
+        Some(nmp_nip29::GroupAvailability::CachedOnly)
     );
     assert_eq!(
         projection.list_channel_members("child"),
@@ -182,10 +182,10 @@ fn high_level_group_queries_preserve_channel_topology_and_product_roles() {
     let host = RelayUrl::parse("wss://relay.example").unwrap();
     let admin = Keys::generate();
     let member = Keys::generate();
-    let mut root = group("root", nmp::nip29::GroupAvailability::Ready);
+    let mut root = group("root", nmp_nip29::GroupAvailability::Ready);
     root.metadata = Some(metadata(&host, "general", "", "", 1));
     root.admins = vec![subject(&admin, "owner", &host)];
-    let mut child = group("opaque", nmp::nip29::GroupAvailability::Ready);
+    let mut child = group("opaque", nmp_nip29::GroupAvailability::Ready);
     child.metadata = Some(metadata(&host, "task", "", "root", 2));
     child.members = vec![subject(&member, "participant", &host)];
     let snapshots = [child, root];
@@ -226,7 +226,7 @@ fn high_level_group_queries_preserve_channel_topology_and_product_roles() {
 fn overlapping_observations_do_not_become_a_second_event_owner() {
     let views = NmpViews::default();
     let shared = row("shared");
-    let id = shared.event.id;
+    let id = shared.id();
     let entered_a = views.apply_frame("a", 1, vec![RowDelta::Added(shared.clone())], vec![]);
     assert_eq!(entered_a.entered.len(), 1);
     assert_eq!(entered_a.added.len(), 1);
@@ -237,12 +237,12 @@ fn overlapping_observations_do_not_become_a_second_event_owner() {
     let departed_a = views.close_observation("a", 1).removed;
     assert_eq!(departed_a.len(), 1);
     assert_eq!(departed_a[0].observation_id, "a");
-    assert_eq!(departed_a[0].row.event.id, id);
+    assert_eq!(departed_a[0].row.id(), id);
     assert!(views.row(&id).is_some());
     let departed_b = views.close_observation("b", 1).removed;
     assert_eq!(departed_b.len(), 1);
     assert_eq!(departed_b[0].observation_id, "b");
-    assert_eq!(departed_b[0].row.event.id, id);
+    assert_eq!(departed_b[0].row.id(), id);
     assert!(views.row(&id).is_none());
 }
 
@@ -256,7 +256,7 @@ fn stale_observation_generation_cannot_overwrite_the_replacement() {
 
     let stale = views.apply_frame("feed", 1, vec![RowDelta::Added(old)], vec![]);
     assert!(stale.added.is_empty());
-    assert!(views.row(&current.event.id).is_some());
+    assert!(views.row(&current.id()).is_some());
     assert_eq!(views.rows().len(), 1);
 }
 
@@ -268,20 +268,20 @@ fn opening_a_replacement_makes_the_predecessors_close_inert_without_a_gap() {
 
     views.begin_observation("feed", 2);
     assert!(views.close_observation("feed", 1).removed.is_empty());
-    assert!(views.row(&current.event.id).is_some());
+    assert!(views.row(&current.id()).is_some());
 }
 
 #[test]
 fn a_replacement_that_ends_before_its_first_frame_retires_the_previous_rows() {
     let views = NmpViews::default();
     let previous = row("previous");
-    let id = previous.event.id;
+    let id = previous.id();
     views.apply_frame("feed", 1, vec![RowDelta::Added(previous)], vec![]);
 
     views.begin_observation("feed", 2);
     let transition = views.close_observation("feed", 2);
 
     assert_eq!(transition.removed.len(), 1);
-    assert_eq!(transition.removed[0].row.event.id, id);
+    assert_eq!(transition.removed[0].row.id(), id);
     assert!(views.row(&id).is_none());
 }

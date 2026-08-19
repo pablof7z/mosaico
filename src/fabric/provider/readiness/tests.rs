@@ -5,8 +5,8 @@ fn ready_snapshot(
     parent: &str,
     admins: &[nostr::PublicKey],
     members: &[nostr::PublicKey],
-) -> nmp::nip29::GroupSnapshot {
-    use nmp::nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
+) -> nmp_nip29::GroupSnapshot {
+    use nmp_nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
     let host = nostr::RelayUrl::parse("wss://relay.example").unwrap();
     let subjects = |keys: &[nostr::PublicKey]| {
         keys.iter()
@@ -34,7 +34,7 @@ fn ready_snapshot(
         event_id: nostr::EventId::all_zeros(),
         host: host.clone(),
     };
-    nmp::nip29::GroupSnapshot {
+    nmp_nip29::GroupSnapshot {
         id: "room".into(),
         metadata: Some(metadata.clone()),
         admins: admins.clone(),

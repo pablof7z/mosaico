@@ -42,7 +42,7 @@ impl NmpHost {
     pub(crate) async fn add_group_users_and_wait(
         self: &std::sync::Arc<Self>,
         group: &str,
-        users: Vec<nmp::nip29::GroupUser>,
+        users: Vec<nmp_nip29::GroupUser>,
         keys: &Keys,
     ) -> Result<EventId> {
         let host = std::sync::Arc::clone(self);
@@ -54,7 +54,7 @@ impl NmpHost {
             if let Some(refusal) = host.test_io.take_write() {
                 refusal?;
             }
-            let scope = nmp::nip29::on(host.relays.iter().cloned())
+            let scope = nmp_nip29::on(host.relays.iter().cloned())
                 .map_err(|error| anyhow::anyhow!("no configured NIP-29 group host: {error:?}"))?;
             let stream = scope
                 .group(group)
@@ -82,7 +82,7 @@ impl NmpHost {
             if let Some(refusal) = host.test_io.take_write() {
                 refusal?;
             }
-            let scope = nmp::nip29::on(host.relays.iter().cloned())
+            let scope = nmp_nip29::on(host.relays.iter().cloned())
                 .map_err(|error| anyhow::anyhow!("no configured NIP-29 group host: {error:?}"))?;
             let stream = scope
                 .group(group)
@@ -128,7 +128,7 @@ pub(super) fn require_every_group_host_published(result: &ReceiptResult) -> Resu
                 Some(format!("{relay} refused authentication: {reason}"))
             }
             RelayState::GaveUp => Some(format!("{relay} exhausted delivery attempts")),
-            RelayState::Waiting(_) | RelayState::Sent { .. } => {
+            RelayState::Waiting(_) | RelayState::Attempting { .. } | RelayState::Sent { .. } => {
                 Some(format!("{relay} ended with nonterminal state {state:?}"))
             }
         })

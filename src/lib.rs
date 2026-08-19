@@ -40,6 +40,8 @@ pub mod logging;
 mod nmp_host;
 mod nmp_views;
 pub mod profile;
+#[allow(dead_code)]
+mod recent_rows;
 mod secret_scrub;
 pub mod session;
 pub(crate) mod session_presence;

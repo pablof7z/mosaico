@@ -2,8 +2,8 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use anyhow::Result;
-use nmp::nip29::GroupSnapshot;
-use nmp::{AccessContext, AcquisitionEvidence, Row, SourceEvidence, SourceStatus};
+use nmp::{AcquisitionEvidence, Row, SourceEvidence, SourceStatus};
+use nmp_nip29::GroupSnapshot;
 use nostr::Event;
 
 use super::read::{BoundedRead, BoundedReadTermination};
@@ -101,15 +101,12 @@ impl NmpHost {
             nmp::RelayUrl::parse("wss://scripted-read.example").expect("static scripted relay");
         let rows = events
             .into_iter()
-            .map(|event| Row {
-                event,
-                sources: BTreeSet::from([relay.clone()]),
-            })
+            .map(|event| Row::from_relay_event(event, BTreeSet::from([relay.clone()])))
             .collect();
         let evidence = vec![AcquisitionEvidence {
             sources: vec![SourceEvidence {
                 relay,
-                access: AccessContext::Public,
+                authenticate_as: None,
                 reconciled_through: None,
                 status,
             }],

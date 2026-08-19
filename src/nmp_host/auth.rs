@@ -4,8 +4,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use nmp::{
-    AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration, AuthPolicyRequest,
-    RelayUrl,
+    AuthPolicy, AuthPolicyOp, AuthPolicyRegistration, AuthPolicyRequest, RelayUrl, SessionAccount,
 };
 use nostr::{Keys, PublicKey};
 
@@ -13,7 +12,7 @@ use super::NmpHost;
 
 pub(super) struct IdentityRegistration {
     _auth_policy: AuthPolicyRegistration,
-    _account: AccountRegistration,
+    _account: SessionAccount,
 }
 
 #[derive(Clone)]
@@ -63,9 +62,10 @@ impl NmpHost {
             return Ok(());
         }
 
+        let secret = keys.secret_key().to_secret_bytes();
         let account = self
             .engine
-            .add_account(&keys.secret_key().to_secret_hex())
+            .add_private_key_account(&secret, false)
             .with_context(|| format!("registering NMP account {pubkey}"))?;
         let policy = ConfiguredRelayAuthPolicy {
             expected_pubkey: pubkey,

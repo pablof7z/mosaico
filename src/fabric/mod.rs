@@ -120,10 +120,10 @@ mod tests {
             kind: event.kind.as_u16() as u32,
             pubkey: event.pubkey.to_hex(),
             created_at: event.created_at.as_secs(),
-            channel_h: crate::fabric::nip29::nostr_tag(event, "h")
+            channel_h: crate::fabric::nip29::nostr_tag(&event.tags, "h")
                 .unwrap_or_default()
                 .into(),
-            d_tag: crate::fabric::nip29::nostr_tag(event, "d")
+            d_tag: crate::fabric::nip29::nostr_tag(&event.tags, "d")
                 .unwrap_or_default()
                 .into(),
             content: event.content.clone(),

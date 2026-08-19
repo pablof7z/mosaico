@@ -1,7 +1,7 @@
 //! The one mechanical conversion NMP's group door cannot do for us.
 //!
 //! Nothing here knows what an `h` row is, what a NIP-29 kind means, or what an
-//! event id is made of. `nmp::nip29::Groups` owns the context rows, the
+//! event id is made of. `nmp_nip29::Groups` owns the context rows, the
 //! stamping, the signature and the id; Mosaico owns the draft. All that is
 //! left in between is `nostr`'s builder shape becoming `nmp`'s.
 

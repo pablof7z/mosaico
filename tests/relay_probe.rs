@@ -16,7 +16,6 @@
 #[path = "common/nmp_client.rs"]
 mod nmp_client;
 
-use nmp::AccessContext;
 use nmp_client::NmpRelayClient;
 use nostr::*;
 use std::time::Duration;
@@ -47,7 +46,7 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     // Subscribe (on the A-authed connection) to kind:1 events p-tagging B.
     let sub = Filter::new().kind(Kind::from(1u16)).pubkey(pk_b);
     let subscription = daemon
-        .observe(sub, AccessContext::Nip42(key_a.public_key()))
+        .observe(sub, Some(key_a.public_key()))
         .expect("subscribe through NMP");
 
     // A separate sender (key C) publishes a kind:1 p-tagging B.
@@ -78,7 +77,7 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
             if frame
                 .deltas
                 .iter()
-                .filter_map(|delta| delta.event())
+                .filter_map(|delta| delta.row()?.signed_event())
                 .any(|event| event.content == expected)
             {
                 return true;

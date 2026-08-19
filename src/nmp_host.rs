@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use nmp::{AccessContext, Engine, EngineConfig, ObservationCancel, RelayUrl};
+use nmp::{Engine, EngineConfig, ObservationCancel, PublicKey, RelayUrl};
 use nostr::Keys;
 use tokio::sync::mpsc;
 
@@ -41,6 +41,16 @@ pub(crate) use test_relay::PlainRelay;
 
 const VIEW_TRANSITION_QUEUE_CAPACITY: usize = 2048;
 const MAX_LOCAL_IDENTITIES: usize = 4096;
+
+/// Bounded newest-first window per observation: NMP delivers the recent
+/// `OBSERVATION_WINDOW_INITIAL` rows on boot and grows up to
+/// `OBSERVATION_WINDOW_MAX` on explicit `request_rows` (the on-demand path for
+/// agent tools reading older history). This bounds the boot read and the
+/// retained row set — no O(history) mirror rebuild (#837). The max matches
+/// `RecentRows`' per-channel cap so the retained window and the delivered
+/// window agree.
+const OBSERVATION_WINDOW_INITIAL: usize = 500;
+const OBSERVATION_WINDOW_MAX: usize = 10_000;
 
 struct ActiveObservation {
     cancel: ObservationCancel,
@@ -83,7 +93,6 @@ impl NmpHost {
         let mut config = EngineConfig {
             store_path: store_path.map(|path| path.to_string_lossy().into_owned()),
             app_relays: relays.to_vec(),
-            allowed_local_relay_hosts: local_relay_hosts(parsed.iter()),
             ..EngineConfig::default()
         };
         // A daemon can host many durable agent identities over its lifetime.
@@ -95,12 +104,6 @@ impl NmpHost {
         if let Some(indexer) = indexer_relay.filter(|relay| !relay.is_empty()) {
             let parsed_indexer = RelayUrl::parse(indexer)
                 .with_context(|| format!("invalid indexer relay {indexer}"))?;
-            config
-                .allowed_local_relay_hosts
-                .extend(local_relay_hosts([&parsed_indexer]));
-            config.allowed_local_relay_hosts.sort();
-            config.allowed_local_relay_hosts.dedup();
-            config.indexer_relays.push(indexer.to_string());
             profile_relays.insert(parsed_indexer);
         }
         let engine = Engine::new(config).map_err(store::opening_refused)?;
@@ -121,6 +124,12 @@ impl NmpHost {
         };
         host.ensure_identity(backend_keys)
             .context("registering backend NIP-42 identity")?;
+        // The backend key is the engine's default current account: `sign_event`
+        // signs as whichever account is current, and Mosaico's sign path
+        // temporarily swaps in the target author before restoring this one.
+        host.engine
+            .make_current_account(backend_keys.public_key())
+            .context("selecting backend NMP account")?;
         Ok(host)
     }
 
@@ -143,31 +152,32 @@ impl NmpHost {
             .context("NMP view transition stream is already owned")
     }
 
-    /// The loopback / private-network hosts the operator opted in by naming
-    /// them as relays, in `nmp_network_policy`'s normalized form.
-    ///
-    /// One allowlist, one vocabulary. A Blossom dial to the same host has to
-    /// clear the same destination policy the engine applies to the relay, or
-    /// a local test fixture works for one and is refused by the other.
-    pub(crate) fn allowed_local_hosts(&self) -> std::collections::BTreeSet<String> {
-        local_relay_hosts(self.profile_relays.iter())
-            .into_iter()
-            .collect()
-    }
-
     /// Open a caller-owned NMP observation. Dropping the returned value closes
     /// it, making this suitable for precise, short-lived correlation queries.
     pub(crate) fn observe(&self, query: &SubscriptionQuery) -> Result<nmp::Subscription> {
-        self.observe_with_access(query, AccessContext::Public)
+        self.observe_with_access(query, None)
     }
 
     fn observe_with_access(
         &self,
         query: &SubscriptionQuery,
-        access: AccessContext,
+        authenticate_as: Option<PublicKey>,
     ) -> Result<nmp::Subscription> {
+        // Bounded newest-first window: NMP delivers only the recent INITIAL
+        // rows on boot and grows up to MAX on explicit `request_rows` (the
+        // on-demand path for agent tools reading older history). This bounds
+        // the boot read and the retained row set — no O(history) mirror
+        // rebuild (#837). It is the option-B contract: recent activity is
+        // sync-readable from the retained window; older rows are fetched on
+        // demand, not mirrored.
+        let window = nmp::Window::Expandable {
+            initial: std::num::NonZeroUsize::new(OBSERVATION_WINDOW_INITIAL)
+                .expect("window initial is nonzero"),
+            max: std::num::NonZeroUsize::new(OBSERVATION_WINDOW_MAX)
+                .expect("window max is nonzero"),
+        };
         self.engine
-            .observe(self.live_query(query, access)?, None)
+            .observe(self.live_query(query, authenticate_as)?, Some(window))
             .context("opening NMP observation")
     }
 
@@ -273,19 +283,6 @@ impl Drop for NmpHost {
     fn drop(&mut self) {
         self.shutdown();
     }
-}
-
-fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {
-    relays
-        .into_iter()
-        .filter_map(nmp_grammar::relay::relay_host_key)
-        .filter(|host| {
-            nmp_network_policy::classify_bare_host(host) == nmp_network_policy::HostClass::Local
-        })
-        // Onion routing is local in transport terms but not a local-network
-        // SSRF opt-in. NMP handles it as a separate trust class.
-        .filter(|host| !host.ends_with(".onion"))
-        .collect()
 }
 
 #[cfg(test)]

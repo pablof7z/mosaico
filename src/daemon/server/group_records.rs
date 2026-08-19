@@ -1,7 +1,7 @@
 //! The daemon's ONE retained observation of NIP-29's relay-signed group records.
 //!
 //! Kinds 39000/39001/39002 are read through a single
-//! [`GroupObservation`](nmp::nip29::GroupObservation) that stays open and keeps
+//! [`GroupObservation`](nmp_nip29::GroupObservation) that stays open and keeps
 //! its own folded group state current. Nothing asks the relay for a roster on
 //! demand and Mosaico retains no copy: consumers read the observation itself.
 //!
@@ -16,8 +16,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Result;
-use nmp::nip29::{GroupIds, GroupObservation, GroupPredicate};
 use nmp::Binding;
+use nmp_nip29::{GroupIds, GroupObservation, GroupPredicate};
 
 use super::DaemonState;
 use crate::reconcile::CoverageSnapshot;
@@ -92,11 +92,11 @@ impl GroupRecordsCoverage {
         let mut leaves: Vec<GroupIds> = Vec::new();
         if !self.subjects.is_empty() {
             let subjects = Binding::Literal(self.subjects.clone());
-            leaves.push(nmp::nip29::member_list_includes(subjects.clone()));
-            leaves.push(nmp::nip29::admin_list_includes(subjects));
+            leaves.push(nmp_nip29::member_list_includes(subjects.clone()));
+            leaves.push(nmp_nip29::admin_list_includes(subjects));
         }
         if !self.ids.is_empty() {
-            leaves.push(nmp::nip29::any_of(Binding::Literal(self.ids.clone())));
+            leaves.push(nmp_nip29::any_of(Binding::Literal(self.ids.clone())));
         }
         let mut leaves = leaves.into_iter();
         let first = leaves.next()?;
@@ -237,7 +237,7 @@ async fn drain(
 /// Extend the pinned-id set with every group this complete delivery discovered.
 fn record_discoveries(
     known_ids: &mut BTreeSet<String>,
-    snapshots: &[nmp::nip29::GroupSnapshot],
+    snapshots: &[nmp_nip29::GroupSnapshot],
 ) -> bool {
     let mut discovered = false;
     for snapshot in snapshots {
@@ -249,7 +249,7 @@ fn record_discoveries(
 /// The roots this backend currently administers, as the profile would state
 /// them. Read here so the drain can tell a delivery that changed the answer
 /// from one that merely repeated it.
-fn managed_roots(state: &DaemonState, snapshots: &[nmp::nip29::GroupSnapshot]) -> Vec<String> {
+fn managed_roots(state: &DaemonState, snapshots: &[nmp_nip29::GroupSnapshot]) -> Vec<String> {
     let Some(management_pubkey) = state.backend_pubkey() else {
         return Vec::new();
     };
@@ -258,7 +258,7 @@ fn managed_roots(state: &DaemonState, snapshots: &[nmp::nip29::GroupSnapshot]) -
 
 /// Root groups whose current NMP snapshot names the backend as an admin.
 fn managed_roots_from_snapshots(
-    snapshots: &[nmp::nip29::GroupSnapshot],
+    snapshots: &[nmp_nip29::GroupSnapshot],
     management_pubkey: &str,
 ) -> Vec<String> {
     snapshots
@@ -284,7 +284,7 @@ fn managed_roots_from_snapshots(
 }
 
 /// Metadata without a non-empty `parent` row describes a top-level group.
-fn is_root(snapshot: &nmp::nip29::GroupSnapshot) -> bool {
+fn is_root(snapshot: &nmp_nip29::GroupSnapshot) -> bool {
     snapshot.metadata.as_ref().is_some_and(|metadata| {
         metadata
             .tags

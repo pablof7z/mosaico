@@ -23,7 +23,8 @@ impl Nip29Provider {
         read.rows
             .into_iter()
             .filter_map(|row| {
-                let DomainEvent::Profile(profile) = Nip29WireCodec.decode_event(&row.event)? else {
+                let event = row.signed_event()?;
+                let DomainEvent::Profile(profile) = Nip29WireCodec.decode_event(&event)? else {
                     return None;
                 };
                 Some(profile)

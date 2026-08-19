@@ -36,6 +36,7 @@ impl RowViews {
         generation: u64,
         deltas: Vec<RowDelta>,
         evidence: Vec<AcquisitionEvidence>,
+        recent_rows: &crate::recent_rows::RecentRows,
     ) -> super::RowTransition {
         let expected = self
             .expected_generations
@@ -53,7 +54,13 @@ impl RowViews {
             return super::RowTransition::default();
         }
         if current_generation != Some(generation) {
-            return self.replace_generation(observation_id, generation, deltas, evidence);
+            return self.replace_generation(
+                observation_id,
+                generation,
+                deltas,
+                evidence,
+                recent_rows,
+            );
         }
 
         let mut transition = super::RowTransition::default();
@@ -61,11 +68,13 @@ impl RowViews {
             RowDelta::Removed(id) => Some(*id),
             _ => None,
         }) {
-            self.detach(observation_id, id, &mut transition);
+            self.detach(observation_id, id, &mut transition, recent_rows);
         }
         for delta in deltas {
             match delta {
-                RowDelta::Added(row) => self.attach(observation_id, row, &mut transition),
+                RowDelta::Added(row) | RowDelta::Updated(row) => {
+                    self.attach(observation_id, row, &mut transition, recent_rows)
+                }
                 RowDelta::SourcesGrew { id, sources } => {
                     if let Some(owned) = self.rows.get_mut(&id) {
                         owned.row.sources = sources;
@@ -88,7 +97,12 @@ impl RowViews {
         *expected = (*expected).max(generation);
     }
 
-    pub(super) fn close(&mut self, observation_id: &str, generation: u64) -> super::RowTransition {
+    pub(super) fn close(
+        &mut self,
+        observation_id: &str,
+        generation: u64,
+        recent_rows: &crate::recent_rows::RecentRows,
+    ) -> super::RowTransition {
         if self.expected_generations.get(observation_id) != Some(&generation) {
             return super::RowTransition::default();
         }
@@ -106,7 +120,7 @@ impl RowViews {
             .ids;
         let mut transition = super::RowTransition::default();
         for id in ids {
-            self.detach_owner_only(observation_id, id, &mut transition);
+            self.detach_owner_only(observation_id, id, &mut transition, recent_rows);
         }
         transition
     }
@@ -117,6 +131,7 @@ impl RowViews {
         })
     }
 
+    #[allow(dead_code)] // mirror index surface being retired; deleted with the mirror
     pub(super) fn rows(&self) -> Vec<ViewRow> {
         self.rows
             .values()
@@ -134,6 +149,7 @@ impl RowViews {
         self.rows_for_ids(self.ids_by_kind_author.get(&(kind, author.to_string())))
     }
 
+    #[allow(dead_code)] // mirror index surface being retired; deleted with the mirror
     pub(super) fn rows_for_kind_channel(&self, kind: u16, channel: &str) -> Vec<ViewRow> {
         self.rows_for_ids(self.ids_by_kind_channel.get(&(kind, channel.to_string())))
     }
@@ -169,11 +185,12 @@ impl RowViews {
         generation: u64,
         deltas: Vec<RowDelta>,
         evidence: Vec<AcquisitionEvidence>,
+        recent_rows: &crate::recent_rows::RecentRows,
     ) -> super::RowTransition {
         let next_rows = deltas
             .into_iter()
             .filter_map(|delta| match delta {
-                RowDelta::Added(row) => Some((row.event.id, row)),
+                RowDelta::Added(row) => Some((row.id(), row)),
                 _ => None,
             })
             .collect::<BTreeMap<_, _>>();
@@ -185,7 +202,7 @@ impl RowViews {
         let ids = next_rows.keys().copied().collect::<BTreeSet<_>>();
         let mut transition = super::RowTransition::default();
         for id in old_ids.difference(&ids) {
-            self.detach_owner_only(observation_id, *id, &mut transition);
+            self.detach_owner_only(observation_id, *id, &mut transition, recent_rows);
         }
         self.observations.insert(
             observation_id.to_string(),
@@ -196,14 +213,20 @@ impl RowViews {
             },
         );
         for (_, row) in next_rows {
-            self.attach(observation_id, row, &mut transition);
+            self.attach(observation_id, row, &mut transition, recent_rows);
         }
         debug_assert_eq!(self.observations[observation_id].ids, ids);
         transition
     }
 
-    fn attach(&mut self, observation_id: &str, row: Row, transition: &mut super::RowTransition) {
-        let id = row.event.id;
+    fn attach(
+        &mut self,
+        observation_id: &str,
+        row: Row,
+        transition: &mut super::RowTransition,
+        recent_rows: &crate::recent_rows::RecentRows,
+    ) {
+        let id = row.id();
         let entered = self
             .observations
             .get_mut(observation_id)
@@ -215,6 +238,7 @@ impl RowViews {
                 observation_id: observation_id.to_string(),
                 row: row.clone(),
             });
+            recent_rows.add(observation_id, super::relay::relay_event(&row));
         }
         match self.rows.get_mut(&id) {
             Some(owned) => {
@@ -235,11 +259,17 @@ impl RowViews {
         }
     }
 
-    fn detach(&mut self, observation_id: &str, id: EventId, transition: &mut super::RowTransition) {
+    fn detach(
+        &mut self,
+        observation_id: &str,
+        id: EventId,
+        transition: &mut super::RowTransition,
+        recent_rows: &crate::recent_rows::RecentRows,
+    ) {
         if let Some(view) = self.observations.get_mut(observation_id) {
             view.ids.remove(&id);
         }
-        self.detach_owner_only(observation_id, id, transition);
+        self.detach_owner_only(observation_id, id, transition, recent_rows);
     }
 
     fn detach_owner_only(
@@ -247,6 +277,7 @@ impl RowViews {
         observation_id: &str,
         id: EventId,
         transition: &mut super::RowTransition,
+        recent_rows: &crate::recent_rows::RecentRows,
     ) {
         let departed = self.rows.get_mut(&id).and_then(|owned| {
             owned
@@ -257,6 +288,7 @@ impl RowViews {
         let Some((row, remove)) = departed else {
             return;
         };
+        recent_rows.remove(observation_id, &id.to_hex());
         transition.removed.push(super::DepartedRow {
             observation_id: observation_id.to_string(),
             row: row.clone(),
@@ -275,42 +307,42 @@ impl RowViews {
     }
 
     fn index(&mut self, row: &Row) {
-        let event = &row.event;
-        let kind = event.kind.as_u16();
-        self.ids_by_kind.entry(kind).or_default().insert(event.id);
+        let kind = row.kind().as_u16();
+        let id = row.id();
+        self.ids_by_kind.entry(kind).or_default().insert(id);
         self.ids_by_kind_author
-            .entry((kind, event.pubkey.to_hex()))
+            .entry((kind, row.pubkey().to_hex()))
             .or_default()
-            .insert(event.id);
-        for channel in channel_tags(event) {
+            .insert(id);
+        for channel in channel_tags(row.tags()) {
             self.ids_by_kind_channel
                 .entry((kind, channel.to_string()))
                 .or_default()
-                .insert(event.id);
+                .insert(id);
         }
     }
 
     fn deindex(&mut self, row: &Row) {
-        let event = &row.event;
-        let kind = event.kind.as_u16();
-        remove_index(&mut self.ids_by_kind, &kind, &event.id);
+        let kind = row.kind().as_u16();
+        let id = row.id();
+        remove_index(&mut self.ids_by_kind, &kind, &id);
         remove_index(
             &mut self.ids_by_kind_author,
-            &(kind, event.pubkey.to_hex()),
-            &event.id,
+            &(kind, row.pubkey().to_hex()),
+            &id,
         );
-        for channel in channel_tags(event) {
+        for channel in channel_tags(row.tags()) {
             remove_index(
                 &mut self.ids_by_kind_channel,
                 &(kind, channel.to_string()),
-                &event.id,
+                &id,
             );
         }
     }
 }
 
-fn channel_tags(event: &nostr::Event) -> impl Iterator<Item = &str> {
-    event.tags.iter().filter_map(|tag| {
+fn channel_tags(tags: &nostr::Tags) -> impl Iterator<Item = &str> {
+    tags.iter().filter_map(|tag| {
         let values = tag.as_slice();
         (values.first().map(String::as_str) == Some("h"))
             .then(|| values.get(1).map(String::as_str))

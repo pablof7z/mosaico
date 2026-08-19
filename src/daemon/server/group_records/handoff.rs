@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use nmp::nip29::{GroupAvailability, GroupObservation, GroupSnapshot};
+use nmp_nip29::{GroupAvailability, GroupObservation, GroupSnapshot};
 
 use super::{DaemonState, GroupRecordsCoverage, GroupRecordsWatch};
 

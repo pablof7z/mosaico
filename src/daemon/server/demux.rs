@@ -70,9 +70,12 @@ async fn apply_transition(state: &Arc<DaemonState>, transition: crate::nmp_views
         apply_observation_entry(state, entered, &mut hosted);
     }
     for row in transition.added {
-        let event_id = row.event.id.to_hex();
+        let Some(event) = row.signed_event() else {
+            continue;
+        };
+        let event_id = event.id.to_hex();
         arrival::record_before_dispatch(state, &event_id).await;
-        inbound_dispatch::dispatch(state, &row.event);
+        inbound_dispatch::dispatch(state, &event);
     }
 }
 
@@ -88,9 +91,12 @@ fn apply_observation_entry(
     let Some(channel) = entered.observation_id.strip_prefix("mosaico-h-") else {
         return;
     };
+    let Some(event) = entered.row.signed_event() else {
+        return;
+    };
     let Some(DomainEvent::Status(status)) = state
         .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(entered.row.event))
+        .decode(&crate::fabric::RawEnvelope::Nostr(event))
     else {
         return;
     };
@@ -120,9 +126,12 @@ fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::Departe
     let Some(channel) = departed.observation_id.strip_prefix("mosaico-h-") else {
         return;
     };
+    let Some(event) = departed.row.signed_event() else {
+        return;
+    };
     let Some(DomainEvent::Status(status)) = state
         .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(departed.row.event))
+        .decode(&crate::fabric::RawEnvelope::Nostr(event))
     else {
         return;
     };

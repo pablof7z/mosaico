@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use nmp::{AccessContext, Binding, CacheMode, IndexedTagName, RelayUrl, SourceAuthority};
+use nmp::{Binding, CacheMode, IndexedTagName, ReadRouting, RelayUrl};
 use nostr::Keys;
 
 use crate::nmp_host::NmpHost;
@@ -22,8 +22,8 @@ fn two_host_host() -> NmpHost {
     .expect("open NMP host over two group relays")
 }
 
-fn pinned_to(url: &str) -> SourceAuthority {
-    SourceAuthority::Pinned(BTreeSet::from([RelayUrl::parse(url).unwrap()]))
+fn pinned_to(url: &str) -> ReadRouting {
+    ReadRouting::Explicit(vec![RelayUrl::parse(url).unwrap()])
 }
 
 /// mosaico#741. Pinning scopes only which relays are ASKED; `CacheMode`
@@ -53,9 +53,9 @@ fn every_group_content_branch_pins_and_strictly_scopes_exactly_one_host() {
     assert_eq!(query.branches().len(), 2, "one complete branch per host");
     let h = IndexedTagName::new('h').unwrap();
     for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.source, pinned_to(expected));
+        assert_eq!(branch.routing, pinned_to(expected));
         assert_eq!(branch.cache, CacheMode::Strict);
-        assert_eq!(branch.access, AccessContext::Public);
+        assert_eq!(branch.authenticate_as, None);
         assert_eq!(branch.selection.kinds, Some(BTreeSet::from([9, 30315])));
         assert_eq!(
             branch.selection.tags.get(&h),
@@ -72,7 +72,7 @@ fn every_group_record_branch_pins_and_strictly_scopes_exactly_one_host() {
     assert_eq!(query.branches().len(), 2);
     let d = IndexedTagName::new('d').unwrap();
     for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.source, pinned_to(expected));
+        assert_eq!(branch.routing, pinned_to(expected));
         assert_eq!(branch.cache, CacheMode::Strict);
         assert_eq!(
             branch.selection.kinds,
@@ -93,7 +93,7 @@ fn the_unpredicated_group_listing_is_also_per_host_and_strict() {
 
     assert_eq!(query.branches().len(), 2);
     for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.source, pinned_to(expected));
+        assert_eq!(branch.routing, pinned_to(expected));
         assert_eq!(branch.cache, CacheMode::Strict);
         assert_eq!(branch.selection.kinds, Some(BTreeSet::from([39000u16])));
     }
@@ -134,7 +134,7 @@ fn profile_query_is_scoped_to_exact_authors_and_stays_provenance_agnostic() {
             &SubscriptionQuery::Profile {
                 pubkey: author.clone(),
             },
-            AccessContext::Public,
+            None,
         )
         .unwrap();
 
@@ -164,7 +164,7 @@ fn group_host_pinned_reads_are_strict_even_when_not_nip29_shaped() {
             kinds: BTreeSet::from([30315u16]),
         },
     ] {
-        let live = host.live_query(&query, AccessContext::Public).unwrap();
+        let live = host.live_query(&query, None).unwrap();
         assert_eq!(
             live.branches()[0].cache,
             CacheMode::Strict,

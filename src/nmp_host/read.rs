@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use nmp::{AccessContext, AcquisitionEvidence, Binding, IndexedTagName, Row, SourceStatus, Window};
+use nmp::{AcquisitionEvidence, Binding, IndexedTagName, Row, SourceStatus, Window};
 
 use super::NmpHost;
 
@@ -61,7 +61,7 @@ impl NmpHost {
         let query = self.host_pinned_query(
             &self.profile_relays,
             strip_limit(filter),
-            AccessContext::Public,
+            None,
             nmp::CacheMode::Agnostic,
         )?;
         self.fetch_query(query, max_rows, timeout).await

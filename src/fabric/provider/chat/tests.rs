@@ -150,7 +150,7 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
         store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .members(vec![author])
-            .availability(nmp::nip29::GroupAvailability::SourceUnavailable)]));
+            .availability(nmp_nip29::GroupAvailability::SourceUnavailable)]));
     });
 
     provider
@@ -158,4 +158,3 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
         .await
         .expect("the current positive member row authorizes publishing");
 }
-

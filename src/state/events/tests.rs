@@ -27,28 +27,6 @@ fn retracting_an_event_removes_exactly_that_row() {
 }
 
 #[test]
-fn chat_for_channel_after_preserves_same_second_id_cursor() {
-    let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
-        event("a", 10),
-        event("b", 10),
-        event("c", 11),
-    ]));
-
-    let rows = store.chat_for_channel_after("h1", 10, "a", 10).unwrap();
-    assert_eq!(
-        rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-        vec!["b", "c"]
-    );
-
-    let rows = store.chat_for_channel_after("h1", 10, "b", 10).unwrap();
-    assert_eq!(
-        rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-        vec!["c"]
-    );
-}
-
-#[test]
 fn latest_message_at_by_pubkey_groups_by_author_max() {
     let store = Store::open_memory().unwrap();
     let mut pk_a1 = event("a1", 10);

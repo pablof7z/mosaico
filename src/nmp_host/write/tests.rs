@@ -10,7 +10,8 @@ mod group_door;
 
 #[tokio::test]
 async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
-    let host = Arc::new(NmpHost::open(&[], None, None, &Keys::generate()).unwrap());
+    let backend = Keys::generate();
+    let host = Arc::new(NmpHost::open(&[], None, None, &backend).unwrap());
     let a = Keys::generate();
     let b = Keys::generate();
 
@@ -25,7 +26,13 @@ async fn sign_event_serializes_distinct_accounts_and_restores_selection() {
     assert_eq!(event_b.pubkey, b.public_key());
     assert!(event_a.verify().is_ok());
     assert!(event_b.verify().is_ok());
-    assert_eq!(host.engine.active_account().unwrap(), None);
+    // The backend key is the engine's resting current account; each sign
+    // swaps in its target author and restores this one under the signing
+    // mutex.
+    assert_eq!(
+        host.engine.session().unwrap().current_pubkey,
+        Some(backend.public_key())
+    );
 }
 
 pub(super) fn one_host() -> NmpHost {
@@ -54,7 +61,7 @@ async fn the_returned_id_is_the_one_nmp_froze_and_nothing_derived_it() {
 
     let entries = host
         .engine
-        .publish_queue()
+        .publish_queue(None, u8::MAX)
         .expect("the publish queue is readable");
     assert!(
         entries.iter().any(|entry| entry.event_id == returned),
@@ -80,7 +87,7 @@ async fn concurrent_writes_each_get_their_own_frozen_id() {
         .unwrap();
 
     assert_ne!(first, second);
-    let entries = host.engine.publish_queue().unwrap();
+    let entries = host.engine.publish_queue(None, u8::MAX).unwrap();
     for id in [first, second] {
         assert!(
             entries.iter().any(|entry| entry.event_id == id),

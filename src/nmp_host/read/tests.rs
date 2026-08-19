@@ -3,7 +3,7 @@ use super::*;
 fn source(status: SourceStatus, reconciled_through: Option<u64>) -> nmp::SourceEvidence {
     nmp::SourceEvidence {
         relay: nmp::RelayUrl::parse("wss://relay.example").expect("a valid relay url"),
-        access: AccessContext::Public,
+        authenticate_as: None,
         reconciled_through: reconciled_through.map(nostr::Timestamp::from),
         status,
     }

@@ -81,7 +81,7 @@ fn profile_feed_query_pins_exact_author_set_and_stays_agnostic() {
     );
     let branch = &live.branches()[0];
     assert_eq!(branch.cache, nmp::CacheMode::Agnostic);
-    assert_eq!(branch.access, nmp::AccessContext::Public);
+    assert_eq!(branch.authenticate_as, None);
     assert_eq!(branch.selection.kinds, Some(BTreeSet::from([0u16])));
     assert_eq!(
         branch.selection.authors,
@@ -120,10 +120,10 @@ fn apply_delta_upserts_latest_and_removes_by_event_id() {
     let v1 = kind0_event(&keys, "v1-handle", "", "laptop", 100);
     let v2 = kind0_event(&keys, "v2-handle", "", "laptop", 200);
 
-    feed.apply_delta(nmp::RowDelta::Added(nmp::Row {
-        event: v1.clone(),
-        sources: BTreeSet::new(),
-    }));
+    feed.apply_delta(nmp::RowDelta::Added(nmp::Row::from_relay_event(
+        v1.clone(),
+        BTreeSet::new(),
+    )));
     assert_eq!(
         feed.profile(&pk).map(|p| p.name).as_deref(),
         Some("v1-handle")
@@ -131,10 +131,10 @@ fn apply_delta_upserts_latest_and_removes_by_event_id() {
 
     // NMP delivers a newer replaceable kind:0 as Added(new); the feed's upsert
     // keeps the latest delivery per pubkey.
-    feed.apply_delta(nmp::RowDelta::Added(nmp::Row {
-        event: v2.clone(),
-        sources: BTreeSet::new(),
-    }));
+    feed.apply_delta(nmp::RowDelta::Added(nmp::Row::from_relay_event(
+        v2.clone(),
+        BTreeSet::new(),
+    )));
     assert_eq!(
         feed.profile(&pk).map(|p| p.name).as_deref(),
         Some("v2-handle")

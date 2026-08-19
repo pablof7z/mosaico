@@ -4,9 +4,9 @@
 
 use anyhow::{Context, Result};
 use nmp::{
-    AccessContext, AccountRegistration, AuthPolicy, AuthPolicyOp, AuthPolicyRegistration,
-    AuthPolicyRequest, Engine, EngineConfig, FifoReceiver, FifoRecvTimeoutError, NotSentReason,
-    RelayState, RelayUrl, SigningState, Window, WriteFact, WriteOutcome,
+    AuthPolicy, AuthPolicyOp, AuthPolicyRegistration, AuthPolicyRequest, Engine, EngineConfig,
+    FifoReceiver, FifoRecvTimeoutError, NotSentReason, RelayState, RelayUrl, SessionAccount,
+    SigningState, Window, WriteFact, WriteOutcome,
 };
 use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
 use nostr::{Event, EventBuilder, EventId, Filter, Keys};
@@ -24,7 +24,7 @@ pub struct NmpRelayClient {
     engine: Engine,
     relay: RelayUrl,
     keys: Keys,
-    _accounts: Vec<AccountRegistration>,
+    _accounts: Vec<SessionAccount>,
     _auth_policies: Vec<AuthPolicyRegistration>,
 }
 
@@ -54,20 +54,14 @@ impl AuthPolicy for AllowExactRelay {
 impl NmpRelayClient {
     pub async fn connect(keys: Keys, relay: &str) -> Result<Self> {
         let relay = RelayUrl::parse(relay).context("parse test relay URL")?;
-        let mut config = EngineConfig {
+        let config = EngineConfig {
             app_relays: vec![relay.to_string()],
             ..EngineConfig::default()
         };
-        if let Some(host) = nmp_grammar::relay::relay_host_key(&relay) {
-            if nmp_network_policy::classify_bare_host(&host) == nmp_network_policy::HostClass::Local
-                && !host.ends_with(".onion")
-            {
-                config.allowed_local_relay_hosts.push(host);
-            }
-        }
         let engine = Engine::new(config).context("start NMP test client")?;
+        let secret = keys.secret_key().to_secret_bytes();
         let account = engine
-            .add_account(&keys.secret_key().to_secret_hex())
+            .add_private_key_account(&secret, true)
             .context("register NMP test account")?;
         let auth_policy = engine
             .add_auth_policy(
@@ -88,9 +82,10 @@ impl NmpRelayClient {
     }
 
     pub fn register_identity(&mut self, keys: &Keys) -> Result<()> {
+        let secret = keys.secret_key().to_secret_bytes();
         let account = self
             .engine
-            .add_account(&keys.secret_key().to_secret_hex())
+            .add_private_key_account(&secret, false)
             .context("register additional NMP test account")?;
         let auth_policy = self
             .engine
@@ -121,7 +116,6 @@ impl NmpRelayClient {
                 payload: WritePayload::Signed(event.clone()),
                 routing: WriteRouting::Explicit(vec![self.relay.clone()]),
                 identity: Identity::Explicit(event.pubkey),
-                correlation: None,
             })
             .context("submit NMP test write")?;
         let relay = self.relay.clone();
@@ -135,7 +129,7 @@ impl NmpRelayClient {
         let max_rows = filter.limit.unwrap_or(200).max(1);
         let mut filter = nmp_filter(filter)?;
         filter.limit = None;
-        let query = pinned_query(self.relay.clone(), filter, AccessContext::Public)?;
+        let query = pinned_query(self.relay.clone(), filter, None)?;
         let bound = NonZeroUsize::new(max_rows).expect("positive test read bound");
         let subscription = self
             .engine
@@ -152,8 +146,12 @@ impl NmpRelayClient {
             .context("join NMP test read")?
     }
 
-    pub fn observe(&self, filter: Filter, access: AccessContext) -> Result<nmp::Subscription> {
-        let query = pinned_query(self.relay.clone(), nmp_filter(filter)?, access)?;
+    pub fn observe(
+        &self,
+        filter: Filter,
+        authenticate_as: Option<nostr::PublicKey>,
+    ) -> Result<nmp::Subscription> {
+        let query = pinned_query(self.relay.clone(), nmp_filter(filter)?, authenticate_as)?;
         self.engine
             .observe(query, None)
             .context("open NMP test observation")
@@ -187,7 +185,7 @@ fn wait_for_write(
             anyhow::bail!("NMP test write parked without settling (last fact: {last_fact})");
         }
         match receiver.recv_timeout(remaining) {
-            Ok(WriteFact::Relay { relay, state }) => {
+            Ok(WriteFact::Relay { relay, state, .. }) => {
                 last_fact = format!("{relay}: {state:?}");
                 match state {
                     RelayState::Published => {
@@ -214,7 +212,9 @@ fn wait_for_write(
                             "NMP reached its publish attempt ceiling".to_string(),
                         );
                     }
-                    RelayState::Waiting(_) | RelayState::Sent { .. } => {}
+                    RelayState::Waiting(_)
+                    | RelayState::Attempting { .. }
+                    | RelayState::Sent { .. } => {}
                 }
             }
             Ok(WriteFact::Signing(SigningState::Refused { reason })) => {

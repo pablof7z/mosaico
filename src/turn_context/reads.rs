@@ -77,7 +77,7 @@ fn ambient_chat(s: &Store, scope: &str, since: u64, self_pubkey: &str) -> Result
         {
             continue;
         }
-        if s.session_membership_admits_event(self_pubkey, scope, &event.id)? {
+        if s.session_membership_admits_event(self_pubkey, scope, &event)? {
             admitted.push(event);
         }
     }

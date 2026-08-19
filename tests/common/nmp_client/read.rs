@@ -1,10 +1,10 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
-use nmp::{AccessContext, Binding, Demand, IndexedTagName, LiveQuery, RelayUrl, SourceAuthority};
+use nmp::{Binding, Demand, IndexedTagName, LiveQuery, ReadRouting, RelayUrl};
 use nostr::{Event, Filter};
 
 /// Per-branch acquisition evidence is positionally indexed against
@@ -62,13 +62,11 @@ fn acquisition_ready(evidence: &[nmp::AcquisitionEvidence]) -> bool {
 pub(super) fn pinned_query(
     relay: RelayUrl,
     filter: nmp::Filter,
-    access: AccessContext,
+    authenticate_as: Option<nostr::PublicKey>,
 ) -> Result<LiveQuery> {
-    Ok(LiveQuery::single(Demand::new(
-        filter,
-        SourceAuthority::Pinned(BTreeSet::from([relay])),
-        access,
-    )?))
+    let mut demand = Demand::new(filter, ReadRouting::Explicit(vec![relay]))?;
+    demand.authenticate_as = authenticate_as;
+    Ok(LiveQuery::single(demand))
 }
 
 pub(super) fn nmp_filter(filter: Filter) -> Result<nmp::Filter> {
@@ -140,5 +138,9 @@ pub(super) fn receive_window(
             frame.evidence
         );
     }
-    Ok(window.rows.into_iter().map(|row| row.event).collect())
+    Ok(window
+        .rows
+        .into_iter()
+        .filter_map(|row| row.signed_event())
+        .collect())
 }

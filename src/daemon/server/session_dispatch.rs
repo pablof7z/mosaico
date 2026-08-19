@@ -219,8 +219,12 @@ fn wait_dispatch_ack_blocking(
                 anyhow::bail!("relay notification stream closed while waiting for dispatch ACK")
             }
         };
-        for event in frame.deltas.iter().filter_map(|delta| delta.event()) {
-            if crate::fabric::nip29::session_dispatch::dispatch_ack_ref(event)
+        for event in frame
+            .deltas
+            .iter()
+            .filter_map(|delta| delta.row()?.signed_event())
+        {
+            if crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
                 == Some(dispatch_event_id)
             {
                 return Ok(DispatchAck {

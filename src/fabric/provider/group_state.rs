@@ -5,7 +5,7 @@ use std::time::Duration;
 impl Nip29Provider {
     /// The current record-bearing value from the daemon's retained NMP group
     /// observation. An id-only Acquiring seed is not treated as group state.
-    pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<nmp::nip29::GroupSnapshot> {
+    pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<nmp_nip29::GroupSnapshot> {
         self.nmp
             .views()
             .group_snapshots()
@@ -37,8 +37,8 @@ impl Nip29Provider {
     }
 
     /// Read one complete group value from NMP. Nothing is copied into SQLite.
-    pub(crate) async fn group_snapshot(&self, group: &str) -> Result<nmp::nip29::GroupSnapshot> {
-        use nmp::nip29::GroupAvailability;
+    pub(crate) async fn group_snapshot(&self, group: &str) -> Result<nmp_nip29::GroupSnapshot> {
+        use nmp_nip29::GroupAvailability;
 
         #[cfg(test)]
         if let Some(scripted) = self.nmp.take_scripted_group_snapshot(group) {

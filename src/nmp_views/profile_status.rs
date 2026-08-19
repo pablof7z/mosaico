@@ -148,17 +148,17 @@ mod tests {
             .custom_created_at(Timestamp::from(123_u64))
             .sign_with_keys(&Keys::generate())
             .unwrap();
-        Row {
+        Row::from_relay_event(
             event,
-            sources: BTreeSet::from([RelayUrl::parse("wss://relay.example").unwrap()]),
-        }
+            BTreeSet::from([RelayUrl::parse("wss://relay.example").unwrap()]),
+        )
     }
 
     #[test]
     fn status_projection_follows_exact_observation_scope_and_disappearance() {
         let views = NmpViews::default();
         let row = status_row();
-        let id = row.event.id;
+        let id = row.id();
 
         views.apply_frame(
             "mosaico-h-alpha",
@@ -170,7 +170,7 @@ mod tests {
             .observed_statuses_for_channel("alpha")
             .pop()
             .expect("alpha observation owns the row");
-        assert_eq!(alpha.row.event.id, id);
+        assert_eq!(alpha.row.id(), id);
         assert_eq!(alpha.row.sources, row.sources);
         assert_eq!(alpha.status.channels, ["alpha", "beta"]);
         assert_eq!(alpha.status.activity, "writing focused tests");
@@ -188,14 +188,14 @@ mod tests {
         let beta_departure = views.close_observation("mosaico-h-beta", 1).removed;
         assert_eq!(beta_departure.len(), 1);
         assert_eq!(beta_departure[0].observation_id, "mosaico-h-beta");
-        assert_eq!(beta_departure[0].row.event.id, id);
+        assert_eq!(beta_departure[0].row.id(), id);
         assert!(views.statuses_in_channel("beta").is_empty());
         assert_eq!(views.statuses_in_channel("alpha").len(), 1);
 
         let alpha_departure =
             views.apply_frame("mosaico-h-alpha", 1, vec![RowDelta::Removed(id)], vec![]);
         assert_eq!(alpha_departure.removed.len(), 1);
-        assert_eq!(alpha_departure.removed[0].row.event.id, id);
+        assert_eq!(alpha_departure.removed[0].row.id(), id);
         assert!(views.statuses_in_channel("alpha").is_empty());
         assert!(views.row(&id).is_none());
     }

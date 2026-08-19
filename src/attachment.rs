@@ -134,14 +134,8 @@ pub(crate) async fn upload_all(
 
     let server = BlossomServerUrl::parse(blossom_server(relays)?.as_str())
         .map_err(|error| anyhow::anyhow!("invalid Blossom server URL: {error}"))?;
-    // A local relay is a local Blossom server. NMP refuses a loopback or
-    // private-network destination unless the operator opted that exact host
-    // in — the same allowlist the engine uses for relays.
-    let client = BlossomClient::new(BlossomClientConfig {
-        allowed_local_hosts: nmp.allowed_local_hosts(),
-        ..BlossomClientConfig::default()
-    })
-    .map_err(|error| anyhow::anyhow!("building Blossom client: {}", error.reason))?;
+    let client = BlossomClient::new(BlossomClientConfig::default())
+        .map_err(|error| anyhow::anyhow!("building Blossom client: {}", error.reason))?;
 
     let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
@@ -252,6 +246,7 @@ async fn authorization(
     SignedAuthorization::validate(
         signed,
         &ExpectedAuthorization {
+            author: keys.public_key(),
             verb: BlossomVerb::Upload,
             blob: Some(hash),
         },

@@ -1,8 +1,8 @@
 use super::*;
 use std::collections::BTreeMap;
 
-use nmp::nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
 use nmp::RelayUrl;
+use nmp_nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
 use nostr::{EventId, Keys, Timestamp};
 
 fn set<const N: usize>(items: [&str; N]) -> BTreeSet<String> {

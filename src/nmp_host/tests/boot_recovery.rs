@@ -75,7 +75,7 @@ fn daemon_boot_over_a_large_publish_queue() {
 
     let queue = host
         .engine
-        .publish_queue()
+        .publish_queue(None, u8::MAX)
         .expect("read the durable queue back");
 
     println!("intents seeded:      {INTENTS} in {seeding:?}");
@@ -113,7 +113,7 @@ fn daemon_boot_over_an_existing_store() {
 
     let queue = host
         .engine
-        .publish_queue()
+        .publish_queue(None, u8::MAX)
         .expect("read the durable queue back");
 
     println!("store:               {source} ({copied} bytes)");

@@ -157,7 +157,7 @@ mod tests {
     fn converting_an_nmp_draft_preserves_a_p_row_naming_the_signer() {
         let keys = Keys::generate();
         let event = as_nostr(
-            nmp::nip29::add_users([nmp::nip29::GroupUser::new(
+            nmp_nip29::add_users([nmp_nip29::GroupUser::new(
                 keys.public_key(),
                 Some("admin".into()),
             )])

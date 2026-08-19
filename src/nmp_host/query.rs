@@ -1,9 +1,9 @@
 //! How a Mosaico question becomes an NMP live query.
 //!
 //! The whole point of this module is that the two host-scoping axes are
-//! decided HERE, once, and never inherited by accident. `SourceAuthority`
+//! decided HERE, once, and never inherited by accident. `ReadRouting`
 //! scopes which relays are ASKED; `CacheMode` scopes which locally cached
-//! rows may ANSWER. Their defaults disagree — a `Demand` is `Pinned` only
+//! rows may ANSWER. Their defaults disagree — a `Demand` is `Explicit` only
 //! when you say so, but it is `Agnostic` unless you say otherwise — and
 //! mosaico#741 is exactly what happens when only the first one is set.
 
@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use nmp::{
-    AccessContext, Binding, CacheMode, Demand, IndexedTagName, LiveQuery, RelayUrl, SourceAuthority,
+    Binding, CacheMode, Demand, IndexedTagName, LiveQuery, PublicKey, ReadRouting, RelayUrl,
 };
 
 use crate::reconcile::SubscriptionQuery;
@@ -22,8 +22,8 @@ impl NmpHost {
     /// The relays a NIP-29 group lives on, as NMP's own scope value. Every
     /// NIP-29 read is minted from here so the host set is named once and the
     /// per-host branch structure is NMP's to build, not Mosaico's to imitate.
-    pub(crate) fn nip29_scope(&self) -> Result<nmp::nip29::RelayScope> {
-        nmp::nip29::on(self.relays.iter().cloned())
+    pub(crate) fn nip29_scope(&self) -> Result<nmp_nip29::RelayScope> {
+        nmp_nip29::on(self.relays.iter().cloned())
             .map_err(|error| anyhow::anyhow!("NIP-29 relay scope: {error}"))
     }
 
@@ -45,7 +45,7 @@ impl NmpHost {
 
     /// Watch the relay-signed records of every group matching `predicate`.
     ///
-    /// The returned [`GroupObservation`](nmp::nip29::GroupObservation) is the
+    /// The returned [`GroupObservation`](nmp_nip29::GroupObservation) is the
     /// handle and Mosaico owns its lifetime: dropping it withdraws the demand.
     /// NMP deliberately caches nothing keyed by group on the app's behalf.
     ///
@@ -57,25 +57,25 @@ impl NmpHost {
     /// observations.
     pub(crate) fn observe_group_records(
         &self,
-        predicate: nmp::nip29::GroupPredicate,
-    ) -> Result<nmp::nip29::GroupObservation> {
+        predicate: nmp_nip29::GroupPredicate,
+    ) -> Result<nmp_nip29::GroupObservation> {
         self.nip29_scope()?
-            .observe(&self.engine, predicate, nmp::nip29::GroupRecord::ALL, None)
+            .observe(&self.engine, predicate, nmp_nip29::GroupRecord::ALL, None)
             .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
     }
 
     /// Watch one group's relay-signed records through NMP's group facade.
     ///
     /// The returned observation is the state owner. Callers read its complete
-    /// [`nmp::nip29::GroupSnapshot`] deliveries directly; Mosaico does not
+    /// [`nmp_nip29::GroupSnapshot`] deliveries directly; Mosaico does not
     /// materialize or merge another group record set.
     pub(crate) fn observe_one_group_records(
         &self,
         group: &str,
-    ) -> Result<nmp::nip29::GroupObservation> {
+    ) -> Result<nmp_nip29::GroupObservation> {
         self.nip29_scope()?
             .group(group)
-            .observe(&self.engine, nmp::nip29::GroupRecord::ALL)
+            .observe(&self.engine, nmp_nip29::GroupRecord::ALL)
             .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
     }
 
@@ -130,13 +130,19 @@ impl NmpHost {
         &self,
         relays: &BTreeSet<RelayUrl>,
         filter: nmp::Filter,
-        access: AccessContext,
+        authenticate_as: Option<PublicKey>,
         cache: CacheMode,
     ) -> Result<LiveQuery> {
         let demand = if relays.is_empty() {
-            Demand::from_filter(filter)
+            let mut demand = Demand::new(filter, ReadRouting::Auto)?;
+            demand.authenticate_as = authenticate_as;
+            demand
         } else {
-            let mut demand = Demand::new(filter, SourceAuthority::Pinned(relays.clone()), access)?;
+            let mut demand = Demand::new(
+                filter,
+                ReadRouting::Explicit(relays.iter().cloned().collect()),
+            )?;
+            demand.authenticate_as = authenticate_as;
             demand.cache = cache;
             demand
         };
@@ -151,12 +157,7 @@ impl NmpHost {
     pub(crate) fn profile_feed_query(&self, authors: &BTreeSet<String>) -> Result<LiveQuery> {
         let mut filter = kinds_filter(&BTreeSet::from([0u16]));
         filter.authors = Some(Binding::Literal(authors.clone()));
-        self.host_pinned_query(
-            &self.profile_relays,
-            filter,
-            AccessContext::Public,
-            CacheMode::Agnostic,
-        )
+        self.host_pinned_query(&self.profile_relays, filter, None, CacheMode::Agnostic)
     }
 
     /// Open a caller-owned NMP observation over an already-built live query.
@@ -172,23 +173,26 @@ impl NmpHost {
     pub(super) fn live_query(
         &self,
         query: &SubscriptionQuery,
-        access: AccessContext,
+        authenticate_as: Option<PublicKey>,
     ) -> Result<LiveQuery> {
         match query {
             SubscriptionQuery::AllGroupMetadata => self.all_group_metadata_query(),
             SubscriptionQuery::GroupContents { group, kinds } => {
                 self.group_contents_query(group, kinds_filter(kinds))
             }
-            SubscriptionQuery::Kinds { kinds } => {
-                self.host_pinned_query(&self.relays, kinds_filter(kinds), access, CacheMode::Strict)
-            }
+            SubscriptionQuery::Kinds { kinds } => self.host_pinned_query(
+                &self.relays,
+                kinds_filter(kinds),
+                authenticate_as,
+                CacheMode::Strict,
+            ),
             SubscriptionQuery::Mentions { pubkey, kinds } => {
                 let mut filter = kinds_filter(kinds);
                 filter.tags.insert(
                     indexed_tag('p')?,
                     Binding::Literal(BTreeSet::from([pubkey.clone()])),
                 );
-                self.host_pinned_query(&self.relays, filter, access, CacheMode::Strict)
+                self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
             }
             SubscriptionQuery::References { event_id, kinds } => {
                 let mut filter = kinds_filter(kinds);
@@ -196,12 +200,17 @@ impl NmpHost {
                     indexed_tag('e')?,
                     Binding::Literal(BTreeSet::from([event_id.clone()])),
                 );
-                self.host_pinned_query(&self.relays, filter, access, CacheMode::Strict)
+                self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
             }
             SubscriptionQuery::Profile { pubkey } => {
                 let mut filter = kinds_filter(&BTreeSet::from([0u16]));
                 filter.authors = Some(Binding::Literal(BTreeSet::from([pubkey.clone()])));
-                self.host_pinned_query(&self.profile_relays, filter, access, CacheMode::Agnostic)
+                self.host_pinned_query(
+                    &self.profile_relays,
+                    filter,
+                    authenticate_as,
+                    CacheMode::Agnostic,
+                )
             }
         }
     }
@@ -219,7 +228,7 @@ fn indexed_tag(name: char) -> Result<IndexedTagName> {
 }
 
 /// One live query out of one complete branch per host, exactly as NMP's own
-/// NIP-29 read door folds them (`nmp::nip29::read::one_live_query`).
+/// NIP-29 read door folds them (`nmp_nip29::read::one_live_query`).
 fn union_branches(branches: Vec<Demand>) -> Result<LiveQuery> {
     let mut branches = branches;
     match branches.len() {

@@ -18,7 +18,8 @@ use nostr::{EventBuilder, Kind, Tag};
 /// relay rejection is logged and dropped — the routed mention itself is
 /// already queued in the inbox, so the agent will still respond.
 pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event) {
-    let Some(channel_h) = crate::fabric::nip29::nostr_tag(event, "h").map(str::to_string) else {
+    let Some(channel_h) = crate::fabric::nip29::nostr_tag(&event.tags, "h").map(str::to_string)
+    else {
         tracing::debug!(
             event_id = %&event.id.to_hex()[..8],
             "route_reaction: kind:9 has no h tag — skipping reaction"

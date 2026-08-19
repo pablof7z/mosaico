@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 /// A NIP-29 question is answered by a RELAY, not by the network: the `h` tag
 /// is a label and two relays hosting the same group id are two independent
 /// groups. NMP mints those reads itself
-/// (`nmp::nip29::Group::read` / `nmp_nip29::groups_where_at`) precisely so
-/// both host-scoping axes get stamped — `SourceAuthority::Pinned` for which
+/// (`nmp_nip29::Group::read` / `nmp_nip29::groups_where_at`) precisely so
+/// both host-scoping axes get stamped — `ReadRouting::Explicit` for which
 /// relays are ASKED and `CacheMode::Strict` for which cached rows may ANSWER.
 /// Naming the group here rather than carrying a raw `('h', value)` tag is
 /// what lets `NmpHost` route each variant to the door that owns it; NMP's own

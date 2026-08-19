@@ -17,10 +17,10 @@ impl Nip29Provider {
         Ok(read
             .rows
             .iter()
-            .map(|row| &row.event)
+            .filter_map(|row| row.signed_event())
             .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
             .max_by_key(|event| event.created_at.as_secs())
-            .map(children_from_metadata)
+            .map(|event| children_from_metadata(&event))
             .unwrap_or_default())
     }
 

@@ -40,13 +40,13 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
         );
     });
     let mut tail = state.tail_subscribe();
-    let row = Row {
-        event: EventBuilder::new(Kind::from(9_u16), "observed once")
+    let row = Row::from_relay_event(
+        EventBuilder::new(Kind::from(9_u16), "observed once")
             .tags([Tag::parse(["h", "room"]).unwrap()])
             .sign_with_keys(&local)
             .unwrap(),
-        sources: BTreeSet::new(),
-    };
+        BTreeSet::new(),
+    );
     let views = state.nmp().views_handle();
 
     let first = views.apply_frame(
@@ -82,8 +82,8 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
     let remote = Keys::generate();
-    let row = Row {
-        event: EventBuilder::new(Kind::from(30315_u16), "working")
+    let row = Row::from_relay_event(
+        EventBuilder::new(Kind::from(30315_u16), "working")
             .tags([
                 Tag::parse(["d", "status"]).unwrap(),
                 Tag::parse(["h", "room"]).unwrap(),
@@ -96,9 +96,9 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
             ])
             .sign_with_keys(&remote)
             .unwrap(),
-        sources: BTreeSet::new(),
-    };
-    let id = row.event.id;
+        BTreeSet::new(),
+    );
+    let id = row.id();
     let views = state.nmp().views_handle();
 
     let added = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row)], vec![]);
@@ -133,8 +133,8 @@ async fn status_tail_events_follow_exact_observation_edges() {
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
     let remote = Keys::generate();
-    let row = Row {
-        event: EventBuilder::new(Kind::from(30315_u16), "working")
+    let row = Row::from_relay_event(
+        EventBuilder::new(Kind::from(30315_u16), "working")
             .tags([
                 Tag::parse(["d", "status"]).unwrap(),
                 Tag::parse(["h", "room-a"]).unwrap(),
@@ -148,9 +148,9 @@ async fn status_tail_events_follow_exact_observation_edges() {
             ])
             .sign_with_keys(&remote)
             .unwrap(),
-        sources: BTreeSet::new(),
-    };
-    let id = row.event.id;
+        BTreeSet::new(),
+    );
+    let id = row.id();
     let views = state.nmp().views_handle();
 
     let entered_a = views.apply_frame(

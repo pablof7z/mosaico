@@ -15,12 +15,7 @@ pub(crate) use groups::GroupProjection;
 pub(crate) use groups::{TestGroup, TestGroupDelivery};
 mod rows;
 use rows::RowViews;
-mod events;
-mod messages;
-pub(crate) use messages::MessageProjection;
 mod profile_status;
-mod reactions;
-pub(crate) use reactions::ReactionProjection;
 mod relay;
 pub(crate) use relay::observed_profile_from_row;
 #[cfg(test)]
@@ -30,12 +25,13 @@ pub(crate) use test_delivery::TestRelayDelivery;
 
 #[derive(Default)]
 pub(crate) struct NmpViews {
-    group_observation: RwLock<Option<Arc<nmp::nip29::GroupObservation>>>,
+    group_observation: RwLock<Option<Arc<nmp_nip29::GroupObservation>>>,
     #[cfg(test)]
     test_group_delivery: RwLock<Option<TestGroupDelivery>>,
     #[cfg(test)]
     test_relay_delivery: RwLock<Option<TestRelayDelivery>>,
     rows: Mutex<RowViews>,
+    recent_rows: crate::recent_rows::RecentRows,
 }
 
 #[derive(Default)]
@@ -76,7 +72,7 @@ impl NmpViews {
     /// value: every read below calls `GroupObservation::latest()`.
     pub(crate) fn set_group_observation(
         &self,
-        observation: Option<Arc<nmp::nip29::GroupObservation>>,
+        observation: Option<Arc<nmp_nip29::GroupObservation>>,
     ) {
         *self
             .group_observation
@@ -84,7 +80,7 @@ impl NmpViews {
             .expect("NMP group observation slot poisoned") = observation;
     }
 
-    pub(crate) fn group_snapshots(&self) -> Vec<nmp::nip29::GroupSnapshot> {
+    pub(crate) fn group_snapshots(&self) -> Vec<nmp_nip29::GroupSnapshot> {
         self.group_observation
             .read()
             .expect("NMP group observation slot poisoned")
@@ -117,6 +113,13 @@ impl NmpViews {
 
     #[cfg(test)]
     pub(crate) fn install_test_relay_delivery(&self, next: TestRelayDelivery) {
+        // The test seam replaces the whole delivered row set, so the retained
+        // recent-rows window is reset to exactly these events. Product reads
+        // route through `recent_rows`, so the seam must populate it directly.
+        self.recent_rows.clear();
+        for event in &next.events {
+            self.recent_rows.add("test-delivery", event.clone());
+        }
         *self
             .test_relay_delivery
             .write()
@@ -141,7 +144,13 @@ impl NmpViews {
         self.rows
             .lock()
             .expect("NMP row views poisoned")
-            .apply_frame(observation_id, generation, deltas, evidence)
+            .apply_frame(
+                observation_id,
+                generation,
+                deltas,
+                evidence,
+                &self.recent_rows,
+            )
     }
 
     pub(crate) fn begin_observation(&self, observation_id: &str, generation: u64) {
@@ -152,12 +161,22 @@ impl NmpViews {
     }
 
     pub(crate) fn close_observation(&self, observation_id: &str, generation: u64) -> RowTransition {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .close(observation_id, generation)
+        self.rows.lock().expect("NMP row views poisoned").close(
+            observation_id,
+            generation,
+            &self.recent_rows,
+        )
     }
 
+    /// The bounded sync-readable recent-rows window, fed from the same live
+    /// observation deltas as the row mirror. Product reads of chat / events /
+    /// reactions / status route here; the mirror's own indices are being
+    /// retired.
+    pub(crate) fn recent_rows(&self) -> &crate::recent_rows::RecentRows {
+        &self.recent_rows
+    }
+
+    #[allow(dead_code)] // mirror row-read surface being retired; deleted with the mirror
     pub(crate) fn row(&self, id: &EventId) -> Option<Row> {
         self.rows
             .lock()
@@ -191,6 +210,7 @@ impl NmpViews {
             .rows_for_kind_author(kind, author)
     }
 
+    #[allow(dead_code)] // mirror row-read surface being retired; deleted with the mirror
     fn rows_for_kind_channel(&self, kind: u16, channel: &str) -> Vec<rows::ViewRow> {
         self.rows
             .lock()

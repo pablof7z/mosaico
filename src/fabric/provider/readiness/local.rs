@@ -25,7 +25,7 @@ fn required_admins(provider: &Nip29Provider) -> Option<Vec<String>> {
 }
 
 pub(super) fn snapshot_ready(
-    snapshot: &nmp::nip29::GroupSnapshot,
+    snapshot: &nmp_nip29::GroupSnapshot,
     ctx: &ChannelCtx<'_>,
     required_admins: &[String],
     managed: bool,

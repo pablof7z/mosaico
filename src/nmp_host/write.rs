@@ -31,7 +31,7 @@ use compose::draft_of;
 impl NmpHost {
     pub(crate) fn publish_queue_entry_ids(&self) -> Result<Vec<String>, String> {
         self.engine
-            .publish_queue()
+            .publish_queue(None, u8::MAX)
             .map(|entries| {
                 entries
                     .into_iter()
@@ -83,10 +83,11 @@ impl NmpHost {
             scrub_unsigned(&mut unsigned);
             let previous = host
                 .engine
-                .active_account()
-                .context("reading NMP account")?;
+                .session()
+                .context("reading NMP account")?
+                .current_pubkey;
             host.engine
-                .set_active_account(Some(keys.public_key()))
+                .make_current_account(keys.public_key())
                 .context("selecting NMP signing account")?;
             let result = (|| {
                 host.engine
@@ -100,12 +101,15 @@ impl NmpHost {
                     .recv()
                     .context("signing event through NMP")
             })();
-            let restored = host
-                .engine
-                .set_active_account(previous)
-                .context("restoring NMP account");
+            let restored = previous
+                .map(|pk| {
+                    host.engine
+                        .make_current_account(pk)
+                        .context("restoring NMP account")
+                })
+                .transpose();
             match (result, restored) {
-                (Ok(event), Ok(())) => Ok(event),
+                (Ok(event), Ok(_)) => Ok(event),
                 (Err(error), _) => Err(error),
                 (Ok(_), Err(error)) => Err(error),
             }
@@ -178,7 +182,7 @@ impl NmpHost {
         if let Some(refusal) = self.test_io.take_write() {
             refusal?;
         }
-        let hosts = nmp::nip29::on(self.relays.iter().cloned())
+        let hosts = nmp_nip29::on(self.relays.iter().cloned())
             .map_err(|error| anyhow::anyhow!("no configured NIP-29 group host: {error:?}"))?;
         let stream = hosts
             .groups(groups.iter().cloned())
@@ -209,7 +213,6 @@ impl NmpHost {
                 payload: WritePayload::Signed(event.clone()),
                 routing: WriteRouting::Explicit(relays),
                 identity: Identity::Explicit(event.pubkey),
-                correlation: None,
             })
             .context("submitting a signed NMP write")
     }

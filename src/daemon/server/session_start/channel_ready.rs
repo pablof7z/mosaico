@@ -145,13 +145,13 @@ mod tests {
     const FAILURE: &str =
         "fault=latched durability=absent reopen=required: Previous I/O error occurred";
 
-    fn absent_group_snapshot(group: &str) -> nmp::nip29::GroupSnapshot {
-        nmp::nip29::GroupSnapshot {
+    fn absent_group_snapshot(group: &str) -> nmp_nip29::GroupSnapshot {
+        nmp_nip29::GroupSnapshot {
             id: group.to_string(),
             metadata: None,
             admins: Vec::new(),
             members: Vec::new(),
-            availability: nmp::nip29::GroupAvailability::Ready,
+            availability: nmp_nip29::GroupAvailability::Ready,
             per_host: BTreeMap::new(),
             disagreements: BTreeSet::new(),
         }

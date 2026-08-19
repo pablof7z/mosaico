@@ -43,7 +43,7 @@ async fn a_several_group_write_goes_through_the_same_door() {
 
     assert!(host
         .engine
-        .publish_queue()
+        .publish_queue(None, u8::MAX)
         .unwrap()
         .iter()
         .any(|entry| entry.event_id == returned));
@@ -68,7 +68,7 @@ async fn one_group_is_the_several_group_door_at_arity_one() {
         )
         .unwrap();
 
-    let entries = host.engine.publish_queue().unwrap();
+    let entries = host.engine.publish_queue(None, u8::MAX).unwrap();
     for id in [singular, plural] {
         assert!(entries.iter().any(|entry| entry.event_id == id));
     }
@@ -89,7 +89,7 @@ async fn the_id_mosaico_holds_names_the_write_nmp_signed() {
 
     let entry = host
         .engine
-        .publish_queue()
+        .publish_queue(None, u8::MAX)
         .unwrap()
         .into_iter()
         .find(|entry| entry.event_id == returned)
