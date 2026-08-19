@@ -10,7 +10,6 @@ pub(super) struct RowViews {
     rows: BTreeMap<EventId, OwnedRow>,
     ids_by_kind: BTreeMap<u16, BTreeSet<EventId>>,
     ids_by_kind_author: BTreeMap<(u16, String), BTreeSet<EventId>>,
-    ids_by_kind_channel: BTreeMap<(u16, String), BTreeSet<EventId>>,
 }
 
 struct ObservationRows {
@@ -309,12 +308,6 @@ impl RowViews {
             .entry((kind, row.pubkey().to_hex()))
             .or_default()
             .insert(id);
-        for channel in channel_tags(row.tags()) {
-            self.ids_by_kind_channel
-                .entry((kind, channel.to_string()))
-                .or_default()
-                .insert(id);
-        }
     }
 
     fn deindex(&mut self, row: &Row) {
@@ -326,23 +319,7 @@ impl RowViews {
             &(kind, row.pubkey().to_hex()),
             &id,
         );
-        for channel in channel_tags(row.tags()) {
-            remove_index(
-                &mut self.ids_by_kind_channel,
-                &(kind, channel.to_string()),
-                &id,
-            );
-        }
     }
-}
-
-fn channel_tags(tags: &nostr::Tags) -> impl Iterator<Item = &str> {
-    tags.iter().filter_map(|tag| {
-        let values = tag.as_slice();
-        (values.first().map(String::as_str) == Some("h"))
-            .then(|| values.get(1).map(String::as_str))
-            .flatten()
-    })
 }
 
 fn remove_index<K: Ord>(index: &mut BTreeMap<K, BTreeSet<EventId>>, key: &K, id: &EventId) {
