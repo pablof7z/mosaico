@@ -79,18 +79,19 @@ async fn apply_transition(state: &Arc<DaemonState>, transition: crate::nmp_views
     }
 }
 
-/// Turn one exact channel-observation status entry into peer tail state.
-///
-/// The status event may name several channels, but only the observation edge
-/// proves that this process currently observes the Row in this channel.
+/// Turn one broad-`#h` status entry into peer tail state, once per channel the
+/// status names. Under the single broad `#h` observation a kind:30315 event
+/// enters exactly once (not once per channel-observation), so the channels it
+/// applies to are read from the event's own `#h` tags (`status.channels`)
+/// rather than from the observation id.
 fn apply_observation_entry(
     state: &Arc<DaemonState>,
     entered: crate::nmp_views::EnteredRow,
     hosted: &mut Option<Vec<String>>,
 ) {
-    let Some(channel) = entered.observation_id.strip_prefix("mosaico-h-") else {
+    if entered.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
-    };
+    }
     let Some(event) = entered.row.signed_event() else {
         return;
     };
@@ -100,11 +101,16 @@ fn apply_observation_entry(
     else {
         return;
     };
-    if !status.channels.iter().any(|candidate| candidate == channel) {
-        return;
-    }
     let hosted = hosted.get_or_insert_with(|| locally_hosted_pubkeys(state));
-    tail_projection::derive_and_emit_status_tail_event(state, &status, channel, hosted, now_secs());
+    for channel in &status.channels {
+        tail_projection::derive_and_emit_status_tail_event(
+            state,
+            &status,
+            channel,
+            hosted,
+            now_secs(),
+        );
+    }
 }
 
 fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
@@ -118,14 +124,15 @@ fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
     hosted
 }
 
-/// Turn an exact channel-observation status departure into an immediate peer
-/// leave. A replacement delivered in the same frame is already installed in
-/// the NMP view, so consulting that view suppresses a transient Leave without
-/// introducing a Mosaico freshness or expiry clock.
+/// Turn a broad-`#h` status departure into an immediate peer leave, once per
+/// channel the departed status named that is no longer current. A replacement
+/// delivered in the same frame is already installed in the NMP view, so
+/// `get_status` suppresses a transient Leave for channels the agent still
+/// occupies without introducing a Mosaico freshness or expiry clock.
 fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::DepartedRow) {
-    let Some(channel) = departed.observation_id.strip_prefix("mosaico-h-") else {
+    if departed.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
-    };
+    }
     let Some(event) = departed.row.signed_event() else {
         return;
     };
@@ -135,34 +142,31 @@ fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::Departe
     else {
         return;
     };
-    if !status.channels.iter().any(|candidate| candidate == channel) {
-        return;
-    }
-
-    let key = (status.agent.pubkey.clone(), channel.to_string());
-    let still_current = state.with_store(|store| {
-        store
-            .get_status(&key.0, &key.1)
-            .is_ok_and(|status| status.is_some())
-    });
-    if still_current {
-        return;
-    }
-
-    let tracked = state.dedup.peer_sessions.lock().unwrap().remove(&key);
-    state.dedup.last_status.lock().unwrap().remove(&key);
-    let Some(tracked) = tracked else {
-        return;
-    };
     let now = now_secs();
-    state.emit_tail(TailEvent::Leave {
-        ts: now,
-        channel: tracked.channel,
-        agent: tracked.slug,
-        host: tracked.host,
-        session: key.0,
-        online_s: now.saturating_sub(tracked.first_seen),
-    });
+    for channel in &status.channels {
+        let key = (status.agent.pubkey.clone(), channel.clone());
+        let still_current = state.with_store(|store| {
+            store
+                .get_status(&key.0, &key.1)
+                .is_ok_and(|status| status.is_some())
+        });
+        if still_current {
+            continue;
+        }
+        let tracked = state.dedup.peer_sessions.lock().unwrap().remove(&key);
+        state.dedup.last_status.lock().unwrap().remove(&key);
+        let Some(tracked) = tracked else {
+            continue;
+        };
+        state.emit_tail(TailEvent::Leave {
+            ts: now,
+            channel: tracked.channel,
+            agent: tracked.slug,
+            host: tracked.host,
+            session: key.0,
+            online_s: now.saturating_sub(tracked.first_seen),
+        });
+    }
 }
 
 fn finish_incoming(

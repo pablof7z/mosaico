@@ -1,4 +1,5 @@
 use super::*;
+use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_PUT_USER, KIND_REACTION, KIND_STATUS};
 
 fn set<const N: usize>(items: [&str; N]) -> BTreeSet<String> {
     items.into_iter().map(str::to_string).collect()
@@ -33,6 +34,16 @@ fn close_ids(effects: &[SubEffect]) -> BTreeSet<String> {
         .collect()
 }
 
+fn replace_ids(effects: &[SubEffect]) -> BTreeSet<String> {
+    effects
+        .iter()
+        .filter_map(|effect| match effect {
+            SubEffect::Replace { id, .. } => Some(id.to_string()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn sync(policy: &mut SubscriptionReconciler, snapshot: &CoverageSnapshot) -> Vec<SubEffect> {
     let effects = policy.plan(snapshot);
     for effect in &effects {
@@ -42,7 +53,7 @@ fn sync(policy: &mut SubscriptionReconciler, snapshot: &CoverageSnapshot) -> Vec
 }
 
 #[test]
-fn opens_one_narrow_req_per_entity_and_is_idempotent() {
+fn opens_one_broad_h_and_per_entity_and_is_idempotent() {
     let mut policy = SubscriptionReconciler::new();
     let snapshot = CoverageSnapshot {
         daemon_channels: set(["room-a", "room-b"]),
@@ -50,25 +61,39 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
         ..Default::default()
     };
 
+    let effects = sync(&mut policy, &snapshot);
+    // The N per-channel ChannelH observations and the global kind:9000
+    // observation are gone — one broad #h covers all known channels (and 9000,
+    // which carries #h). Only group-metadata global + per-author profiles stay.
     assert_eq!(
-        open_ids(&sync(&mut policy, &snapshot)),
+        open_ids(&effects),
         set([
-            "mosaico-global-kind-9000",
+            BROAD_H_ID,
             "mosaico-global-kind-39000",
-            "mosaico-h-room-a",
-            "mosaico-h-room-b",
             "mosaico-profile-backend-1",
         ])
     );
-    assert!(sync(&mut policy, &snapshot).is_empty());
+    assert_eq!(
+        effects.iter().find_map(|effect| match effect {
+            SubEffect::Open { id, query } if id == BROAD_H_ID => Some(query.clone()),
+            _ => None,
+        }),
+        Some(SubscriptionQuery::GroupContentsMulti {
+            groups: set(["room-a", "room-b"]),
+            kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS, KIND_GROUP_PUT_USER]),
+        })
+    );
+    assert_eq!(
+        policy.applied_h_groups().cloned().unwrap(),
+        set(["room-a", "room-b"])
+    );
+    assert!(sync(&mut policy, &snapshot).is_empty(), "idempotent");
 }
 
 /// A known-but-unjoined channel gets its relay-signed records hydrated without
-/// its CONTENTS being subscribed to. This reconciler now owns only the second
-/// half of that: the records ride the one retained group-records observation,
-/// whose coverage is asserted in
-/// `daemon::server::group_records::tests` — `group_state_channels` reaches its
-/// watched id set there.
+/// its CONTENTS being subscribed to. The broad `#h` covers only daemon +
+/// session channels, so a `group_state_channels` entry with no daemon/session
+/// presence opens no content observation.
 #[test]
 fn known_unjoined_channels_do_not_subscribe_to_content() {
     let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {
@@ -78,7 +103,7 @@ fn known_unjoined_channels_do_not_subscribe_to_content() {
     let opened = open_ids(&effects);
 
     assert!(opened.contains("mosaico-global-kind-39000"));
-    assert!(!opened.contains("mosaico-h-known-child"));
+    assert!(!opened.contains(BROAD_H_ID));
 }
 
 #[test]
@@ -102,8 +127,11 @@ fn host_profiles_are_observed_by_exact_author() {
     );
 }
 
+/// Under the broad `#h`, joining/leaving a channel does not open/close a
+/// per-channel observation — it REPLACES the one broad observation with the new
+/// channel set, and only when the set actually changes.
 #[test]
-fn channel_closes_only_when_last_owner_leaves() {
+fn broad_h_replaces_on_set_change_not_per_channel() {
     let mut policy = SubscriptionReconciler::new();
     sync(
         &mut policy,
@@ -112,8 +140,12 @@ fn channel_closes_only_when_last_owner_leaves() {
             ..Default::default()
         },
     );
-    assert_eq!(policy.owner_count(Space::ChannelH, "shared"), 2);
+    assert_eq!(
+        policy.applied_h_groups().cloned().unwrap(),
+        set(["shared", "solo"])
+    );
 
+    // s1 leaves "shared" but s2 still has it → the union is unchanged.
     let first_leave = sync(
         &mut policy,
         &CoverageSnapshot {
@@ -121,9 +153,13 @@ fn channel_closes_only_when_last_owner_leaves() {
             ..Default::default()
         },
     );
-    assert!(!close_ids(&first_leave).contains("mosaico-h-shared"));
-    assert_eq!(policy.owner_count(Space::ChannelH, "shared"), 1);
+    assert!(
+        !replace_ids(&first_leave).contains(BROAD_H_ID),
+        "no replace when the channel set is unchanged"
+    );
+    assert!(policy.covers_channel("shared"));
 
+    // s2 leaves "shared" → the union loses it → broad #h is replaced.
     let last_leave = sync(
         &mut policy,
         &CoverageSnapshot {
@@ -131,14 +167,16 @@ fn channel_closes_only_when_last_owner_leaves() {
             ..Default::default()
         },
     );
-    let closed = close_ids(&last_leave);
-    assert!(closed.contains("mosaico-h-shared"));
+    assert!(
+        replace_ids(&last_leave).contains(BROAD_H_ID),
+        "replace when the channel set changes"
+    );
     assert!(policy.covers_channel("solo"));
     assert!(!policy.covers_channel("shared"));
 }
 
 #[test]
-fn daemon_owner_survives_session_leave_and_archived_channels_never_open() {
+fn daemon_channel_survives_session_leave_and_archived_never_in_broad_h() {
     let mut policy = SubscriptionReconciler::new();
     let effects = sync(
         &mut policy,
@@ -149,9 +187,17 @@ fn daemon_owner_survives_session_leave_and_archived_channels_never_open() {
             ..Default::default()
         },
     );
-    assert!(!open_ids(&effects).iter().any(|id| id.contains("archived")));
-    assert_eq!(policy.owner_count(Space::ChannelH, "managed"), 2);
+    assert!(
+        !open_ids(&effects).iter().any(|id| id.contains("archived")),
+        "archived channels never open"
+    );
+    assert_eq!(
+        policy.applied_h_groups().cloned().unwrap(),
+        set(["managed"]),
+        "archived is excluded from the broad #h set"
+    );
 
+    // Session leaves, but "managed" is a daemon channel → stays in the set.
     let effects = sync(
         &mut policy,
         &CoverageSnapshot {
@@ -159,8 +205,36 @@ fn daemon_owner_survives_session_leave_and_archived_channels_never_open() {
             ..Default::default()
         },
     );
-    assert!(!close_ids(&effects).contains("mosaico-h-managed"));
+    assert!(
+        !close_ids(&effects).contains(BROAD_H_ID),
+        "no close while the daemon channel remains"
+    );
     assert!(policy.covers_channel("managed"));
+}
+
+#[test]
+fn broad_h_closes_when_no_channels_remain() {
+    let mut policy = SubscriptionReconciler::new();
+    sync(
+        &mut policy,
+        &CoverageSnapshot {
+            daemon_channels: set(["room"]),
+            ..Default::default()
+        },
+    );
+    assert!(policy.applied_h_groups().is_some());
+
+    let effects = sync(
+        &mut policy,
+        &CoverageSnapshot {
+            ..Default::default()
+        },
+    );
+    assert!(
+        close_ids(&effects).contains(BROAD_H_ID),
+        "broad #h closes when no channels remain"
+    );
+    assert!(policy.applied_h_groups().is_none());
 }
 
 #[test]
@@ -172,6 +246,7 @@ fn failed_effect_is_planned_again() {
     };
     let first = policy.plan(&snapshot);
     assert!(!first.is_empty());
+    // Not confirmed → the next plan re-emits the same opens.
     let second = policy.plan(&snapshot);
     assert_eq!(open_ids(&first), open_ids(&second));
 }

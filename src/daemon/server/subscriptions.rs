@@ -94,18 +94,6 @@ pub(in crate::daemon::server) fn reconcile_after_group_state_event(
     });
 }
 
-/// Apply policy effects through NMP. NMP owns relay planning, observation
-/// lifecycle, reconnect repair, and canonical wire-event deduplication.
-pub(in crate::daemon::server) async fn apply_effects(
-    state: &Arc<DaemonState>,
-    effects: Vec<SubEffect>,
-) -> Result<()> {
-    for effect in effects {
-        apply_effect(state, &effect).await?;
-    }
-    Ok(())
-}
-
 async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()> {
     if let SubEffect::Close { id } = effect {
         tracing::debug!(
@@ -116,27 +104,18 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     state.nmp().apply(effect)
 }
 
-/// Reopen the channel observation so NMP re-emits its canonical current rows to
-/// a session that became running after a mention was first observed.
-pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonState>, h: &str) {
+/// Spawn-on-mention catch-up. Under the single broad `#h` observation
+/// (mosaico#837) the channel is already covered, and joining a new channel
+/// replaces the broad observation with the new set so NMP re-emits its
+/// canonical current rows. `RecentRows` already holds the recent window, so a
+/// newly-running session reads current state directly. This is now a no-op;
+/// the call site (`session_start`) keeps the hook for a future per-channel
+/// `request_rows` backfill if a channel's depth needs topping up.
+pub(in crate::daemon::server) async fn replay_channel_chat(_state: &Arc<DaemonState>, h: &str) {
     tracing::debug!(
         channel = h,
-        "replaying channel chat (spawn-on-mention catch-up)"
+        "replay channel chat is a no-op under the broad #h observation"
     );
-    let effect = SubEffect::Replace {
-        id: format!("mosaico-h-{h}"),
-        query: crate::reconcile::SubscriptionQuery::GroupContents {
-            group: h.to_string(),
-            kinds: BTreeSet::from([
-                crate::fabric::nip29::wire::KIND_CHAT,
-                crate::fabric::nip29::wire::KIND_REACTION,
-                crate::fabric::nip29::wire::KIND_STATUS,
-            ]),
-        },
-    };
-    if let Err(error) = apply_effects(state, vec![effect]).await {
-        tracing::warn!(channel = h, error = %error, "channel chat replay failed");
-    }
 }
 
 /// Compute the daemon's current subscription coverage from durable sources,

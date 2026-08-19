@@ -86,10 +86,15 @@ pub struct CoverageSnapshot {
     pub sessions: BTreeMap<String, BTreeSet<String>>,
 }
 
+/// The single broad `#h` observation id (mosaico#837). One windowed
+/// `GroupContentsMulti` over all known channels replaces the former N
+/// per-channel `ChannelH` observations plus the global kind:9000 observation
+/// (kind 9000 carries `#h`, so it rides the same demand).
+pub(crate) const BROAD_H_ID: &str = "mosaico-broad-h";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Space {
     GlobalKind,
-    ChannelH,
     ProfileAuthor,
 }
 
@@ -97,8 +102,13 @@ type SubKey = (Space, String);
 
 #[derive(Clone, Default)]
 pub struct SubscriptionReconciler {
+    /// Per-entity observations currently open (group-metadata global + per-author
+    /// profiles). The broad `#h` is tracked separately by `applied_h_groups`.
     applied: BTreeSet<SubKey>,
+    /// The current broad `#h` observation's group set (`None` = not open).
+    applied_h_groups: Option<BTreeSet<String>>,
     desired_owners: BTreeMap<SubKey, usize>,
+    desired_h_groups: BTreeSet<String>,
 }
 
 impl SubscriptionReconciler {
@@ -108,8 +118,28 @@ impl SubscriptionReconciler {
 
     pub fn plan(&mut self, snapshot: &CoverageSnapshot) -> Vec<SubEffect> {
         let desired = desired_owners(snapshot);
+        let desired_h = desired_h_groups(snapshot);
         let mut effects = Vec::new();
 
+        // The broad #h observation: open, replace (on set change), or close.
+        match (&self.applied_h_groups, &desired_h) {
+            (None, groups) if !groups.is_empty() => effects.push(SubEffect::Open {
+                id: BROAD_H_ID.to_string(),
+                query: broad_h_query(groups),
+            }),
+            (Some(applied), groups) if applied != groups && !groups.is_empty() => {
+                effects.push(SubEffect::Replace {
+                    id: BROAD_H_ID.to_string(),
+                    query: broad_h_query(groups),
+                })
+            }
+            (Some(_), groups) if groups.is_empty() => effects.push(SubEffect::Close {
+                id: BROAD_H_ID.to_string(),
+            }),
+            _ => {}
+        }
+
+        // Per-entity observations (group-metadata global + per-author profiles).
         for key in desired.keys() {
             if !self.applied.contains(key) {
                 effects.push(open_effect(key));
@@ -122,13 +152,16 @@ impl SubscriptionReconciler {
         }
 
         self.desired_owners = desired;
+        self.desired_h_groups = desired_h;
         effects
     }
 
     pub fn confirm(&mut self, effect: &SubEffect) {
         match effect {
             SubEffect::Open { id, .. } | SubEffect::Replace { id, .. } => {
-                if let Some(key) = self
+                if id == BROAD_H_ID {
+                    self.applied_h_groups = Some(self.desired_h_groups.clone());
+                } else if let Some(key) = self
                     .desired_owners
                     .keys()
                     .find(|key| sub_id(key) == *id)
@@ -138,25 +171,49 @@ impl SubscriptionReconciler {
                 }
             }
             SubEffect::Close { id } => {
-                if let Some(key) = self.applied.iter().find(|key| sub_id(key) == *id).cloned() {
+                if id == BROAD_H_ID {
+                    self.applied_h_groups = None;
+                } else if let Some(key) =
+                    self.applied.iter().find(|key| sub_id(key) == *id).cloned()
+                {
                     self.applied.remove(&key);
                 }
             }
         }
     }
 
+    /// A channel is covered when the broad `#h` observation's group set
+    /// currently includes it.
     pub fn covers_channel(&self, channel: &str) -> bool {
-        self.applied
-            .contains(&(Space::ChannelH, channel.to_string()))
+        self.applied_h_groups
+            .as_ref()
+            .is_some_and(|groups| groups.contains(channel))
     }
 
     #[cfg(test)]
-    fn owner_count(&self, space: Space, entity: &str) -> usize {
-        self.desired_owners
-            .get(&(space, entity.to_string()))
-            .copied()
-            .unwrap_or(0)
+    fn applied_h_groups(&self) -> Option<&BTreeSet<String>> {
+        self.applied_h_groups.as_ref()
     }
+}
+
+/// The set of channels the broad `#h` observation must cover: every daemon and
+/// session channel, minus archived. Sessions no longer refcount per-channel —
+/// the union feeds one observation, and joining/leaving a channel replaces it
+/// with the new set.
+fn desired_h_groups(snapshot: &CoverageSnapshot) -> BTreeSet<String> {
+    let mut groups = BTreeSet::new();
+    for channel in snapshot
+        .daemon_channels
+        .difference(&snapshot.archived_channels)
+    {
+        groups.insert(channel.clone());
+    }
+    for channels in snapshot.sessions.values() {
+        for channel in channels.difference(&snapshot.archived_channels) {
+            groups.insert(channel.clone());
+        }
+    }
+    groups
 }
 
 fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
@@ -165,40 +222,25 @@ fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
         &mut desired,
         (
             Space::GlobalKind,
-            crate::fabric::nip29::wire::KIND_GROUP_PUT_USER.to_string(),
-        ),
-    );
-    add_owner(
-        &mut desired,
-        (
-            Space::GlobalKind,
             crate::fabric::nip29::wire::KIND_GROUP_METADATA.to_string(),
         ),
     );
-
-    for channel in snapshot
-        .daemon_channels
-        .difference(&snapshot.archived_channels)
-    {
-        add_channel_owner(&mut desired, channel);
-    }
-    for channels in snapshot.sessions.values() {
-        for channel in channels.difference(&snapshot.archived_channels) {
-            add_channel_owner(&mut desired, channel);
-        }
-    }
     for pubkey in &snapshot.profile_pubkeys {
         add_owner(&mut desired, (Space::ProfileAuthor, pubkey.clone()));
     }
     desired
 }
 
-fn add_channel_owner(owners: &mut BTreeMap<SubKey, usize>, channel: &str) {
-    add_owner(owners, (Space::ChannelH, channel.to_string()));
-}
-
 fn add_owner(owners: &mut BTreeMap<SubKey, usize>, key: SubKey) {
     *owners.entry(key).or_default() += 1;
+}
+
+fn broad_h_query(groups: &BTreeSet<String>) -> SubscriptionQuery {
+    use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_PUT_USER, KIND_REACTION, KIND_STATUS};
+    SubscriptionQuery::GroupContentsMulti {
+        groups: groups.clone(),
+        kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS, KIND_GROUP_PUT_USER]),
+    }
 }
 
 fn open_effect(key: &SubKey) -> SubEffect {
@@ -211,13 +253,12 @@ fn open_effect(key: &SubKey) -> SubEffect {
 fn sub_id((space, entity): &SubKey) -> String {
     match space {
         Space::GlobalKind => format!("mosaico-global-kind-{entity}"),
-        Space::ChannelH => format!("mosaico-h-{entity}"),
         Space::ProfileAuthor => format!("mosaico-profile-{entity}"),
     }
 }
 
 fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
-    use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_METADATA, KIND_REACTION, KIND_STATUS};
+    use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
     match space {
         Space::GlobalKind => {
             let kind: u16 = entity.parse().expect("global kind is numeric");
@@ -229,10 +270,6 @@ fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
                 }
             }
         }
-        Space::ChannelH => SubscriptionQuery::GroupContents {
-            group: entity.clone(),
-            kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS]),
-        },
         Space::ProfileAuthor => SubscriptionQuery::Profile {
             pubkey: entity.clone(),
         },

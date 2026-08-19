@@ -101,11 +101,21 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
     let id = row.id();
     let views = state.nmp().views_handle();
 
-    let added = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row)], vec![]);
+    let added = views.apply_frame(
+        crate::reconcile::subscriptions::BROAD_H_ID,
+        1,
+        vec![RowDelta::Added(row)],
+        vec![],
+    );
     apply_transition(&state, added).await;
     while tail.try_recv().is_ok() {}
 
-    let removed = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Removed(id)], vec![]);
+    let removed = views.apply_frame(
+        crate::reconcile::subscriptions::BROAD_H_ID,
+        1,
+        vec![RowDelta::Removed(id)],
+        vec![],
+    );
     apply_transition(&state, removed).await;
 
     let leave = tail.try_recv().expect("status departure emits immediately");
@@ -125,7 +135,7 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
 }
 
 #[tokio::test]
-async fn status_tail_events_follow_exact_observation_edges() {
+async fn broad_h_status_entry_emits_tail_for_every_channel_then_departure_leaves() {
     use nmp::{Row, RowDelta};
     use nostr::{EventBuilder, Keys, Kind, Tag};
     use std::collections::BTreeSet;
@@ -152,54 +162,39 @@ async fn status_tail_events_follow_exact_observation_edges() {
     );
     let id = row.id();
     let views = state.nmp().views_handle();
+    let broad = crate::reconcile::subscriptions::BROAD_H_ID;
 
-    let entered_a = views.apply_frame(
-        "mosaico-h-room-a",
-        1,
-        vec![RowDelta::Added(row.clone())],
-        vec![],
+    // Under the single broad #h observation, one status entry emits tail events
+    // for EVERY channel the status names (its #h tags), not one channel per
+    // observation edge.
+    let entered = views.apply_frame(broad, 1, vec![RowDelta::Added(row)], vec![]);
+    apply_transition(&state, entered).await;
+    let mut joined: BTreeSet<String> = BTreeSet::new();
+    while let Ok(event) = tail.try_recv() {
+        if let TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. } = event {
+            joined.insert(channel);
+        }
+    }
+    assert_eq!(
+        joined,
+        BTreeSet::from(["room-a".to_string(), "room-b".to_string()]),
+        "both channels the status names get a tail event on one broad entry"
     );
-    apply_transition(&state, entered_a).await;
-    let a_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
-    assert!(a_events.iter().all(|event| matches!(
-        event,
-        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
-            if channel == "room-a"
-    )));
-    assert!(tail.try_recv().is_err(), "room-b is not observed yet");
 
-    let entered_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Added(row)], vec![]);
-    assert!(
-        entered_b.added.is_empty(),
-        "the canonical Row already exists"
+    // Departing the status emits a Leave for every channel it named.
+    let removed = views.apply_frame(broad, 1, vec![RowDelta::Removed(id)], vec![]);
+    apply_transition(&state, removed).await;
+    let mut left: BTreeSet<String> = BTreeSet::new();
+    while let Ok(event) = tail.try_recv() {
+        if let TailEvent::Leave { channel, .. } = event {
+            left.insert(channel);
+        }
+    }
+    assert_eq!(
+        left,
+        BTreeSet::from(["room-a".to_string(), "room-b".to_string()]),
+        "both channels get a Leave on one broad departure"
     );
-    assert_eq!(entered_b.entered.len(), 1, "the observation edge is new");
-    apply_transition(&state, entered_b).await;
-    let b_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
-    assert!(b_events.iter().all(|event| matches!(
-        event,
-        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
-            if channel == "room-b"
-    )));
-    assert!(tail.try_recv().is_err());
-
-    let departed_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Removed(id)], vec![]);
-    apply_transition(&state, departed_b).await;
-    assert!(matches!(
-        tail.try_recv().unwrap(),
-        TailEvent::Leave { channel, .. } if channel == "room-b"
-    ));
-    assert!(tail.try_recv().is_err(), "room-a remains observed");
-    state.with_store(|store| {
-        assert!(store
-            .get_status(&remote.public_key().to_hex(), "room-a")
-            .unwrap()
-            .is_some());
-        assert!(store
-            .get_status(&remote.public_key().to_hex(), "room-b")
-            .unwrap()
-            .is_none());
-    });
 }
 
 // ── has_alive gate ────────────────────────────────────────────────────────────
