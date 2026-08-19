@@ -46,7 +46,6 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
     let mut policy = SubscriptionReconciler::new();
     let snapshot = CoverageSnapshot {
         daemon_channels: set(["room-a", "room-b"]),
-        addressed_pubkeys: set(["pk-1", "pk-2"]),
         profile_pubkeys: set(["backend-1"]),
         ..Default::default()
     };
@@ -58,8 +57,6 @@ fn opens_one_narrow_req_per_entity_and_is_idempotent() {
             "mosaico-global-kind-39000",
             "mosaico-h-room-a",
             "mosaico-h-room-b",
-            "mosaico-p-pk-1",
-            "mosaico-p-pk-2",
             "mosaico-profile-backend-1",
         ])
     );

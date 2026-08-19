@@ -214,14 +214,6 @@ impl NmpHost {
                 authenticate_as,
                 CacheMode::Strict,
             ),
-            SubscriptionQuery::Mentions { pubkey, kinds } => {
-                let mut filter = kinds_filter(kinds);
-                filter.tags.insert(
-                    indexed_tag('p')?,
-                    Binding::Literal(BTreeSet::from([pubkey.clone()])),
-                );
-                self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
-            }
             SubscriptionQuery::References { event_id, kinds } => {
                 let mut filter = kinds_filter(kinds);
                 filter.tags.insert(

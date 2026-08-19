@@ -155,10 +155,6 @@ fn group_host_pinned_reads_are_strict_even_when_not_nip29_shaped() {
         SubscriptionQuery::Kinds {
             kinds: BTreeSet::from([9000u16]),
         },
-        SubscriptionQuery::Mentions {
-            pubkey: "b".repeat(64),
-            kinds: BTreeSet::from([9u16]),
-        },
         SubscriptionQuery::References {
             event_id: "c".repeat(64),
             kinds: BTreeSet::from([30315u16]),

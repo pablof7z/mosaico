@@ -50,11 +50,6 @@ pub enum SubscriptionQuery {
     },
     /// Every event of these kinds the group hosts serve, unscoped by group.
     Kinds { kinds: BTreeSet<u16> },
-    /// Events of these kinds naming one pubkey in a `p` tag.
-    Mentions {
-        pubkey: String,
-        kinds: BTreeSet<u16>,
-    },
     /// Events of these kinds referencing one event id in an `e` tag.
     References {
         event_id: String,
@@ -95,7 +90,6 @@ pub struct CoverageSnapshot {
 enum Space {
     GlobalKind,
     ChannelH,
-    PubkeyP,
     ProfileAuthor,
 }
 
@@ -193,9 +187,6 @@ fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
             add_channel_owner(&mut desired, channel);
         }
     }
-    for pubkey in &snapshot.addressed_pubkeys {
-        add_owner(&mut desired, (Space::PubkeyP, pubkey.clone()));
-    }
     for pubkey in &snapshot.profile_pubkeys {
         add_owner(&mut desired, (Space::ProfileAuthor, pubkey.clone()));
     }
@@ -221,7 +212,6 @@ fn sub_id((space, entity): &SubKey) -> String {
     match space {
         Space::GlobalKind => format!("mosaico-global-kind-{entity}"),
         Space::ChannelH => format!("mosaico-h-{entity}"),
-        Space::PubkeyP => format!("mosaico-p-{entity}"),
         Space::ProfileAuthor => format!("mosaico-profile-{entity}"),
     }
 }
@@ -242,10 +232,6 @@ fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
         Space::ChannelH => SubscriptionQuery::GroupContents {
             group: entity.clone(),
             kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS]),
-        },
-        Space::PubkeyP => SubscriptionQuery::Mentions {
-            pubkey: entity.clone(),
-            kinds: BTreeSet::from([KIND_CHAT]),
         },
         Space::ProfileAuthor => SubscriptionQuery::Profile {
             pubkey: entity.clone(),
