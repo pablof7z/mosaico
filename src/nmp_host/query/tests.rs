@@ -172,3 +172,73 @@ fn group_host_pinned_reads_are_strict_even_when_not_nip29_shaped() {
         );
     }
 }
+
+#[test]
+fn broad_group_contents_is_one_branch_with_multivalue_h_over_all_relays() {
+    let host = two_host_host();
+    let query = host
+        .live_query(
+            &SubscriptionQuery::GroupContentsMulti {
+                groups: BTreeSet::from(["a".to_string(), "b".to_string()]),
+                kinds: BTreeSet::from([9u16, 7, 30315, 9000]),
+            },
+            None,
+        )
+        .expect("broad #h scopes");
+
+    // One observation (one demand) over all group relays — not per-host branches.
+    // Self-authenticating content (9/7/30315/9000) needs no per-host branching.
+    assert_eq!(query.branches().len(), 1);
+    let branch = &query.branches()[0];
+    assert_eq!(
+        branch.routing,
+        ReadRouting::Explicit(vec![
+            RelayUrl::parse(HOST_A).unwrap(),
+            RelayUrl::parse(HOST_B).unwrap()
+        ]),
+        "pinned to all group relays in canonical order"
+    );
+    assert_eq!(branch.cache, CacheMode::Strict);
+    assert_eq!(branch.authenticate_as, None);
+    assert_eq!(
+        branch.selection.kinds,
+        Some(BTreeSet::from([9u16, 7, 30315, 9000]))
+    );
+    let h = IndexedTagName::new('h').unwrap();
+    assert_eq!(
+        branch.selection.tags.get(&h),
+        Some(&Binding::Literal(BTreeSet::from([
+            "a".to_string(),
+            "b".to_string()
+        ]))),
+        "multi-value #h covers all known channels"
+    );
+}
+
+#[test]
+fn group_metadata_for_scopes_per_host_branches_with_multivalue_d() {
+    let host = two_host_host();
+    let query = host
+        .group_metadata_for_query(&BTreeSet::from(["g1".to_string(), "g2".to_string()]))
+        .expect("broad #d scopes");
+
+    assert_eq!(query.branches().len(), 2, "one per-host branch");
+    let d = IndexedTagName::new('d').unwrap();
+    for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
+        assert_eq!(branch.routing, pinned_to(expected));
+        assert_eq!(branch.cache, CacheMode::Strict);
+        assert_eq!(
+            branch.selection.kinds,
+            Some(BTreeSet::from([39000u16])),
+            "metadata records only, matching AllGroupMetadata's scope"
+        );
+        assert_eq!(
+            branch.selection.tags.get(&d),
+            Some(&Binding::Literal(BTreeSet::from([
+                "g1".to_string(),
+                "g2".to_string()
+            ]))),
+            "multi-value #d scopes discovery to the administered set"
+        );
+    }
+}

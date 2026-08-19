@@ -109,6 +109,24 @@ impl NmpHost {
         union_branches(branches)
     }
 
+    /// Like [`all_group_metadata_query`] but scoped to a SET of group ids via a
+    /// multi-value `#d` binding — the broad replacement for `AllGroupMetadata`
+    /// (mosaico#837). One per-host branch, each `#d`-keyed to the administered
+    /// set, so discovery no longer pulls every group the host serves.
+    pub(crate) fn group_metadata_for_query(
+        &self,
+        group_ids: &BTreeSet<String>,
+    ) -> Result<LiveQuery> {
+        let records = BTreeSet::from([nmp_nip29::GroupRecord::Metadata]);
+        let binding = Binding::Literal(group_ids.clone());
+        let branches = self
+            .relays
+            .iter()
+            .map(|host| nmp_nip29::group_records_at(host, &records, Some(binding.clone()), None))
+            .collect::<Vec<_>>();
+        union_branches(branches)
+    }
+
     /// A read NMP's NIP-29 vocabulary does not mint, pinned to `relays` with
     /// an EXPLICIT cache mode.
     ///
@@ -177,8 +195,18 @@ impl NmpHost {
     ) -> Result<LiveQuery> {
         match query {
             SubscriptionQuery::AllGroupMetadata => self.all_group_metadata_query(),
+            SubscriptionQuery::GroupMetadataFor { group_ids } => {
+                self.group_metadata_for_query(group_ids)
+            }
             SubscriptionQuery::GroupContents { group, kinds } => {
                 self.group_contents_query(group, kinds_filter(kinds))
+            }
+            SubscriptionQuery::GroupContentsMulti { groups, kinds } => {
+                let mut filter = kinds_filter(kinds);
+                filter
+                    .tags
+                    .insert(indexed_tag('h')?, Binding::Literal(groups.clone()));
+                self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
             }
             SubscriptionQuery::Kinds { kinds } => self.host_pinned_query(
                 &self.relays,

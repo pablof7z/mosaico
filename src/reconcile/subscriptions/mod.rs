@@ -30,10 +30,24 @@ pub enum SubscriptionQuery {
     /// The relay-signed records describing every group these hosts serve
     /// (kind:39000). Per-relay-authoritative, so per-host and strict.
     AllGroupMetadata,
+    /// The relay-signed metadata records for a SET of group ids, scoped by a
+    /// multi-value `#d` (mosaico#837). Replaces `AllGroupMetadata` with the
+    /// set of groups the backend administers, so discovery no longer pulls
+    /// every group at the host.
+    GroupMetadataFor { group_ids: BTreeSet<String> },
     /// The contents of one group, scoped by `#h`. Per-relay-authoritative:
     /// a kind:9 carrying `h=X` served by a relay that does not host group `X`
     /// is not in this group.
     GroupContents { group: String, kinds: BTreeSet<u16> },
+    /// The contents of SEVERAL groups at once, scoped by a multi-value `#h`.
+    /// The single broad observation that replaces N per-channel `GroupContents`
+    /// (mosaico#837). Self-authenticating content (kinds 9/7/30315/9000) needs
+    /// no per-host branching — one `#h`-bound demand over all group relays is
+    /// equivalent to `Group::read`'s per-host branches for these kinds.
+    GroupContentsMulti {
+        groups: BTreeSet<String>,
+        kinds: BTreeSet<u16>,
+    },
     /// Every event of these kinds the group hosts serve, unscoped by group.
     Kinds { kinds: BTreeSet<u16> },
     /// Events of these kinds naming one pubkey in a `p` tag.
