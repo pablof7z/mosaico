@@ -196,3 +196,56 @@ pub(super) fn relay_event(row: &Row) -> RelayEvent {
         .unwrap_or_else(|_| "[]".to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use std::collections::BTreeSet;
+
+    fn signed(kind: u16, content: &str, tags: Vec<Tag>) -> nostr::Event {
+        let keys = Keys::generate();
+        EventBuilder::new(Kind::from(kind), content)
+            .tags(tags)
+            .sign_with_keys(&keys)
+            .unwrap()
+    }
+
+    #[test]
+    fn relay_event_extracts_every_field_from_a_row() {
+        let event = signed(
+            9,
+            "hello",
+            vec![
+                Tag::parse(["h", "room"]).unwrap(),
+                Tag::parse(["d", "dval"]).unwrap(),
+                Tag::parse(["p", "pk-mention"]).unwrap(),
+            ],
+        );
+        let row = Row::from_relay_event(event.clone(), BTreeSet::new());
+        let decoded = relay_event(&row);
+
+        assert_eq!(decoded.id, event.id.to_hex());
+        assert_eq!(decoded.kind, 9);
+        assert_eq!(decoded.pubkey, event.pubkey.to_hex());
+        assert_eq!(decoded.created_at, event.created_at.as_secs());
+        assert_eq!(decoded.channel_h, "room");
+        assert_eq!(decoded.d_tag, "dval");
+        assert_eq!(decoded.content, "hello");
+        // tags_json round-trips the full tag set, not just h/d.
+        let parsed: Vec<Vec<String>> = serde_json::from_str(&decoded.tags_json).unwrap();
+        let has = |label: &str| parsed.iter().any(|t| t.first().is_some_and(|f| f == label));
+        assert!(has("h") && has("d") && has("p"));
+    }
+
+    #[test]
+    fn relay_event_defaults_missing_h_and_d_tags_to_empty() {
+        let event = signed(7, "+1", vec![Tag::parse(["e", "parent"]).unwrap()]);
+        let row = Row::from_relay_event(event, BTreeSet::new());
+        let decoded = relay_event(&row);
+        assert_eq!(decoded.channel_h, "", "no h tag → empty channel_h");
+        assert_eq!(decoded.d_tag, "", "no d tag → empty d_tag");
+        assert_eq!(decoded.kind, 7);
+        assert_eq!(decoded.content, "+1");
+    }
+}
