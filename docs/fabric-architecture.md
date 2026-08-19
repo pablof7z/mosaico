@@ -130,6 +130,28 @@ honest. If NMP removes a group, profile, status, event, message, or reaction,
 the corresponding product view disappears. A stale local route, inbox row, or
 attachment directory cannot resurrect it.
 
+### Observation topology (NIP-29 provider)
+
+The reconciler (`src/reconcile/subscriptions/mod.rs`) opens five concrete
+observation kinds. Each is a standing NMP `LiveQuery` whose delivered rows are
+the sole authority for one slice of relay-derived state:
+
+| Observation | NMP query | Scope | Drives |
+|---|---|---|---|
+| `mosaico-global-kind-9000` | `Kinds{[9000]}` (`KIND_GROUP_PUT_USER`) | global, no `#h` | management/orchestration-command dispatch |
+| `mosaico-global-kind-39000` | `AllGroupMetadata` (kind:39000, per-relay) | `d`-scoped, not `#h` | `GroupObservation` → group topology, admins, members |
+| `mosaico-h-{channel}` | `GroupContents{[9,7,30315]}` per joined channel | `#h`-scoped | chat/reaction/status delivery + demux dispatch |
+| `mosaico-p-{pubkey}` | `Mentions{[9]}` per addressed pubkey | `#p`-scoped, cross-channel | cross-channel mention delivery |
+| `mosaico-profile-{pubkey}` | `Profile{0}` per profile pubkey | author-scoped | `ProfileFeed` (`Store::get_profile`) |
+
+Only `mosaico-h-{channel}` is `#h`-scoped. The other four cannot be folded
+into a single broad `#h` observation: management commands and group-metadata
+records are not channel-scoped, mentions are `#p`-scoped (an agent can be
+`#p`-tagged in a channel the daemon does not observe), and profiles are
+author-scoped. A broad `#h:[all known channels]` observation therefore
+collapses only the N per-channel `GroupContents` observations into one; the
+rest stay as separate standing queries regardless of subscription model.
+
 ### Intents
 
 Opening a group, changing membership, publishing chat, or publishing status is
