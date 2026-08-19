@@ -130,16 +130,6 @@ impl RowViews {
         })
     }
 
-    #[allow(dead_code)] // mirror index surface being retired; deleted with the mirror
-    pub(super) fn rows(&self) -> Vec<ViewRow> {
-        self.rows
-            .values()
-            .map(|owned| ViewRow {
-                row: owned.row.clone(),
-            })
-            .collect()
-    }
-
     pub(super) fn rows_for_kind(&self, kind: u16) -> Vec<ViewRow> {
         self.rows_for_ids(self.ids_by_kind.get(&kind))
     }

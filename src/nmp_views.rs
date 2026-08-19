@@ -7,7 +7,6 @@
 use std::sync::{Arc, Mutex, RwLock};
 
 use nmp::{AcquisitionEvidence, Row, RowDelta};
-use nostr::EventId;
 
 mod groups;
 pub(crate) use groups::GroupProjection;
@@ -174,26 +173,6 @@ impl NmpViews {
     /// retired.
     pub(crate) fn recent_rows(&self) -> &crate::recent_rows::RecentRows {
         &self.recent_rows
-    }
-
-    #[allow(dead_code)] // mirror row-read surface being retired; deleted with the mirror
-    pub(crate) fn row(&self, id: &EventId) -> Option<Row> {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .row(id)
-            .map(|row| row.row)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn rows(&self) -> Vec<Row> {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .rows()
-            .into_iter()
-            .map(|row| row.row)
-            .collect()
     }
 
     fn rows_for_kind(&self, kind: u16) -> Vec<rows::ViewRow> {

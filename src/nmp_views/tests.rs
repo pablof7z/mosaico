@@ -238,26 +238,30 @@ fn overlapping_observations_do_not_become_a_second_event_owner() {
     assert_eq!(departed_a.len(), 1);
     assert_eq!(departed_a[0].observation_id, "a");
     assert_eq!(departed_a[0].row.id(), id);
-    assert!(views.row(&id).is_some());
+    assert!(views.recent_rows().event(&id.to_hex()).is_some());
     let departed_b = views.close_observation("b", 1).removed;
     assert_eq!(departed_b.len(), 1);
     assert_eq!(departed_b[0].observation_id, "b");
     assert_eq!(departed_b[0].row.id(), id);
-    assert!(views.row(&id).is_none());
+    assert!(views.recent_rows().event(&id.to_hex()).is_none());
 }
 
 #[test]
 fn stale_observation_generation_cannot_overwrite_the_replacement() {
     let views = NmpViews::default();
     let old = row("old");
+    let old_id = old.id();
     let current = row("current");
     views.apply_frame("feed", 1, vec![RowDelta::Added(old.clone())], vec![]);
     views.apply_frame("feed", 2, vec![RowDelta::Added(current.clone())], vec![]);
 
     let stale = views.apply_frame("feed", 1, vec![RowDelta::Added(old)], vec![]);
     assert!(stale.added.is_empty());
-    assert!(views.row(&current.id()).is_some());
-    assert_eq!(views.rows().len(), 1);
+    assert!(views.recent_rows().event(&current.id().to_hex()).is_some());
+    assert!(
+        views.recent_rows().event(&old_id.to_hex()).is_none(),
+        "the stale old generation did not re-enter recent_rows"
+    );
 }
 
 #[test]
@@ -268,7 +272,7 @@ fn opening_a_replacement_makes_the_predecessors_close_inert_without_a_gap() {
 
     views.begin_observation("feed", 2);
     assert!(views.close_observation("feed", 1).removed.is_empty());
-    assert!(views.row(&current.id()).is_some());
+    assert!(views.recent_rows().event(&current.id().to_hex()).is_some());
 }
 
 #[test]
@@ -283,5 +287,5 @@ fn a_replacement_that_ends_before_its_first_frame_retires_the_previous_rows() {
 
     assert_eq!(transition.removed.len(), 1);
     assert_eq!(transition.removed[0].row.id(), id);
-    assert!(views.row(&id).is_none());
+    assert!(views.recent_rows().event(&id.to_hex()).is_none());
 }

@@ -197,6 +197,6 @@ mod tests {
         assert_eq!(alpha_departure.removed.len(), 1);
         assert_eq!(alpha_departure.removed[0].row.id(), id);
         assert!(views.statuses_in_channel("alpha").is_empty());
-        assert!(views.row(&id).is_none());
+        assert!(views.recent_rows().event(&id.to_hex()).is_none());
     }
 }

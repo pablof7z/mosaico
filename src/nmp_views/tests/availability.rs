@@ -30,5 +30,5 @@ fn an_empty_settled_replacement_removes_the_previous_rows() {
     assert_eq!(transition.removed.len(), 1);
     assert_eq!(transition.removed[0].row.id(), previous_id);
     assert!(transition.added.is_empty());
-    assert!(views.row(&previous_id).is_none());
+    assert!(views.recent_rows().event(&previous_id.to_hex()).is_none());
 }
