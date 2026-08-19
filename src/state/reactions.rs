@@ -163,4 +163,28 @@ mod tests {
             ["new", "middle"]
         );
     }
+    #[test]
+    fn has_reaction_from_pubkey_on_message_matches_target_and_reactor() {
+        let store = Store::open_memory().unwrap();
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            event("target", 9, "author", "msg", 1, "[]"),
+            event("r1", 7, "peer", "👍", 10, r#"[["e","target"]]"#),
+            event("r2", 7, "other", "🎉", 11, r#"[["e","target"]]"#),
+            event("r3", 7, "peer", "👀", 12, r#"[["e","unrelated"]]"#),
+        ]));
+        assert!(store
+            .has_reaction_from_pubkey_on_message("target", "peer")
+            .unwrap());
+        assert!(store
+            .has_reaction_from_pubkey_on_message("target", "other")
+            .unwrap());
+        // Wrong reactor for a known target.
+        assert!(!store
+            .has_reaction_from_pubkey_on_message("target", "nobody")
+            .unwrap());
+        // Known reactor, but on a message it did not react to.
+        assert!(!store
+            .has_reaction_from_pubkey_on_message("missing", "peer")
+            .unwrap());
+    }
 }
