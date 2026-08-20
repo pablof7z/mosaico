@@ -174,62 +174,51 @@ fn finish_incoming(
     event: &Event,
     decoded: crate::fabric::ProductDecode,
     now: u64,
-    first_sight: bool,
 ) {
-    super::subscriptions::reconcile_after_group_state_event(state, event, first_sight);
-
-    // NMP can deliver once per matching observation (scope filters × live
-    // sessions), so the same event reaches here many times. The tail
-    // broadcast is NOT idempotent — emit only on first sight of the event id.
-    // first_sight avoids redundant claims within one process; the durable
-    // event+recipient claim covers daemon-restart idempotency.
+    // Each event reaches here exactly once. The NmpViews `transition.added`
+    // set only carries rows newly added to the views, and under the single
+    // broad `#h` observation (mosaico#837) there is no overlapping delivery to
+    // re-add a row, so the per-process `first_sight` LRU that guarded this
+    // broadcast is retired. Durable idempotency across daemon restarts lives
+    // in `event_claims` + the `inbox` ledger.
     if let Some(de) = decoded.tail {
         let kind = event.kind.as_u16();
-        if first_sight {
-            // Presence-lease renewals (kind:30315) are too noisy for info.
-            let is_lease_renewal = kind == 30315;
-            if is_lease_renewal {
-                tracing::debug!(kind, id = %&event.id.to_hex()[..8], "first-sight");
-            } else {
-                tracing::info!(kind, id = %&event.id.to_hex()[..8], "first-sight");
-            }
-            tail_projection::derive_and_emit_tail_events(state, &de, now);
-            if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
-                if let DomainEvent::ChatMessage(ref chat) = de {
-                    match super::direct_mentions::route(
-                        state,
-                        super::direct_mentions::DirectMention {
-                            event_id: &event.id.to_hex(),
-                            from_pubkey: &event.pubkey.to_hex(),
-                            channel_h: &chat.channel,
-                            body: &chat.body,
-                            created_at: event.created_at.as_secs(),
-                            target_pubkeys: &chat.mentioned_pubkeys,
-                            attachments: &chat.attachments,
-                        },
-                    ) {
-                        Ok(report) if !report.owned_targets.is_empty() => {
-                            let st = state.clone();
-                            let ev = event.clone();
-                            tokio::spawn(async move {
-                                route_reaction::publish_eye_reaction(&st, &ev).await;
-                            });
-                        }
-                        Ok(_) => {}
-                        Err(error) => tracing::error!(
-                            event_id = %event.id,
-                            %error,
-                            "direct mention routing failed; NMP row remains observed"
-                        ),
+        // Presence-lease renewals (kind:30315) are too noisy for info.
+        if kind == 30315 {
+            tracing::debug!(kind, id = %&event.id.to_hex()[..8], "incoming");
+        } else {
+            tracing::info!(kind, id = %&event.id.to_hex()[..8], "incoming");
+        }
+        tail_projection::derive_and_emit_tail_events(state, &de, now);
+        if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
+            if let DomainEvent::ChatMessage(ref chat) = de {
+                match super::direct_mentions::route(
+                    state,
+                    super::direct_mentions::DirectMention {
+                        event_id: &event.id.to_hex(),
+                        from_pubkey: &event.pubkey.to_hex(),
+                        channel_h: &chat.channel,
+                        body: &chat.body,
+                        created_at: event.created_at.as_secs(),
+                        target_pubkeys: &chat.mentioned_pubkeys,
+                        attachments: &chat.attachments,
+                    },
+                ) {
+                    Ok(report) if !report.owned_targets.is_empty() => {
+                        let st = state.clone();
+                        let ev = event.clone();
+                        tokio::spawn(async move {
+                            route_reaction::publish_eye_reaction(&st, &ev).await;
+                        });
                     }
+                    Ok(_) => {}
+                    Err(error) => tracing::error!(
+                        event_id = %event.id,
+                        %error,
+                        "direct mention routing failed; NMP row remains observed"
+                    ),
                 }
             }
-        } else {
-            tracing::debug!(
-                kind = event.kind.as_u16(),
-                id = %&event.id.to_hex()[..8],
-                "duplicate delivery — skipped"
-            );
         }
     }
     chat_ops::dispatch(state, event);

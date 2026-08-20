@@ -74,26 +74,6 @@ pub(in crate::daemon::server) async fn reconcile_subs_logged(
     }
 }
 
-pub(in crate::daemon::server) fn reconcile_after_group_state_event(
-    state: &Arc<DaemonState>,
-    event: &nostr::Event,
-    first_sight: bool,
-) {
-    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
-    if !first_sight
-        || !matches!(
-            event.kind.as_u16(),
-            KIND_GROUP_METADATA | KIND_GROUP_ADMINS | KIND_GROUP_MEMBERS
-        )
-    {
-        return;
-    }
-    let state = state.clone();
-    tokio::spawn(async move {
-        reconcile_subs_logged(&state, "group state changed").await;
-    });
-}
-
 async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()> {
     if let SubEffect::Close { id } = effect {
         tracing::debug!(

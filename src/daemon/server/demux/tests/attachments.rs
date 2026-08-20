@@ -117,7 +117,13 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
 }
 
 #[tokio::test]
-async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
+async fn slow_attachment_does_not_stall_demux() {
+    // Under the single broad `#h` observation (mosaico#837) the NmpViews
+    // `transition.added` set dedups a row to one delivery, so `dispatch` runs
+    // once per event — the per-process `first_sight` LRU that used to guard
+    // duplicate in-flight attachment spawns is retired. This test now covers
+    // the remaining property: a slow attachment does not stall the demux, so a
+    // later ordinary message routes while the file is still downloading.
     let entered = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let requests = Arc::new(AtomicUsize::new(0));
@@ -164,7 +170,6 @@ async fn slow_attachment_does_not_stall_demux_or_duplicate_the_download() {
         .sign_with_keys(&sender)
         .unwrap();
 
-    inbound_dispatch::dispatch(&state, &slow);
     inbound_dispatch::dispatch(&state, &slow);
     tokio::time::timeout(std::time::Duration::from_secs(5), entered.notified())
         .await

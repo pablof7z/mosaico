@@ -2,7 +2,7 @@ use super::{HostedAgent, PeerTracked, SessionHandle, StatusTailKey, StatusTailSn
 use crate::daemon::tail_event::TailEvent;
 use crate::reconcile::{StatusReconciler, SubscriptionReconciler};
 use crate::session::Harness;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
@@ -128,7 +128,6 @@ impl ConnectionState {
 /// Bounded, rebuildable relay-facing observations used only for projection and dedup.
 pub(super) struct DedupState {
     pub(super) peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
-    pub(super) events: Mutex<(HashSet<String>, VecDeque<String>)>,
     pub(super) profiles: Mutex<HashSet<String>>,
     pub(super) last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
 }
@@ -137,7 +136,6 @@ impl DedupState {
     pub(super) fn new() -> Self {
         Self {
             peer_sessions: Mutex::new(HashMap::new()),
-            events: Mutex::new((HashSet::new(), VecDeque::new())),
             profiles: Mutex::new(HashSet::new()),
             last_status: Mutex::new(HashMap::new()),
         }
