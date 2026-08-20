@@ -53,7 +53,7 @@ fn sync(policy: &mut SubscriptionReconciler, snapshot: &CoverageSnapshot) -> Vec
 }
 
 #[test]
-fn opens_one_broad_h_and_per_entity_and_is_idempotent() {
+fn opens_one_broad_h_and_is_idempotent() {
     let mut policy = SubscriptionReconciler::new();
     let snapshot = CoverageSnapshot {
         daemon_channels: set(["room-a", "room-b"]),
@@ -62,15 +62,11 @@ fn opens_one_broad_h_and_per_entity_and_is_idempotent() {
     };
 
     let effects = sync(&mut policy, &snapshot);
-    // The N per-channel ChannelH observations and the global kind:9000
-    // observation are gone — one broad #h covers all known channels (and 9000,
-    // which carries #h). The global kind:39000 group-metadata observation moved
-    // to the retained `group_records` observation, so only the broad #h plus
-    // per-author kind:0 profiles remain here.
-    assert_eq!(
-        open_ids(&effects),
-        set([BROAD_H_ID, "mosaico-profile-backend-1",])
-    );
+    // The N per-channel ChannelH observations, the global kind:9000, the global
+    // kind:39000 group-metadata, and the per-author kind:0 profile observations
+    // are all gone — each moved to a retained observation (group_records,
+    // ProfileFeed). Only the broad #h remains here.
+    assert_eq!(open_ids(&effects), set([BROAD_H_ID]));
     assert_eq!(
         effects.iter().find_map(|effect| match effect {
             SubEffect::Open { id, query } if id == BROAD_H_ID => Some(query.clone()),
@@ -102,27 +98,6 @@ fn known_unjoined_channels_do_not_subscribe_to_content() {
     let opened = open_ids(&effects);
 
     assert!(!opened.contains(BROAD_H_ID));
-}
-
-#[test]
-fn host_profiles_are_observed_by_exact_author() {
-    let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {
-        profile_pubkeys: set(["backend-1"]),
-        ..Default::default()
-    });
-    let query = effects
-        .iter()
-        .find_map(|effect| match effect {
-            SubEffect::Open { id, query } if id == "mosaico-profile-backend-1" => Some(query),
-            _ => None,
-        })
-        .expect("profile observation");
-    assert_eq!(
-        query,
-        &SubscriptionQuery::Profile {
-            pubkey: "backend-1".to_string()
-        }
-    );
 }
 
 /// Under the broad `#h`, joining/leaving a channel does not open/close a

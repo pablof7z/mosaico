@@ -1,7 +1,7 @@
 use nmp::Row;
 
 use crate::domain::{DomainEvent, Profile as DomainProfile, Status as DomainStatus};
-use crate::fabric::nip29::wire::{Nip29WireCodec, KIND_PROFILE, KIND_STATUS};
+use crate::fabric::nip29::wire::{Nip29WireCodec, KIND_STATUS};
 use crate::state::{Profile, RelayEvent, Status};
 
 use super::NmpViews;
@@ -27,17 +27,6 @@ pub(crate) struct ObservedStatus {
 const CHANNEL_OBSERVATION_PREFIX: &str = "mosaico-h-";
 
 impl NmpViews {
-    pub(super) fn projected_profiles(&self) -> Vec<Profile> {
-        #[cfg(test)]
-        if let Some(delivery) = self.test_relay_delivery() {
-            return delivery.profiles;
-        }
-        self.observed_profiles()
-            .into_iter()
-            .map(|profile| profile.as_state_profile())
-            .collect()
-    }
-
     pub(super) fn projected_statuses(&self) -> Vec<Status> {
         #[cfg(test)]
         if let Some(delivery) = self.test_relay_delivery() {
@@ -82,19 +71,6 @@ impl NmpViews {
             .collect()
     }
 
-    pub(crate) fn observed_profile(&self, pubkey: &str) -> Option<ObservedProfile> {
-        self.rows_for_kind_author(KIND_PROFILE, pubkey)
-            .into_iter()
-            .find_map(|row| observed_profile_from_row(row.row))
-    }
-
-    pub(crate) fn observed_profiles(&self) -> Vec<ObservedProfile> {
-        self.rows_for_kind(KIND_PROFILE)
-            .into_iter()
-            .filter_map(|row| observed_profile_from_row(row.row))
-            .collect()
-    }
-
     pub(crate) fn observed_statuses_for_channel(&self, channel: &str) -> Vec<ObservedStatus> {
         let observation_id = format!("{CHANNEL_OBSERVATION_PREFIX}{channel}");
         self.rows
@@ -116,18 +92,15 @@ impl NmpViews {
 
     fn state_status(&self, observed: &ObservedStatus, channel_h: String) -> Status {
         let domain = &observed.status;
-        let slug = (!domain.agent.slug.is_empty())
-            .then(|| domain.agent.slug.clone())
-            .or_else(|| {
-                self.profile(&domain.agent.pubkey)
-                    .map(|profile| profile.slug)
-            })
-            .unwrap_or_default();
         let updated_at = observed.row.created_at().as_secs();
+        // The slug comes from the status event itself; a session that omitted the
+        // `slug` tag is enriched from its kind:0 profile by the Store read path
+        // (where the retained profile feed is reachable), not here — NmpViews no
+        // longer reads kind:0 from the mirror (mosaico#837).
         Status {
             pubkey: domain.agent.pubkey.clone(),
             channel_h,
-            slug,
+            slug: domain.agent.slug.clone(),
             title: domain.title.clone(),
             activity: domain.activity.clone(),
             workspace: domain.workspace.clone(),

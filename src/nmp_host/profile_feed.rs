@@ -93,6 +93,29 @@ impl ProfileFeed {
             .cloned()
     }
 
+    /// Every profile in the current member set. Replaces the `NmpViews` mirror
+    /// read for the profile-list/resolve surface (`list_backend_profiles`,
+    /// `resolve_agent_pubkey`, handle/slug lookups): the feed holds only the
+    /// current member set's kind:0 rows, not a union of all stored events
+    /// (mosaico#837).
+    pub(crate) fn all_profiles(&self) -> Vec<Profile> {
+        #[cfg(test)]
+        if let Some(test) = self
+            .test_profiles
+            .read()
+            .expect("profile feed test slot poisoned")
+            .as_ref()
+        {
+            return test.values().cloned().collect();
+        }
+        self.profiles
+            .lock()
+            .expect("profile feed map poisoned")
+            .values()
+            .cloned()
+            .collect()
+    }
+
     /// Replace the member set and the underlying retained observation. A no-op
     /// when the set is unchanged, so coverage refreshes that recompute the same
     /// roster do not churn the relay. Profiles for pubkeys that left the set

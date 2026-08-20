@@ -160,16 +160,6 @@ impl NmpHost {
                 );
                 self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
             }
-            SubscriptionQuery::Profile { pubkey } => {
-                let mut filter = kinds_filter(&BTreeSet::from([0u16]));
-                filter.authors = Some(Binding::Literal(BTreeSet::from([pubkey.clone()])));
-                self.host_pinned_query(
-                    &self.profile_relays,
-                    filter,
-                    authenticate_as,
-                    CacheMode::Agnostic,
-                )
-            }
         }
     }
 }

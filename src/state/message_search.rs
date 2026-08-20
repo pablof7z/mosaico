@@ -48,8 +48,8 @@ impl Store {
         );
 
         let backend_pubkeys = self
-            .nmp_views
-            .profiles()
+            .profile_feed
+            .all_profiles()
             .into_iter()
             .filter(|profile| profile.is_backend)
             .map(|profile| profile.pubkey)
@@ -126,8 +126,8 @@ impl Store {
         match crate::idref::parse_ref(selector) {
             crate::idref::Ref::Agent { slug, host } => {
                 matches.extend(
-                    self.nmp_views
-                        .profiles()
+                    self.profile_feed
+                        .all_profiles()
                         .into_iter()
                         .filter(|profile| {
                             profile.host == host
@@ -140,8 +140,8 @@ impl Store {
             }
             crate::idref::Ref::Token(token) => {
                 matches.extend(
-                    self.nmp_views
-                        .profiles()
+                    self.profile_feed
+                        .all_profiles()
                         .into_iter()
                         .filter(|profile| {
                             profile.name == token

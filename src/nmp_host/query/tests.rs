@@ -55,19 +55,15 @@ fn every_group_record_branch_pins_and_strictly_scopes_exactly_one_host() {
 
 /// Profiles are the one deliberate `Agnostic` read: kind:0 is
 /// self-authenticating and the indexer is pinned precisely so it can answer
-/// for relays outside the app's own set.
+/// for relays outside the app's own set. The retained `ProfileFeed` builds this
+/// query directly (mosaico#837 — per-author observations are gone).
 #[test]
-fn profile_query_is_scoped_to_exact_authors_and_stays_provenance_agnostic() {
+fn profile_feed_query_is_scoped_to_exact_authors_and_stays_provenance_agnostic() {
     let host = two_host_host();
     let author = "a".repeat(64);
     let live = host
-        .live_query(
-            &SubscriptionQuery::Profile {
-                pubkey: author.clone(),
-            },
-            None,
-        )
-        .unwrap();
+        .profile_feed_query(&BTreeSet::from([author.clone()]))
+        .expect("profile feed query scopes");
 
     assert_eq!(live.branches().len(), 1);
     assert_eq!(

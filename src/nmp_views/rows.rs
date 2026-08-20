@@ -8,8 +8,6 @@ pub(super) struct RowViews {
     expected_generations: BTreeMap<String, u64>,
     observations: BTreeMap<String, ObservationRows>,
     rows: BTreeMap<EventId, OwnedRow>,
-    ids_by_kind: BTreeMap<u16, BTreeSet<EventId>>,
-    ids_by_kind_author: BTreeMap<(u16, String), BTreeSet<EventId>>,
 }
 
 struct ObservationRows {
@@ -130,14 +128,6 @@ impl RowViews {
         })
     }
 
-    pub(super) fn rows_for_kind(&self, kind: u16) -> Vec<ViewRow> {
-        self.rows_for_ids(self.ids_by_kind.get(&kind))
-    }
-
-    pub(super) fn rows_for_kind_author(&self, kind: u16, author: &str) -> Vec<ViewRow> {
-        self.rows_for_ids(self.ids_by_kind_author.get(&(kind, author.to_string())))
-    }
-
     /// Rows owned by one retained observation, irrespective of whether another
     /// observation also owns the same canonical NMP row.
     ///
@@ -231,7 +221,6 @@ impl RowViews {
             }
             None => {
                 transition.added.push(row.clone());
-                self.index(&row);
                 self.rows.insert(
                     id,
                     OwnedRow {
@@ -279,7 +268,6 @@ impl RowViews {
         });
         if remove {
             self.rows.remove(&id);
-            self.deindex(&row);
         }
     }
 
@@ -288,36 +276,5 @@ impl RowViews {
             .flatten()
             .filter_map(|id| self.row(id))
             .collect()
-    }
-
-    fn index(&mut self, row: &Row) {
-        let kind = row.kind().as_u16();
-        let id = row.id();
-        self.ids_by_kind.entry(kind).or_default().insert(id);
-        self.ids_by_kind_author
-            .entry((kind, row.pubkey().to_hex()))
-            .or_default()
-            .insert(id);
-    }
-
-    fn deindex(&mut self, row: &Row) {
-        let kind = row.kind().as_u16();
-        let id = row.id();
-        remove_index(&mut self.ids_by_kind, &kind, &id);
-        remove_index(
-            &mut self.ids_by_kind_author,
-            &(kind, row.pubkey().to_hex()),
-            &id,
-        );
-    }
-}
-
-fn remove_index<K: Ord>(index: &mut BTreeMap<K, BTreeSet<EventId>>, key: &K, id: &EventId) {
-    let empty = index.get_mut(key).is_some_and(|ids| {
-        ids.remove(id);
-        ids.is_empty()
-    });
-    if empty {
-        index.remove(key);
     }
 }

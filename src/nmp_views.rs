@@ -174,20 +174,6 @@ impl NmpViews {
     pub(crate) fn recent_rows(&self) -> &crate::recent_rows::RecentRows {
         &self.recent_rows
     }
-
-    fn rows_for_kind(&self, kind: u16) -> Vec<rows::ViewRow> {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .rows_for_kind(kind)
-    }
-
-    fn rows_for_kind_author(&self, kind: u16, author: &str) -> Vec<rows::ViewRow> {
-        self.rows
-            .lock()
-            .expect("NMP row views poisoned")
-            .rows_for_kind_author(kind, author)
-    }
 }
 
 #[cfg(test)]
