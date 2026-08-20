@@ -68,21 +68,22 @@ mod tests {
     }
 
     #[test]
-    fn status_projection_follows_exact_observation_scope_and_disappearance() {
+    fn status_projection_fans_out_to_every_named_channel_then_disappears() {
+        // Under the single broad `#h` observation (mosaico#837) a kind:30315
+        // status arrives once and names one or more channels in its own `#h`
+        // tags; the projection fans it out to every named channel, and drops it
+        // from all of them when the row leaves. The channel comes from the
+        // decoded status, not a per-channel observation id.
+        let broad = crate::reconcile::subscriptions::BROAD_H_ID;
         let views = NmpViews::default();
         let row = status_row();
         let id = row.id();
 
-        views.apply_frame(
-            "mosaico-h-alpha",
-            1,
-            vec![RowDelta::Added(row.clone())],
-            vec![],
-        );
+        views.apply_frame(broad, 1, vec![RowDelta::Added(row.clone())], vec![]);
         let alpha = views
             .observed_statuses_for_channel("alpha")
             .pop()
-            .expect("alpha observation owns the row");
+            .expect("alpha is projected by the fan-out");
         assert_eq!(alpha.row.id(), id);
         assert_eq!(alpha.row.sources, row.sources);
         assert_eq!(alpha.status.channels, ["alpha", "beta"]);
@@ -93,23 +94,22 @@ mod tests {
             Some("dispatch-event")
         );
         assert_eq!(alpha.status.expires_at, Some(1));
-        assert!(views.statuses_in_channel("beta").is_empty());
+        assert_eq!(
+            views.statuses_in_channel("alpha").len(),
+            1,
+            "alpha is projected"
+        );
+        assert_eq!(
+            views.statuses_in_channel("beta").len(),
+            1,
+            "beta is projected by the fan-out, not by a separate observation"
+        );
 
-        views.apply_frame("mosaico-h-beta", 1, vec![RowDelta::Added(row)], vec![]);
-        assert_eq!(views.statuses_in_channel("beta").len(), 1);
-
-        let beta_departure = views.close_observation("mosaico-h-beta", 1).removed;
-        assert_eq!(beta_departure.len(), 1);
-        assert_eq!(beta_departure[0].observation_id, "mosaico-h-beta");
-        assert_eq!(beta_departure[0].row.id(), id);
-        assert!(views.statuses_in_channel("beta").is_empty());
-        assert_eq!(views.statuses_in_channel("alpha").len(), 1);
-
-        let alpha_departure =
-            views.apply_frame("mosaico-h-alpha", 1, vec![RowDelta::Removed(id)], vec![]);
-        assert_eq!(alpha_departure.removed.len(), 1);
-        assert_eq!(alpha_departure.removed[0].row.id(), id);
+        let removed = views.apply_frame(broad, 1, vec![RowDelta::Removed(id)], vec![]);
+        assert_eq!(removed.removed.len(), 1);
+        assert_eq!(removed.removed[0].row.id(), id);
         assert!(views.statuses_in_channel("alpha").is_empty());
+        assert!(views.statuses_in_channel("beta").is_empty());
         assert!(views.recent_rows().event(&id.to_hex()).is_none());
     }
 }

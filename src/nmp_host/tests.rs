@@ -31,9 +31,8 @@ async fn request_rows_grows_the_broad_h_window_on_demand() {
         .sign_with_keys(&Keys::generate())
         .unwrap();
     let relay = AuthRequiredRelay::spawn([backend.public_key()], [seed]);
-    let host = Arc::new(
-        NmpHost::open(&[relay.url()], None, None, &backend).expect("open NMP host"),
-    );
+    let host =
+        Arc::new(NmpHost::open(&[relay.url()], None, None, &backend).expect("open NMP host"));
     host.apply(&SubEffect::Open {
         id: BROAD_H_ID.to_string(),
         query: SubscriptionQuery::GroupContentsMulti {

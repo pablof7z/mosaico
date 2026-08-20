@@ -130,18 +130,6 @@ impl RowViews {
 
     /// Rows owned by one retained observation, irrespective of whether another
     /// observation also owns the same canonical NMP row.
-    ///
-    /// Status is one multi-`h` event, so the global row union cannot answer
-    /// whether Mosaico is currently observing a particular channel. Callers
-    /// that project channel-scoped state must read through this ownership edge.
-    pub(super) fn rows_for_observation(&self, observation_id: &str) -> Vec<ViewRow> {
-        self.rows_for_ids(
-            self.observations
-                .get(observation_id)
-                .map(|observation| &observation.ids),
-        )
-    }
-
     pub(super) fn observation_rows(&self) -> Vec<(String, ViewRow)> {
         self.observations
             .iter()

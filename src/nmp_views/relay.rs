@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
+
 use nmp::Row;
+use nostr::EventId;
 
 use crate::domain::{DomainEvent, Profile as DomainProfile, Status as DomainStatus};
 use crate::fabric::nip29::wire::{Nip29WireCodec, KIND_STATUS};
@@ -24,8 +27,6 @@ pub(crate) struct ObservedStatus {
     pub(crate) row: Row,
 }
 
-const CHANNEL_OBSERVATION_PREFIX: &str = "mosaico-h-";
-
 impl NmpViews {
     pub(super) fn projected_statuses(&self) -> Vec<Status> {
         #[cfg(test)]
@@ -33,26 +34,34 @@ impl NmpViews {
             return delivery.statuses;
         }
 
-        self.rows
+        // Under the single broad `#h` observation (mosaico#837) a kind:30315
+        // status arrives once and names one or more channels in its own `#h`
+        // tags; the projection fans it out to every named channel. The channel
+        // comes from the decoded status, not the observation id. Dedup by
+        // (row id, channel) so a status owned by more than one observation
+        // still projects once per channel.
+        let mut seen: BTreeSet<(EventId, String)> = BTreeSet::new();
+        let mut out = Vec::new();
+        for (_observation_id, row) in self
+            .rows
             .lock()
             .expect("NMP row views poisoned")
             .observation_rows()
-            .into_iter()
-            .filter_map(|(observation_id, row)| {
-                let channel = observation_id.strip_prefix(CHANNEL_OBSERVATION_PREFIX)?;
-                (row.row.kind().as_u16() == KIND_STATUS).then_some((channel.to_string(), row.row))
-            })
-            .filter_map(|(channel, row)| {
-                let observed = observed_status_from_row(row)?;
-                observed
-                    .status
-                    .channels
-                    .iter()
-                    .any(|candidate| candidate == &channel)
-                    .then_some((channel, observed))
-            })
-            .map(|(channel, observed)| self.state_status(&observed, channel))
-            .collect()
+        {
+            if row.row.kind().as_u16() != KIND_STATUS {
+                continue;
+            }
+            let Some(observed) = observed_status_from_row(row.row) else {
+                continue;
+            };
+            for channel in &observed.status.channels {
+                if !seen.insert((observed.row.id(), channel.clone())) {
+                    continue;
+                }
+                out.push(self.state_status(&observed, channel.clone()));
+            }
+        }
+        out
     }
 
     pub(super) fn projected_statuses_for_channel(&self, channel: &str) -> Vec<Status> {
@@ -72,22 +81,38 @@ impl NmpViews {
     }
 
     pub(crate) fn observed_statuses_for_channel(&self, channel: &str) -> Vec<ObservedStatus> {
-        let observation_id = format!("{CHANNEL_OBSERVATION_PREFIX}{channel}");
-        self.rows
+        // Fan out by the decoded `status.channels` (mosaico#837): a status is
+        // in this channel when the channel it names matches, regardless of
+        // which observation owns the row. Dedup by row id so a status owned by
+        // several observations is returned once.
+        let mut seen: BTreeSet<EventId> = BTreeSet::new();
+        let mut out = Vec::new();
+        for (_observation_id, row) in self
+            .rows
             .lock()
             .expect("NMP row views poisoned")
-            .rows_for_observation(&observation_id)
-            .into_iter()
-            .filter(|row| row.row.kind().as_u16() == KIND_STATUS)
-            .filter_map(|row| observed_status_from_row(row.row))
-            .filter(|observed| {
-                observed
-                    .status
-                    .channels
-                    .iter()
-                    .any(|candidate| candidate == channel)
-            })
-            .collect()
+            .observation_rows()
+        {
+            if row.row.kind().as_u16() != KIND_STATUS {
+                continue;
+            }
+            let Some(observed) = observed_status_from_row(row.row) else {
+                continue;
+            };
+            if !observed
+                .status
+                .channels
+                .iter()
+                .any(|candidate| candidate == channel)
+            {
+                continue;
+            }
+            if !seen.insert(observed.row.id()) {
+                continue;
+            }
+            out.push(observed);
+        }
+        out
     }
 
     fn state_status(&self, observed: &ObservedStatus, channel_h: String) -> Status {
