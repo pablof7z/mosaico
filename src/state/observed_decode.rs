@@ -4,9 +4,12 @@
 //! These decoders read only the relay-event fields NMP surfaces
 //! (`tags_json`, `content`, `pubkey`, `kind`, `channel_h`, `created_at`,
 //! `id`); they do not need the signed event, so [`RecentRows`] — which stores
-//! `RelayEvent` — is a sufficient substrate. Status and profile decodes still
-//! need the signed event plus the owning channel observation, so they remain
-//! on the row mirror (those kinds are replaceable, hence bounded anyway).
+//! `RelayEvent` — is a sufficient substrate. Profile decode moved to the
+//! retained [`ProfileFeed`](crate::nmp_host::ProfileFeed), which keeps its own
+//! kind:0 drain. Status decode stays on the bounded row mirror: kind:30315 is
+//! replaceable and `Nip29WireCodec.decode_event` wants the signed event, so the
+//! mirror's `Row` remains the status substrate (mosaico#837 — the mirror is
+//! windowed, not the old O(history) rebuild).
 
 use crate::domain::Reaction;
 use crate::fabric::nip29::wire::{KIND_CHAT, KIND_REACTION};
