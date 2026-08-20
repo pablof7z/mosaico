@@ -50,10 +50,14 @@ const MAX_LOCAL_IDENTITIES: usize = 4096;
 /// `RecentRows`' per-channel cap so the retained window and the delivered
 /// window agree.
 const OBSERVATION_WINDOW_INITIAL: usize = 500;
-const OBSERVATION_WINDOW_MAX: usize = 10_000;
+pub(crate) const OBSERVATION_WINDOW_MAX: usize = 10_000;
 
 struct ActiveObservation {
     cancel: ObservationCancel,
+    /// Cloneable growth capability for a windowed observation. `None` for an
+    /// unbounded observation. `request_rows` grows the window for on-demand
+    /// older-history backfill (mosaico#837).
+    window: Option<nmp::WindowHandle>,
 }
 
 pub(crate) struct NmpHost {
@@ -215,6 +219,7 @@ impl NmpHost {
             .observe(query)
             .with_context(|| format!("opening NMP observation {id}"))?;
         let cancel = subscription.cancel_handle();
+        let window = subscription.window_handle();
         let generation = self.allocate_observation_generation();
         self.views.begin_observation(id, generation);
         let transitions = self
@@ -249,7 +254,7 @@ impl NmpHost {
             .subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
-            .insert(id.to_string(), ActiveObservation { cancel });
+            .insert(id.to_string(), ActiveObservation { cancel, window });
         if let Some(previous) = previous {
             previous.cancel.cancel();
         }
@@ -264,6 +269,29 @@ impl NmpHost {
             .remove(id)
         {
             active.cancel.cancel();
+        }
+    }
+
+    /// Monotonically raise the windowed observation's row target to at least
+    /// `at_least`, clamped to the observation's declared max. Idempotent; a
+    /// value at or below the current target is a no-op. The broad `#h`
+    /// observation's window is total across all channels (not per `#h`), so this
+    /// backfills older history for every covered channel at once (mosaico#837).
+    /// Growth arrives as new rows in subsequent frames — the caller re-reads to
+    /// see them. Returns an error for an unwindowed or unknown observation.
+    pub(crate) fn request_rows(&self, id: &str, at_least: usize) -> Result<()> {
+        let active = self
+            .subscriptions
+            .lock()
+            .expect("NMP subscription mutex poisoned")
+            .get(id)
+            .map(|active| active.window.clone());
+        match active {
+            Some(Some(handle)) => handle
+                .request_rows(at_least)
+                .with_context(|| format!("requesting {at_least} rows for {id}")),
+            Some(None) => anyhow::bail!("observation {id} is not windowed"),
+            None => anyhow::bail!("observation {id} is not open"),
         }
     }
 
