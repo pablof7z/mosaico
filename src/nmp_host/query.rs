@@ -27,22 +27,6 @@ impl NmpHost {
             .map_err(|error| anyhow::anyhow!("NIP-29 relay scope: {error}"))
     }
 
-    /// One group's read declaration for an app-supplied selection: one
-    /// complete branch per host, each `Pinned` to that host alone and
-    /// `CacheMode::Strict`, scoped by `#h`. NMP refuses a selection that
-    /// already constrains `#h`, which is why the group id is a parameter here
-    /// and never a tag the caller writes.
-    pub(crate) fn group_contents_query(
-        &self,
-        group: &str,
-        selection: nmp::Filter,
-    ) -> Result<LiveQuery> {
-        self.nip29_scope()?
-            .group(group)
-            .read(selection)
-            .map_err(|error| anyhow::anyhow!("NIP-29 group read for {group:?}: {error}"))
-    }
-
     /// Watch the relay-signed records of every group matching `predicate`.
     ///
     /// The returned [`GroupObservation`](nmp_nip29::GroupObservation) is the
@@ -90,39 +74,6 @@ impl NmpHost {
             .relays
             .iter()
             .map(|host| nmp_nip29::group_records_at(host, &records, Some(predicate.clone()), None))
-            .collect::<Vec<_>>();
-        union_branches(branches)
-    }
-
-    /// Every group these hosts describe (kind:39000, unkeyed).
-    ///
-    /// The absent `d` binding is NMP's own spelling of "no constraint" —
-    /// `group_records_at` with `None` builds a branch carrying no `#d` row at
-    /// all, which is the only honest lowering of an unpredicated listing.
-    pub(crate) fn all_group_metadata_query(&self) -> Result<LiveQuery> {
-        let records = BTreeSet::from([nmp_nip29::GroupRecord::Metadata]);
-        let branches = self
-            .relays
-            .iter()
-            .map(|host| nmp_nip29::group_records_at(host, &records, None, None))
-            .collect::<Vec<_>>();
-        union_branches(branches)
-    }
-
-    /// Like [`all_group_metadata_query`] but scoped to a SET of group ids via a
-    /// multi-value `#d` binding — the broad replacement for `AllGroupMetadata`
-    /// (mosaico#837). One per-host branch, each `#d`-keyed to the administered
-    /// set, so discovery no longer pulls every group the host serves.
-    pub(crate) fn group_metadata_for_query(
-        &self,
-        group_ids: &BTreeSet<String>,
-    ) -> Result<LiveQuery> {
-        let records = BTreeSet::from([nmp_nip29::GroupRecord::Metadata]);
-        let binding = Binding::Literal(group_ids.clone());
-        let branches = self
-            .relays
-            .iter()
-            .map(|host| nmp_nip29::group_records_at(host, &records, Some(binding.clone()), None))
             .collect::<Vec<_>>();
         union_branches(branches)
     }
@@ -194,13 +145,6 @@ impl NmpHost {
         authenticate_as: Option<PublicKey>,
     ) -> Result<LiveQuery> {
         match query {
-            SubscriptionQuery::AllGroupMetadata => self.all_group_metadata_query(),
-            SubscriptionQuery::GroupMetadataFor { group_ids } => {
-                self.group_metadata_for_query(group_ids)
-            }
-            SubscriptionQuery::GroupContents { group, kinds } => {
-                self.group_contents_query(group, kinds_filter(kinds))
-            }
             SubscriptionQuery::GroupContentsMulti { groups, kinds } => {
                 let mut filter = kinds_filter(kinds);
                 filter
@@ -208,12 +152,6 @@ impl NmpHost {
                     .insert(indexed_tag('h')?, Binding::Literal(groups.clone()));
                 self.host_pinned_query(&self.relays, filter, authenticate_as, CacheMode::Strict)
             }
-            SubscriptionQuery::Kinds { kinds } => self.host_pinned_query(
-                &self.relays,
-                kinds_filter(kinds),
-                authenticate_as,
-                CacheMode::Strict,
-            ),
             SubscriptionQuery::References { event_id, kinds } => {
                 let mut filter = kinds_filter(kinds);
                 filter.tags.insert(

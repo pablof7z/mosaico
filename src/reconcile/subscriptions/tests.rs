@@ -64,14 +64,12 @@ fn opens_one_broad_h_and_per_entity_and_is_idempotent() {
     let effects = sync(&mut policy, &snapshot);
     // The N per-channel ChannelH observations and the global kind:9000
     // observation are gone — one broad #h covers all known channels (and 9000,
-    // which carries #h). Only group-metadata global + per-author profiles stay.
+    // which carries #h). The global kind:39000 group-metadata observation moved
+    // to the retained `group_records` observation, so only the broad #h plus
+    // per-author kind:0 profiles remain here.
     assert_eq!(
         open_ids(&effects),
-        set([
-            BROAD_H_ID,
-            "mosaico-global-kind-39000",
-            "mosaico-profile-backend-1",
-        ])
+        set([BROAD_H_ID, "mosaico-profile-backend-1",])
     );
     assert_eq!(
         effects.iter().find_map(|effect| match effect {
@@ -93,7 +91,8 @@ fn opens_one_broad_h_and_per_entity_and_is_idempotent() {
 /// A known-but-unjoined channel gets its relay-signed records hydrated without
 /// its CONTENTS being subscribed to. The broad `#h` covers only daemon +
 /// session channels, so a `group_state_channels` entry with no daemon/session
-/// presence opens no content observation.
+/// presence opens no content observation. (The kind:39000 records ride the
+/// retained `group_records` observation, not this reconciler.)
 #[test]
 fn known_unjoined_channels_do_not_subscribe_to_content() {
     let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {
@@ -102,7 +101,6 @@ fn known_unjoined_channels_do_not_subscribe_to_content() {
     });
     let opened = open_ids(&effects);
 
-    assert!(opened.contains("mosaico-global-kind-39000"));
     assert!(!opened.contains(BROAD_H_ID));
 }
 

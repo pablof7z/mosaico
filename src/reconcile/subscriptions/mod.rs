@@ -4,6 +4,13 @@
 //! desired narrow observations and returns only the required open/close effects.
 //! Ownership counts stay explicit and local; NMP owns relay work behind the host
 //! seam.
+//!
+//! (mosaico#837) The N per-channel content observations collapsed into ONE broad
+//! windowed `GroupContentsMulti` `#h` over all known channels, and the global
+//! kind:39000 group-metadata observation moved to the retained
+//! [`group_records`](crate::daemon::server::group_records) observation (a composed
+//! `GroupPredicate` richer than a bare kind listing). What remains here is the
+//! broad `#h` plus per-author kind:0 profile observations.
 
 #[cfg(test)]
 mod tests;
@@ -27,29 +34,16 @@ use serde::{Deserialize, Serialize};
 /// handed to it at all.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SubscriptionQuery {
-    /// The relay-signed records describing every group these hosts serve
-    /// (kind:39000). Per-relay-authoritative, so per-host and strict.
-    AllGroupMetadata,
-    /// The relay-signed metadata records for a SET of group ids, scoped by a
-    /// multi-value `#d` (mosaico#837). Replaces `AllGroupMetadata` with the
-    /// set of groups the backend administers, so discovery no longer pulls
-    /// every group at the host.
-    GroupMetadataFor { group_ids: BTreeSet<String> },
-    /// The contents of one group, scoped by `#h`. Per-relay-authoritative:
-    /// a kind:9 carrying `h=X` served by a relay that does not host group `X`
-    /// is not in this group.
-    GroupContents { group: String, kinds: BTreeSet<u16> },
     /// The contents of SEVERAL groups at once, scoped by a multi-value `#h`.
-    /// The single broad observation that replaces N per-channel `GroupContents`
-    /// (mosaico#837). Self-authenticating content (kinds 9/7/30315/9000) needs
-    /// no per-host branching — one `#h`-bound demand over all group relays is
-    /// equivalent to `Group::read`'s per-host branches for these kinds.
+    /// The single broad observation that replaces N per-channel
+    /// `GroupContents` (mosaico#837). Self-authenticating content
+    /// (kinds 9/7/30315/9000) needs no per-host branching — one `#h`-bound
+    /// demand over all group relays is equivalent to `Group::read`'s per-host
+    /// branches for these kinds.
     GroupContentsMulti {
         groups: BTreeSet<String>,
         kinds: BTreeSet<u16>,
     },
-    /// Every event of these kinds the group hosts serve, unscoped by group.
-    Kinds { kinds: BTreeSet<u16> },
     /// Events of these kinds referencing one event id in an `e` tag.
     References {
         event_id: String,
@@ -78,7 +72,9 @@ pub enum SubEffect {
 pub struct CoverageSnapshot {
     pub daemon_channels: BTreeSet<String>,
     /// Known groups whose relay-authored metadata and roster stay hydrated even
-    /// when no local session has joined them.
+    /// when no local session has joined them. (Their kind:39000/39001/39002
+    /// records ride the retained `group_records` observation, not this
+    /// reconciler.)
     pub group_state_channels: BTreeSet<String>,
     pub addressed_pubkeys: BTreeSet<String>,
     pub profile_pubkeys: BTreeSet<String>,
@@ -92,22 +88,16 @@ pub struct CoverageSnapshot {
 /// (kind 9000 carries `#h`, so it rides the same demand).
 pub(crate) const BROAD_H_ID: &str = "mosaico-broad-h";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Space {
-    GlobalKind,
-    ProfileAuthor,
-}
-
-type SubKey = (Space, String);
+/// The id prefix for a per-author kind:0 profile observation.
+const PROFILE_PREFIX: &str = "mosaico-profile-";
 
 #[derive(Clone, Default)]
 pub struct SubscriptionReconciler {
-    /// Per-entity observations currently open (group-metadata global + per-author
-    /// profiles). The broad `#h` is tracked separately by `applied_h_groups`.
-    applied: BTreeSet<SubKey>,
+    /// Per-author profile observations currently open.
+    applied: BTreeSet<String>,
     /// The current broad `#h` observation's group set (`None` = not open).
     applied_h_groups: Option<BTreeSet<String>>,
-    desired_owners: BTreeMap<SubKey, usize>,
+    desired_profiles: BTreeSet<String>,
     desired_h_groups: BTreeSet<String>,
 }
 
@@ -117,8 +107,8 @@ impl SubscriptionReconciler {
     }
 
     pub fn plan(&mut self, snapshot: &CoverageSnapshot) -> Vec<SubEffect> {
-        let desired = desired_owners(snapshot);
         let desired_h = desired_h_groups(snapshot);
+        let desired_profiles = snapshot.profile_pubkeys.clone();
         let mut effects = Vec::new();
 
         // The broad #h observation: open, replace (on set change), or close.
@@ -139,19 +129,22 @@ impl SubscriptionReconciler {
             _ => {}
         }
 
-        // Per-entity observations (group-metadata global + per-author profiles).
-        for key in desired.keys() {
-            if !self.applied.contains(key) {
-                effects.push(open_effect(key));
-            }
+        // Per-author profile observations.
+        for pubkey in desired_profiles.difference(&self.applied) {
+            effects.push(SubEffect::Open {
+                id: profile_id(pubkey),
+                query: SubscriptionQuery::Profile {
+                    pubkey: pubkey.clone(),
+                },
+            });
         }
-        for key in &self.applied {
-            if !desired.contains_key(key) {
-                effects.push(SubEffect::Close { id: sub_id(key) });
-            }
+        for pubkey in self.applied.difference(&desired_profiles) {
+            effects.push(SubEffect::Close {
+                id: profile_id(pubkey),
+            });
         }
 
-        self.desired_owners = desired;
+        self.desired_profiles = desired_profiles;
         self.desired_h_groups = desired_h;
         effects
     }
@@ -161,22 +154,15 @@ impl SubscriptionReconciler {
             SubEffect::Open { id, .. } | SubEffect::Replace { id, .. } => {
                 if id == BROAD_H_ID {
                     self.applied_h_groups = Some(self.desired_h_groups.clone());
-                } else if let Some(key) = self
-                    .desired_owners
-                    .keys()
-                    .find(|key| sub_id(key) == *id)
-                    .cloned()
-                {
-                    self.applied.insert(key);
+                } else if let Some(pubkey) = id.strip_prefix(PROFILE_PREFIX) {
+                    self.applied.insert(pubkey.to_string());
                 }
             }
             SubEffect::Close { id } => {
                 if id == BROAD_H_ID {
                     self.applied_h_groups = None;
-                } else if let Some(key) =
-                    self.applied.iter().find(|key| sub_id(key) == *id).cloned()
-                {
-                    self.applied.remove(&key);
+                } else if let Some(pubkey) = id.strip_prefix(PROFILE_PREFIX) {
+                    self.applied.remove(pubkey);
                 }
             }
         }
@@ -216,25 +202,6 @@ fn desired_h_groups(snapshot: &CoverageSnapshot) -> BTreeSet<String> {
     groups
 }
 
-fn desired_owners(snapshot: &CoverageSnapshot) -> BTreeMap<SubKey, usize> {
-    let mut desired = BTreeMap::new();
-    add_owner(
-        &mut desired,
-        (
-            Space::GlobalKind,
-            crate::fabric::nip29::wire::KIND_GROUP_METADATA.to_string(),
-        ),
-    );
-    for pubkey in &snapshot.profile_pubkeys {
-        add_owner(&mut desired, (Space::ProfileAuthor, pubkey.clone()));
-    }
-    desired
-}
-
-fn add_owner(owners: &mut BTreeMap<SubKey, usize>, key: SubKey) {
-    *owners.entry(key).or_default() += 1;
-}
-
 fn broad_h_query(groups: &BTreeSet<String>) -> SubscriptionQuery {
     use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_PUT_USER, KIND_REACTION, KIND_STATUS};
     SubscriptionQuery::GroupContentsMulti {
@@ -243,35 +210,6 @@ fn broad_h_query(groups: &BTreeSet<String>) -> SubscriptionQuery {
     }
 }
 
-fn open_effect(key: &SubKey) -> SubEffect {
-    SubEffect::Open {
-        id: sub_id(key),
-        query: sub_query(key),
-    }
-}
-
-fn sub_id((space, entity): &SubKey) -> String {
-    match space {
-        Space::GlobalKind => format!("mosaico-global-kind-{entity}"),
-        Space::ProfileAuthor => format!("mosaico-profile-{entity}"),
-    }
-}
-
-fn sub_query((space, entity): &SubKey) -> SubscriptionQuery {
-    use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-    match space {
-        Space::GlobalKind => {
-            let kind: u16 = entity.parse().expect("global kind is numeric");
-            if kind == KIND_GROUP_METADATA {
-                SubscriptionQuery::AllGroupMetadata
-            } else {
-                SubscriptionQuery::Kinds {
-                    kinds: BTreeSet::from([kind]),
-                }
-            }
-        }
-        Space::ProfileAuthor => SubscriptionQuery::Profile {
-            pubkey: entity.clone(),
-        },
-    }
+fn profile_id(pubkey: &str) -> String {
+    format!("{PROFILE_PREFIX}{pubkey}")
 }

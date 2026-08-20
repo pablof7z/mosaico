@@ -26,44 +26,11 @@ fn pinned_to(url: &str) -> ReadRouting {
     ReadRouting::Explicit(vec![RelayUrl::parse(url).unwrap()])
 }
 
-/// mosaico#741. Pinning scopes only which relays are ASKED; `CacheMode`
-/// governs which locally cached rows may ANSWER, and its default is
-/// `Agnostic` — "every matching cached row regardless of provenance". A
-/// NIP-29 read needs both axes pointed at the same host, because 39000/39001/
-/// 39002 are relay-SIGNED and two relays hosting one group id are two
-/// independent groups.
-///
-/// This replaces a test that asserted the previous shape: ONE branch pinned
-/// to the whole relay SET, with the cache left at its `Agnostic` default. That
-/// test encoded the bug — it passed precisely because nothing constrained the
-/// cache.
-#[test]
-fn every_group_content_branch_pins_and_strictly_scopes_exactly_one_host() {
-    let host = two_host_host();
-    let query = host
-        .group_contents_query(
-            "room",
-            nmp::Filter {
-                kinds: Some(BTreeSet::from([9u16, 30315])),
-                ..nmp::Filter::default()
-            },
-        )
-        .expect("a plain selection scopes");
-
-    assert_eq!(query.branches().len(), 2, "one complete branch per host");
-    let h = IndexedTagName::new('h').unwrap();
-    for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.routing, pinned_to(expected));
-        assert_eq!(branch.cache, CacheMode::Strict);
-        assert_eq!(branch.authenticate_as, None);
-        assert_eq!(branch.selection.kinds, Some(BTreeSet::from([9, 30315])));
-        assert_eq!(
-            branch.selection.tags.get(&h),
-            Some(&Binding::Literal(BTreeSet::from(["room".to_string()])))
-        );
-    }
-}
-
+/// mosaico#741. The two host-scoping axes are stamped, per host, on every
+/// NIP-29 read Mosaico opens: `ReadRouting::Explicit` for which relays are
+/// ASKED and `CacheMode::Strict` for which cached rows may ANSWER. A NIP-29
+/// read needs both pointed at the same host, because 39000/39001/39002 are
+/// relay-SIGNED and two relays hosting one group id are two independent groups.
 #[test]
 fn every_group_record_branch_pins_and_strictly_scopes_exactly_one_host() {
     let host = two_host_host();
@@ -84,42 +51,6 @@ fn every_group_record_branch_pins_and_strictly_scopes_exactly_one_host() {
             Some(&Binding::Literal(BTreeSet::from(["room".to_string()])))
         );
     }
-}
-
-#[test]
-fn the_unpredicated_group_listing_is_also_per_host_and_strict() {
-    let host = two_host_host();
-    let query = host.all_group_metadata_query().expect("listing scope");
-
-    assert_eq!(query.branches().len(), 2);
-    for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.routing, pinned_to(expected));
-        assert_eq!(branch.cache, CacheMode::Strict);
-        assert_eq!(branch.selection.kinds, Some(BTreeSet::from([39000u16])));
-    }
-}
-
-/// A group read REFUSES a caller-supplied `#h`: the retained group id is the
-/// only source of that row. Mosaico can therefore no longer spell a group
-/// scope as a raw tag by accident.
-#[test]
-fn a_caller_supplied_context_constraint_is_refused_not_overwritten() {
-    let host = two_host_host();
-    let mut filter = nmp::Filter {
-        kinds: Some(BTreeSet::from([9u16])),
-        ..nmp::Filter::default()
-    };
-    filter.tags.insert(
-        IndexedTagName::new('h').unwrap(),
-        Binding::Literal(BTreeSet::from(["elsewhere".to_string()])),
-    );
-    let error = host
-        .group_contents_query("room", filter)
-        .expect_err("a caller-supplied h constraint is refused");
-    assert!(
-        format!("{error}").contains("belongs to the group"),
-        "{error}"
-    );
 }
 
 /// Profiles are the one deliberate `Agnostic` read: kind:0 is
@@ -151,22 +82,16 @@ fn profile_query_is_scoped_to_exact_authors_and_stays_provenance_agnostic() {
 #[test]
 fn group_host_pinned_reads_are_strict_even_when_not_nip29_shaped() {
     let host = two_host_host();
-    for query in [
-        SubscriptionQuery::Kinds {
-            kinds: BTreeSet::from([9000u16]),
-        },
-        SubscriptionQuery::References {
-            event_id: "c".repeat(64),
-            kinds: BTreeSet::from([30315u16]),
-        },
-    ] {
-        let live = host.live_query(&query, None).unwrap();
-        assert_eq!(
-            live.branches()[0].cache,
-            CacheMode::Strict,
-            "{query:?} must not inherit the Agnostic default"
-        );
-    }
+    let query = SubscriptionQuery::References {
+        event_id: "c".repeat(64),
+        kinds: BTreeSet::from([30315u16]),
+    };
+    let live = host.live_query(&query, None).unwrap();
+    assert_eq!(
+        live.branches()[0].cache,
+        CacheMode::Strict,
+        "{query:?} must not inherit the Agnostic default"
+    );
 }
 
 #[test]
@@ -209,32 +134,4 @@ fn broad_group_contents_is_one_branch_with_multivalue_h_over_all_relays() {
         ]))),
         "multi-value #h covers all known channels"
     );
-}
-
-#[test]
-fn group_metadata_for_scopes_per_host_branches_with_multivalue_d() {
-    let host = two_host_host();
-    let query = host
-        .group_metadata_for_query(&BTreeSet::from(["g1".to_string(), "g2".to_string()]))
-        .expect("broad #d scopes");
-
-    assert_eq!(query.branches().len(), 2, "one per-host branch");
-    let d = IndexedTagName::new('d').unwrap();
-    for (branch, expected) in query.branches().iter().zip([HOST_A, HOST_B]) {
-        assert_eq!(branch.routing, pinned_to(expected));
-        assert_eq!(branch.cache, CacheMode::Strict);
-        assert_eq!(
-            branch.selection.kinds,
-            Some(BTreeSet::from([39000u16])),
-            "metadata records only, matching AllGroupMetadata's scope"
-        );
-        assert_eq!(
-            branch.selection.tags.get(&d),
-            Some(&Binding::Literal(BTreeSet::from([
-                "g1".to_string(),
-                "g2".to_string()
-            ]))),
-            "multi-value #d scopes discovery to the administered set"
-        );
-    }
 }

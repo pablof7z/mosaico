@@ -33,7 +33,8 @@ async fn strict_relay_authenticates_backend_reads_and_exact_author_writes() {
     );
     let subscription = host
         .observe_with_access(
-            &SubscriptionQuery::Kinds {
+            &SubscriptionQuery::GroupContentsMulti {
+                groups: BTreeSet::from(["auth-room".to_string()]),
                 kinds: BTreeSet::from([9000]),
             },
             Some(backend.public_key()),
