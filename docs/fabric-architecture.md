@@ -132,25 +132,61 @@ attachment directory cannot resurrect it.
 
 ### Observation topology (NIP-29 provider)
 
-The reconciler (`src/reconcile/subscriptions/mod.rs`) opens five concrete
-observation kinds. Each is a standing NMP `LiveQuery` whose delivered rows are
-the sole authority for one slice of relay-derived state:
+The reconciler (`src/reconcile/subscriptions/mod.rs`) opens **three** standing
+NMP observations. Each delivered row is the sole authority for one slice of
+relay-derived state. The earlier N-per-channel model was collapsed to a single
+broad `#h` (mosaico#837) so that joining/leaving a channel `Replace`s one query
+instead of opening/closing N, and so that one row reaches the demux exactly
+once:
 
 | Observation | NMP query | Scope | Drives |
 |---|---|---|---|
-| `mosaico-global-kind-9000` | `Kinds{[9000]}` (`KIND_GROUP_PUT_USER`) | global, no `#h` | management/orchestration-command dispatch |
-| `mosaico-global-kind-39000` | `AllGroupMetadata` (kind:39000, per-relay) | `d`-scoped, not `#h` | `GroupObservation` → group topology, admins, members |
-| `mosaico-h-{channel}` | `GroupContents{[9,7,30315]}` per joined channel | `#h`-scoped | chat/reaction/status delivery + demux dispatch |
-| `mosaico-p-{pubkey}` | `Mentions{[9]}` per addressed pubkey | `#p`-scoped, cross-channel | cross-channel mention delivery |
-| `mosaico-profile-{pubkey}` | `Profile{0}` per profile pubkey | author-scoped | `ProfileFeed` (`Store::get_profile`) |
+| `mosaico-broad-h` (`BROAD_H_ID`) | `GroupContentsMulti` over kinds `[9, 7, 30315, 9000]` and all known channel `#h`s | `#h`-scoped, every joined channel at once | chat/reaction/status delivery + kind:9000 management-command dispatch + demux dispatch |
+| retained `group_records` | `GroupPredicate` over kinds `[39000, 39001, 39002]` keyed on known group ids + addressed identities | `d`-scoped, not `#h` | `GroupObservation` → group topology, admins, members |
+| retained `ProfileFeed` | kind:0 over `authors:[current member set]` | author-scoped | `Store::get_profile` + profile list/resolve surfaces |
 
-Only `mosaico-h-{channel}` is `#h`-scoped. The other four cannot be folded
-into a single broad `#h` observation: management commands and group-metadata
-records are not channel-scoped, mentions are `#p`-scoped (an agent can be
-`#p`-tagged in a channel the daemon does not observe), and profiles are
-author-scoped. A broad `#h:[all known channels]` observation therefore
-collapses only the N per-channel `GroupContents` observations into one; the
-rest stay as separate standing queries regardless of subscription model.
+The broad `#h` covers chat (9), reactions (7), status (30315), and the
+group-put-user management command (9000) across **every** currently known
+channel. Joining or leaving a channel re-runs `sync_subscriptions`, which
+`Replace`s the one broad `#h` with an updated channel set — the daemon enters
+or leaves the whole channel set once, not one observation per channel.
+
+Mentions are no longer a separate `#p` observation: a `#p`-tagged chat
+delivered under the broad `#h` is routed to the addressed agent's inbox by
+`direct_mentions::route` from the event's own `#p` tags, so an agent is
+mention-delivered in any observed channel without a per-pubkey query.
+
+The status projection fans a kind:30315 event out to **every** channel it names
+in its own `#h` tags (decoded `status.channels`), not one channel per
+observation — see `Row retention` below.
+
+### Row retention (the bounded `RowViews` mirror)
+
+NMP's `RowDelta::Removed(EventId)` carries only the event id — by contract the
+app already holds the row from an earlier `Added` (`nmp_grammar::RowDelta`:
+*"the app is expected to already hold the event from an earlier `Added` … no
+second copy of the payload is kept around just to hand back on removal"*).
+Mosaico's `RowViews` (`src/nmp_views/rows.rs`) is that nmp-mandated row holder:
+`apply_departure` needs the departed row's signed event to decode the status
+and emit a `Leave` per channel the status named, and `Removed(id)` provides no
+payload. **The row holder cannot be deleted without changing nmp's `RowDelta`
+contract.**
+
+The holder is bounded, not the old O(history) rebuild: the broad `#h` opens with
+a `Window::Expandable{initial:500, max:10000}` (mosaico#837), so `RowViews`
+retains at most the window's rows. Deep history beyond the window is backfilled
+on demand via `NmpHost::request_rows` (`handle_channel_read` raises the broad
+`#h` window target for a non-tail `since=0` read); older rows arrive
+asynchronously into the window and the next read sees them.
+
+`RecentRows` (`src/recent_rows.rs`) is the sync-readable projection of the same
+delivered rows as lightweight `RelayEvent`s (id/kind/pubkey/channel_h/tags_json/
+content/created_at — no signed event). Chat (9), reaction (7), and generic-event
+reads route through `RecentRows` via `RelayEvent` decoders in
+`state/observed_decode.rs`. Status (30315) reads through `RowViews::
+observation_rows()` instead, because `Nip29WireCodec.decode_event` wants the
+signed event that only the retained `Row` carries; status is replaceable and
+the window bounds it, so this is not the RSS source.
 
 ### Intents
 
