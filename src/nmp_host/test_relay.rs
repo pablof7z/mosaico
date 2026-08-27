@@ -17,7 +17,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use nostr::{ClientMessage, Event, EventId, Filter, JsonUtil, RelayMessage, SubscriptionId};
+use nostr::event::{Event, EventId};
+use nostr::filter::Filter;
+use nostr::message::{ClientMessage, RelayMessage, SubscriptionId};
 use tungstenite::{Error as WebSocketError, Message};
 
 struct Sub {

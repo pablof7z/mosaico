@@ -226,7 +226,7 @@ fn age(ts: u64, now: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::Keys;
+    use nostr::key::Keys;
 
     fn status(pubkey: &str, channel: &str, seen: u64) -> Status {
         Status {

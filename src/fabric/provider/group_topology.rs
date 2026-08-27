@@ -1,6 +1,6 @@
 use super::Nip29Provider;
 use anyhow::Result;
-use nostr::Event;
+use nostr::event::Event;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -17,7 +17,7 @@ impl Nip29Provider {
         Ok(read
             .rows
             .iter()
-            .filter_map(|row| row.signed_event())
+            .map(|row| &row.event)
             .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
             .max_by_key(|event| event.created_at.as_secs())
             .map(|event| children_from_metadata(&event))
@@ -72,7 +72,9 @@ fn children_from_metadata(event: &Event) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     #[test]
     fn child_parser_preserves_every_existing_relationship() {
@@ -85,7 +87,7 @@ mod tests {
                 Tag::parse(["child", "first"]).unwrap(),
                 Tag::parse(["child", ""]).unwrap(),
             ])
-            .sign_with_keys(&Keys::generate())
+            .finalize(&Keys::generate())
             .unwrap();
 
         assert_eq!(

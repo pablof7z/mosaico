@@ -1,7 +1,7 @@
 use crate::daemon_harness::*;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
-use nostr::Keys;
+use nostr::key::Keys;
 use std::time::Duration;
 
 async fn start_session(client: &mut Client, agent: &str) -> String {

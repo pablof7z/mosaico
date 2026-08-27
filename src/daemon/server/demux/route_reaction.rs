@@ -10,7 +10,8 @@
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use anyhow::Result;
-use nostr::{EventBuilder, Kind, Tag};
+use nostr::event::{EventBuilder, Kind};
+use nostr::event::Tag;
 
 /// Publish a 👁 kind:7 reaction acknowledging `event` (a routed kind:9), signed
 /// by the backend management key. The reaction's `e` tag is the routed event id
@@ -18,7 +19,7 @@ use nostr::{EventBuilder, Kind, Tag};
 /// relay rejection is logged and dropped — the routed mention itself is
 /// already queued in the inbox, so the agent will still respond.
 pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event) {
-    let Some(channel_h) = crate::fabric::nip29::nostr_tag(&event.tags, "h").map(str::to_string)
+    let Some(channel_h) = crate::fabric::nip29::nostr_tag(event, "h").map(str::to_string)
     else {
         tracing::debug!(
             event_id = %&event.id.to_hex()[..8],
@@ -75,9 +76,10 @@ fn tag(parts: &[&str]) -> Result<Tag> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::Keys;
+    use nostr::event::FinalizeUnsignedEvent;
+    use nostr::key::Keys;
 
-    fn tag_val<'a>(tags: impl IntoIterator<Item = &'a nostr::Tag>, name: &str) -> Option<String> {
+    fn tag_val<'a>(tags: impl IntoIterator<Item = &'a nostr::event::Tag>, name: &str) -> Option<String> {
         tags.into_iter().find_map(|t| {
             let s = t.as_slice();
             if s.first().map(String::as_str) == Some(name) {
@@ -92,7 +94,7 @@ mod tests {
     fn build_reaction_carries_kind7_eye_targeting_the_command() {
         let event_id = "aa".repeat(32);
         let keys = Keys::generate();
-        let unsigned = build_reaction(&event_id).unwrap().build(keys.public_key());
+        let unsigned = build_reaction(&event_id).unwrap().finalize_unsigned(keys.public_key());
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👁");
         assert_eq!(

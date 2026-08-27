@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use nmp_nip29::GroupAvailability;
+use crate::group_snapshot::GroupAvailability;
 
 use super::ProjectedGroup;
 use crate::state::Channel;

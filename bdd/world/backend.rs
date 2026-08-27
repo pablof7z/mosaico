@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use nostr::Keys;
+use nostr::key::Keys;
 
 #[derive(Debug)]
 pub struct RunResult {

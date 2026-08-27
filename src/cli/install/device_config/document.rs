@@ -1,6 +1,6 @@
 use super::InstallOpts;
 use anyhow::{bail, Context, Result};
-use nostr::{Keys, PublicKey};
+use nostr::key::{Keys, PublicKey};
 use serde_json::{json, Value};
 use std::path::Path;
 

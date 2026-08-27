@@ -1,5 +1,5 @@
 use super::*;
-use nostr::PublicKey;
+use nostr::key::PublicKey;
 
 impl Nip29Provider {
     fn log_group_role_decision(channel: &str, pubkey: &str, role: &str, reason: &str) {
@@ -139,7 +139,7 @@ fn group_pubkeys(pubkeys: &[String]) -> anyhow::Result<Vec<PublicKey>> {
 pub(super) fn group_users(
     pubkeys: &[String],
     role: Option<String>,
-) -> anyhow::Result<Vec<nmp_nip29::GroupUser>> {
+) -> anyhow::Result<Vec<crate::nmp_host::write::GroupUser>> {
     if pubkeys.is_empty() {
         anyhow::bail!("a group role change must name at least one user");
     }
@@ -147,7 +147,10 @@ pub(super) fn group_users(
         .iter()
         .map(|pubkey| {
             PublicKey::parse(pubkey)
-                .map(|pubkey| nmp_nip29::GroupUser::new(pubkey, role.clone()))
+                .map(|pubkey| crate::nmp_host::write::GroupUser {
+                    pubkey,
+                    roles: role.iter().cloned().collect(),
+                })
                 .map_err(anyhow::Error::from)
         })
         .collect()
@@ -156,7 +159,7 @@ pub(super) fn group_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::Keys;
+    use nostr::key::Keys;
 
     #[test]
     fn all_parent_admins_form_one_group_user_batch() {
@@ -165,14 +168,10 @@ mod tests {
         let users = group_users(&[first.to_hex(), second.to_hex()], Some("admin".into())).unwrap();
 
         assert_eq!(users.len(), 2);
-        assert_eq!(
-            users[0],
-            nmp_nip29::GroupUser::new(first, Some("admin".into()))
-        );
-        assert_eq!(
-            users[1],
-            nmp_nip29::GroupUser::new(second, Some("admin".into()))
-        );
+        assert_eq!(users[0].pubkey, first);
+        assert_eq!(users[0].roles, vec!["admin"]);
+        assert_eq!(users[1].pubkey, second);
+        assert_eq!(users[1].roles, vec!["admin"]);
     }
 
     #[test]

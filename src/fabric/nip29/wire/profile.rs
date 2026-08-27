@@ -1,6 +1,6 @@
 use crate::domain::{AgentRef, DomainEvent, Profile};
 use anyhow::Result;
-use nostr::{Event, EventBuilder};
+use nostr::event::{Event, EventBuilder};
 
 use super::{all_tag_values, first_tag, has_bare_tag, kind, tag, KIND_PROFILE};
 
@@ -34,8 +34,7 @@ pub(super) fn encode(pf: &Profile) -> Result<EventBuilder> {
         }
     }
     Ok(EventBuilder::new(kind(KIND_PROFILE), content)
-        .tags(tags)
-        .allow_self_tagging())
+        .tags(tags))
 }
 
 pub(super) fn decode(event: &Event, pubkey: String) -> Option<DomainEvent> {

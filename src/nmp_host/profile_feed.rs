@@ -1,30 +1,17 @@
 //! Retained kind:0 profile feed (mosaico#837, slice 1).
 //!
-//! One retained NMP LiveQuery scoped to `kinds:[0], authors:[current member
-//! set]`, pinned to the profile relays with `CacheMode::Agnostic` (kind:0 is
-//! self-authenticating), drained into a small bounded per-pubkey profile map.
-//! This replaces the per-boot `NmpViews` mirror for `Store::get_profile`: the
-//! feed holds only the current member set's profiles, not a union of all
-//! stored events, so a daemon restart no longer rebuilds a gigabyte mirror.
-//!
-//! NMP owns replaceable kind:0 resolution: a newer kind:0 for a pubkey arrives
-//! as `Added(new)` plus `Removed(old_id)` in one frame. The feed upserts on
-//! `Added` and removes on `Removed` only when the id matches the stored row,
-//! so the map always reflects NMP's current latest per author -- mirroring
-//! `NmpViews::observed_profile`, which reads NMP's current state directly.
-//!
-//! `set_members` is driven from `sync_subscriptions` (the daemon's single
-//! coverage refresh point), which already computes the member set as the union
-//! of the backend identity plus every channel's members and admins.
+//! One retained fava `Observation` scoped to `kinds:[0], authors:[current member
+//! set]`, draining into a small bounded per-pubkey profile map. Each snapshot
+//! delivery resets the map from the complete current event set.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, RwLock};
-use std::thread::JoinHandle;
 
-use nmp::{ObservationCancel, RowDelta, Subscription};
-use nostr::EventId;
+use fava::{EventValue, Observation, ObservationClosed};
+use nostr::event::EventId;
 
 use crate::nmp_views::observed_profile_from_row;
+use crate::row::Row;
 use crate::state::Profile;
 
 /// A retained kind:0 profile feed scoped to the current member set.
@@ -40,8 +27,9 @@ pub(crate) struct ProfileFeed {
 }
 
 struct ActiveFeed {
-    cancel: ObservationCancel,
-    drain: JoinHandle<()>,
+    // The drain task owns the Observation; aborting the task drops it,
+    // which calls Observation::Drop → close().
+    _task: tokio::task::JoinHandle<()>,
 }
 
 impl Default for ProfileFeed {
@@ -60,8 +48,7 @@ impl Default for ProfileFeed {
 }
 
 impl ProfileFeed {
-    /// Construct a feed backed by a live NMP host. No observation is opened
-    /// until [`Self::set_members`] supplies a member set.
+    /// Construct a feed backed by a live fava host.
     pub(crate) fn new(host: Arc<crate::nmp_host::NmpHost>) -> Self {
         Self {
             host: Some(host),
@@ -93,11 +80,7 @@ impl ProfileFeed {
             .cloned()
     }
 
-    /// Every profile in the current member set. Replaces the `NmpViews` mirror
-    /// read for the profile-list/resolve surface (`list_backend_profiles`,
-    /// `resolve_agent_pubkey`, handle/slug lookups): the feed holds only the
-    /// current member set's kind:0 rows, not a union of all stored events
-    /// (mosaico#837).
+    /// Every profile in the current member set.
     pub(crate) fn all_profiles(&self) -> Vec<Profile> {
         #[cfg(test)]
         if let Some(test) = self
@@ -116,11 +99,7 @@ impl ProfileFeed {
             .collect()
     }
 
-    /// Replace the member set and the underlying retained observation. A no-op
-    /// when the set is unchanged, so coverage refreshes that recompute the same
-    /// roster do not churn the relay. Profiles for pubkeys that left the set
-    /// are dropped; the new observation re-delivers the new author set's
-    /// current kind:0 rows. The previous drain is cancelled and detached.
+    /// Replace the member set and the underlying retained observation.
     pub(crate) fn set_members(self: &Arc<Self>, members: BTreeSet<String>) {
         if *self.members.read().expect("profile feed members poisoned") == members {
             return;
@@ -142,30 +121,27 @@ impl ProfileFeed {
                 return;
             }
         };
-        let subscription = match host.observe_query(query) {
-            Ok(subscription) => subscription,
+
+        // Open observation on the tokio runtime via a new OS thread so that
+        // Handle::block_on is not called from within an async task.
+        let observation = match super::observe_sync(&host.fava, query) {
+            Ok(obs) => obs,
             Err(error) => {
                 tracing::error!(?error, "profile feed observation open failed");
                 return;
             }
         };
-        let cancel = subscription.cancel_handle();
-        let drain = spawn_drain(subscription, Arc::clone(self));
-        let previous = self
-            .active
+
+        // Dropping the previous ActiveFeed aborts its task, which drops
+        // the Observation, which calls Observation::Drop → close().
+        let task = spawn_drain(observation, Arc::clone(self));
+        self.active
             .lock()
             .expect("profile feed active slot poisoned")
-            .replace(ActiveFeed { cancel, drain });
-        if let Some(previous) = previous {
-            // Cancel and detach: the old drain exits on recv error, releasing its
-            // Arc clone. Joining here would block the async coverage refresh.
-            previous.cancel.cancel();
-        }
+            .replace(ActiveFeed { _task: task });
     }
 
-    /// Install synthetic profiles for Store-logic tests that need `get_profile`
-    /// data without driving a real NMP engine. Mirrors `NmpViews`' test relay
-    /// delivery seam: a later install replaces the whole set atomically.
+    /// Install synthetic profiles for Store-logic tests.
     #[cfg(test)]
     pub(crate) fn install_test_profiles(&self, profiles: Vec<Profile>) {
         let map = profiles
@@ -178,61 +154,55 @@ impl ProfileFeed {
             .expect("profile feed test slot poisoned") = Some(map);
     }
 
-    /// Apply one NMP row delta to the profile map. Extracted from the drain
-    /// loop so the upsert/remove/latest-wins logic is testable in isolation.
-    fn apply_delta(&self, delta: RowDelta) {
-        match delta {
-            RowDelta::Added(row) | RowDelta::Updated(row) => {
-                if row.kind().as_u16() != 0 {
-                    return;
-                }
-                let Some(observed) = observed_profile_from_row(row) else {
-                    return;
-                };
-                let pubkey = observed.profile.agent.pubkey.clone();
-                let event_id = observed.row.id();
-                let profile = observed.as_state_profile();
-                // Track only the CURRENT event id per pubkey: a newer kind:0
-                // supersedes the old, so the old id is retired from the reverse
-                // index and a Removed for it becomes a no-op.
-                let mut pk_event = self
-                    .pk_event
+    /// Apply one delta (Added or Removed) to the profile map.
+    fn apply_delta(&self, row: Option<Row>, removed: Option<EventId>) {
+        if let Some(id) = removed {
+            let pubkey = self
+                .event_pk
+                .lock()
+                .expect("profile feed event->pk index poisoned")
+                .remove(&id);
+            if let Some(pubkey) = pubkey {
+                self.pk_event
                     .lock()
-                    .expect("profile feed pk->event index poisoned");
-                if let Some(old) = pk_event.insert(pubkey.clone(), event_id) {
-                    self.event_pk
-                        .lock()
-                        .expect("profile feed event->pk index poisoned")
-                        .remove(&old);
-                }
-                self.event_pk
-                    .lock()
-                    .expect("profile feed event->pk index poisoned")
-                    .insert(event_id, pubkey.clone());
+                    .expect("profile feed pk->event index poisoned")
+                    .remove(&pubkey);
                 self.profiles
                     .lock()
                     .expect("profile feed map poisoned")
-                    .insert(pubkey, profile);
+                    .remove(&pubkey);
             }
-            RowDelta::Removed(id) => {
-                let pubkey = self
-                    .event_pk
-                    .lock()
-                    .expect("profile feed event->pk index poisoned")
-                    .remove(&id);
-                if let Some(pubkey) = pubkey {
-                    self.pk_event
-                        .lock()
-                        .expect("profile feed pk->event index poisoned")
-                        .remove(&pubkey);
-                    self.profiles
-                        .lock()
-                        .expect("profile feed map poisoned")
-                        .remove(&pubkey);
-                }
-            }
-            RowDelta::SourcesGrew { .. } => {}
+            return;
         }
+        // Added
+        let Some(row) = row else { return };
+        if row.event.kind.as_u16() != 0 {
+            return;
+        }
+        let Some(observed) = observed_profile_from_row(row) else {
+            return;
+        };
+        let pubkey = observed.profile.agent.pubkey.clone();
+        let event_id = observed.row.event.id;
+        let profile = observed.as_state_profile();
+        let mut pk_event = self
+            .pk_event
+            .lock()
+            .expect("profile feed pk->event index poisoned");
+        if let Some(old) = pk_event.insert(pubkey.clone(), event_id) {
+            self.event_pk
+                .lock()
+                .expect("profile feed event->pk index poisoned")
+                .remove(&old);
+        }
+        self.event_pk
+            .lock()
+            .expect("profile feed event->pk index poisoned")
+            .insert(event_id, pubkey.clone());
+        self.profiles
+            .lock()
+            .expect("profile feed map poisoned")
+            .insert(pubkey, profile);
     }
 
     fn drop_departed(&self, members: &BTreeSet<String>) {
@@ -253,31 +223,52 @@ impl ProfileFeed {
 
 impl Drop for ProfileFeed {
     fn drop(&mut self) {
-        if let Some(active) = self
-            .active
+        // Dropping the ActiveFeed drops the JoinHandle, which aborts the task.
+        // The task owns the Observation; aborting it triggers Observation::drop → close().
+        self.active
             .lock()
             .expect("profile feed active slot poisoned")
-            .take()
-        {
-            active.cancel.cancel();
-            let _ = active.drain.join();
-        }
+            .take();
     }
 }
 
-fn spawn_drain(subscription: Subscription, feed: Arc<ProfileFeed>) -> JoinHandle<()> {
-    // The drain owns the subscription; on `recv()` error (engine shutdown or
-    // cancel) it exits, which drops the subscription and withdraws the demand.
-    std::thread::Builder::new()
-        .name("nmp-profile-feed".to_string())
-        .spawn(move || {
-            while let Ok(frame) = subscription.recv() {
-                for delta in frame.deltas {
-                    feed.apply_delta(delta);
+fn spawn_drain(
+    mut observation: Observation,
+    feed: Arc<ProfileFeed>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // Track the previous event set to compute deltas.
+        let mut prev_ids: BTreeSet<EventId> = BTreeSet::new();
+        loop {
+            match observation.changed().await {
+                Ok(snapshot) => {
+                    let curr_events: BTreeMap<EventId, Row> = snapshot
+                        .events
+                        .iter()
+                        .filter_map(|record| match record.event() {
+                            EventValue::Signed(e) if e.kind.as_u16() == 0 => {
+                                Some((e.id, Row { event: e.clone() }))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    let curr_ids: BTreeSet<EventId> = curr_events.keys().copied().collect();
+                    // Removed = in prev but not in curr
+                    for removed_id in prev_ids.difference(&curr_ids) {
+                        feed.apply_delta(None, Some(*removed_id));
+                    }
+                    // Added = in curr but not in prev
+                    for added_id in curr_ids.difference(&prev_ids) {
+                        if let Some(row) = curr_events.get(added_id).cloned() {
+                            feed.apply_delta(Some(row), None);
+                        }
+                    }
+                    prev_ids = curr_ids;
                 }
+                Err(ObservationClosed) => break,
             }
-        })
-        .expect("spawn profile feed drain")
+        }
+    })
 }
 
 #[cfg(test)]

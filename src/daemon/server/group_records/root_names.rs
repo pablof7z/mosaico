@@ -26,7 +26,7 @@ use super::DaemonState;
 /// This function only borrows NMP's current delivery.
 pub(super) fn repair_delivered(
     state: &Arc<DaemonState>,
-    snapshots: &[nmp_nip29::GroupSnapshot],
+    snapshots: &[crate::group_snapshot::GroupSnapshot],
     attempted: &mut BTreeSet<String>,
 ) {
     let Some(backend_pubkey) = state.backend_pubkey() else {
@@ -68,7 +68,7 @@ pub(super) fn repair_delivered(
 /// binding: a root bound to a directory on this machine is this backend's to
 /// keep named even while the admin record is in flight.
 fn roots_needing_workspace_name(
-    snapshots: &[nmp_nip29::GroupSnapshot],
+    snapshots: &[crate::group_snapshot::GroupSnapshot],
     backend_pubkey: &str,
     bound_roots: &BTreeSet<String>,
     attempted: &BTreeSet<String>,
@@ -100,19 +100,16 @@ fn roots_needing_workspace_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
 
-    use nmp::RelayUrl;
-    use nmp_nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
-    use nostr::{EventId, Keys, Timestamp};
+    use crate::group_snapshot::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
+    use nostr::key::Keys;
 
     fn snapshot(
         id: &str,
         name: &str,
         parent: Option<&str>,
-        admin: Option<nostr::PublicKey>,
+        admin: Option<nostr::key::PublicKey>,
     ) -> GroupSnapshot {
-        let host = RelayUrl::parse("wss://relay.example").unwrap();
         let mut tags = Vec::new();
         if let Some(parent) = parent {
             tags.push(vec!["parent".to_string(), parent.to_string()]);
@@ -122,24 +119,15 @@ mod tests {
             metadata: Some(GroupMetadata {
                 name: Some(name.to_string()),
                 about: None,
-                picture: None,
                 tags,
-                as_of: Timestamp::from(1),
-                event_id: EventId::all_zeros(),
-                host: host.clone(),
+                as_of: std::time::Duration::from_secs(1),
             }),
             admins: admin
-                .map(|pubkey| ListedSubject {
-                    pubkey,
-                    role: Some("admin".to_string()),
-                    hosts: BTreeSet::from([host]),
-                })
+                .map(|pubkey| ListedSubject::new(pubkey, vec!["admin".to_string()]))
                 .into_iter()
                 .collect(),
             members: Vec::new(),
             availability: GroupAvailability::Ready,
-            per_host: BTreeMap::new(),
-            disagreements: BTreeSet::new(),
         }
     }
 

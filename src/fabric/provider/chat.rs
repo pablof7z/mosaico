@@ -9,7 +9,9 @@ use super::Nip29Provider;
 use crate::domain::{ChatMessage, DomainEvent};
 use crate::fabric::NostrEventCodec;
 use anyhow::Result;
-use nostr::{EventId, Keys, Tag};
+use nostr::event::EventId;
+use nostr::event::Tag;
+use nostr::key::Keys;
 
 #[cfg(test)]
 mod tests;
@@ -30,7 +32,7 @@ impl Nip29Provider {
         &self,
         chat: &ChatMessage,
         reply_to: Option<&str>,
-    ) -> Result<nostr::EventBuilder> {
+    ) -> Result<nostr::event::EventBuilder> {
         let mut builder = self.wire.encode(&DomainEvent::ChatMessage(chat.clone()))?;
         if let Some(id) = reply_to.filter(|id| !id.is_empty()) {
             builder = builder.tags([Tag::parse(["e", id])?]);
@@ -72,7 +74,7 @@ impl Nip29Provider {
         let created_at = crate::util::now_secs();
         let builder = self
             .chat_draft(chat, reply_to)?
-            .custom_created_at(nostr::Timestamp::from(created_at));
+            .custom_created_at(nostr::types::Timestamp::from(created_at));
         let event_id: EventId = self.nmp.publish_group(channel, builder, keys)?;
         Ok(PublishedChat {
             event_id: event_id.to_hex(),

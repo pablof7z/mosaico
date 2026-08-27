@@ -24,9 +24,10 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
 
 #[tokio::test]
 async fn observed_local_authored_chat_emits_tail_exactly_once() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let local = Keys::generate();
@@ -40,23 +41,21 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
         );
     });
     let mut tail = state.tail_subscribe();
-    let row = Row::from_relay_event(
-        EventBuilder::new(Kind::from(9_u16), "observed once")
+    let row = Row {
+        event: EventBuilder::new(Kind::from(9_u16), "observed once")
             .tags([Tag::parse(["h", "room"]).unwrap()])
-            .sign_with_keys(&local)
+            .finalize(&local)
             .unwrap(),
-        BTreeSet::new(),
-    );
+    };
     let views = state.nmp().views_handle();
 
     let first = views.apply_frame(
         "mosaico-h-room",
         1,
         vec![RowDelta::Added(row.clone())],
-        vec![],
     );
     apply_transition(&state, first).await;
-    let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)], vec![]);
+    let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)]);
     apply_transition(&state, repeated).await;
 
     let event = tail
@@ -75,15 +74,16 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
 
 #[tokio::test]
 async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
     let remote = Keys::generate();
-    let row = Row::from_relay_event(
-        EventBuilder::new(Kind::from(30315_u16), "working")
+    let row = Row {
+        event: EventBuilder::new(Kind::from(30315_u16), "working")
             .tags([
                 Tag::parse(["d", "status"]).unwrap(),
                 Tag::parse(["h", "room"]).unwrap(),
@@ -94,28 +94,17 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
                 Tag::parse(["workspace", "room"]).unwrap(),
                 Tag::parse(["slug", "remote-codex"]).unwrap(),
             ])
-            .sign_with_keys(&remote)
+            .finalize(&remote)
             .unwrap(),
-        BTreeSet::new(),
-    );
-    let id = row.id();
+    };
+    let id = row.event.id;
     let views = state.nmp().views_handle();
 
-    let added = views.apply_frame(
-        crate::reconcile::subscriptions::BROAD_H_ID,
-        1,
-        vec![RowDelta::Added(row)],
-        vec![],
-    );
+    let added = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Added(row)]);
     apply_transition(&state, added).await;
     while tail.try_recv().is_ok() {}
 
-    let removed = views.apply_frame(
-        crate::reconcile::subscriptions::BROAD_H_ID,
-        1,
-        vec![RowDelta::Removed(id)],
-        vec![],
-    );
+    let removed = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Removed(id)]);
     apply_transition(&state, removed).await;
 
     let leave = tail.try_recv().expect("status departure emits immediately");
@@ -135,16 +124,17 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
 }
 
 #[tokio::test]
-async fn broad_h_status_entry_emits_tail_for_every_channel_then_departure_leaves() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+async fn status_tail_events_follow_exact_observation_edges() {
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
     let remote = Keys::generate();
-    let row = Row::from_relay_event(
-        EventBuilder::new(Kind::from(30315_u16), "working")
+    let row = Row {
+        event: EventBuilder::new(Kind::from(30315_u16), "working")
             .tags([
                 Tag::parse(["d", "status"]).unwrap(),
                 Tag::parse(["h", "room-a"]).unwrap(),
@@ -156,45 +146,63 @@ async fn broad_h_status_entry_emits_tail_for_every_channel_then_departure_leaves
                 Tag::parse(["workspace", "room-a"]).unwrap(),
                 Tag::parse(["slug", "remote-codex"]).unwrap(),
             ])
-            .sign_with_keys(&remote)
+            .finalize(&remote)
             .unwrap(),
-        BTreeSet::new(),
-    );
-    let id = row.id();
+    };
+    let id = row.event.id;
     let views = state.nmp().views_handle();
-    let broad = crate::reconcile::subscriptions::BROAD_H_ID;
 
-    // Under the single broad #h observation, one status entry emits tail events
-    // for EVERY channel the status names (its #h tags), not one channel per
-    // observation edge.
-    let entered = views.apply_frame(broad, 1, vec![RowDelta::Added(row)], vec![]);
+    // Under the single broad observation, one entry fans out to all channels
+    // named in the status event's #h tags simultaneously.
+    let entered = views.apply_frame(
+        "mosaico-broad-h",
+        1,
+        vec![RowDelta::Added(row.clone())],
+    );
+    assert_eq!(entered.added.len(), 1, "first entry adds to the canonical union");
+    assert_eq!(entered.entered.len(), 1, "single broad observation edge");
     apply_transition(&state, entered).await;
-    let mut joined: BTreeSet<String> = BTreeSet::new();
-    while let Ok(event) = tail.try_recv() {
-        if let TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. } = event {
-            joined.insert(channel);
-        }
-    }
-    assert_eq!(
-        joined,
-        BTreeSet::from(["room-a".to_string(), "room-b".to_string()]),
-        "both channels the status names get a tail event on one broad entry"
+    let ab_events = [
+        tail.try_recv().unwrap(),
+        tail.try_recv().unwrap(),
+        tail.try_recv().unwrap(),
+        tail.try_recv().unwrap(),
+    ];
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-a")),
+        "broad entry emits Join for room-a"
     );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-a")),
+        "broad entry emits Status for room-a"
+    );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-b")),
+        "broad entry emits Join for room-b"
+    );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-b")),
+        "broad entry emits Status for room-b"
+    );
+    assert!(tail.try_recv().is_err(), "exactly four status events");
 
-    // Departing the status emits a Leave for every channel it named.
-    let removed = views.apply_frame(broad, 1, vec![RowDelta::Removed(id)], vec![]);
-    apply_transition(&state, removed).await;
-    let mut left: BTreeSet<String> = BTreeSet::new();
-    while let Ok(event) = tail.try_recv() {
-        if let TailEvent::Leave { channel, .. } = event {
-            left.insert(channel);
-        }
-    }
-    assert_eq!(
-        left,
-        BTreeSet::from(["room-a".to_string(), "room-b".to_string()]),
-        "both channels get a Leave on one broad departure"
+    // One broad departure fans out Leaves to all channels the status named.
+    let departed = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Removed(id)]);
+    apply_transition(&state, departed).await;
+    let leave_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
+    assert!(
+        leave_events.iter().all(|e| matches!(e, TailEvent::Leave { .. })),
+        "both channel departures emit Leave"
     );
+    assert!(
+        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-a")),
+        "broad departure emits Leave for room-a"
+    );
+    assert!(
+        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-b")),
+        "broad departure emits Leave for room-b"
+    );
+    assert!(tail.try_recv().is_err());
 }
 
 // ── has_alive gate ────────────────────────────────────────────────────────────

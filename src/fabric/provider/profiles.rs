@@ -13,7 +13,7 @@ impl Nip29Provider {
     /// those views, and Row identity/source provenance remains at the NMP read
     /// boundary because the product profile domain has no place for it.
     pub(crate) async fn fetch_profile(&self, pubkey: &str) -> Option<crate::domain::Profile> {
-        nostr::PublicKey::from_hex(pubkey).ok()?;
+        nostr::key::PublicKey::from_hex(pubkey).ok()?;
         let filter = crate::nmp_host::read::filter(&[0], &[pubkey.to_string()], &[]).ok()?;
         let read = self
             .nmp
@@ -23,8 +23,7 @@ impl Nip29Provider {
         read.rows
             .into_iter()
             .filter_map(|row| {
-                let event = row.signed_event()?;
-                let DomainEvent::Profile(profile) = Nip29WireCodec.decode_event(&event)? else {
+                let DomainEvent::Profile(profile) = Nip29WireCodec.decode_event(&row.event)? else {
                     return None;
                 };
                 Some(profile)
@@ -38,7 +37,8 @@ mod tests {
     use super::*;
     use crate::domain::{AgentRef, Profile};
     use crate::state::Store;
-    use nostr::Keys;
+    use nostr::event::FinalizeEvent;
+    use nostr::key::Keys;
     use std::sync::{Arc, Mutex};
 
     fn provider() -> (Nip29Provider, Arc<crate::nmp_host::NmpHost>) {
@@ -71,7 +71,7 @@ mod tests {
         let event = provider
             .encode(&DomainEvent::Profile(profile))
             .expect("profile draft")
-            .sign_with_keys(&profile_keys)
+            .finalize(&profile_keys)
             .expect("signed profile");
         nmp.script_read_settled_events(vec![event.clone()]);
 

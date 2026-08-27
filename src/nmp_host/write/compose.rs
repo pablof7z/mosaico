@@ -5,7 +5,7 @@
 //! stamping, the signature and the id; Mosaico owns the draft. All that is
 //! left in between is `nostr`'s builder shape becoming `nmp`'s.
 
-use nostr::UnsignedEvent;
+use nostr::event::UnsignedEvent;
 
 /// One Mosaico draft as the group door's builder.
 ///

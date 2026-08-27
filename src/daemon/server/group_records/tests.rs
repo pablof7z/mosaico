@@ -1,15 +1,12 @@
 use super::*;
-use std::collections::BTreeMap;
 
-use nmp::RelayUrl;
-use nmp_nip29::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
-use nostr::{EventId, Keys, Timestamp};
+use crate::group_snapshot::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
 
 fn set<const N: usize>(items: [&str; N]) -> BTreeSet<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
-fn snapshot() -> CoverageSnapshot {
+fn coverage_snapshot() -> CoverageSnapshot {
     CoverageSnapshot::default()
 }
 
@@ -17,9 +14,8 @@ fn group_snapshot(
     id: &str,
     parent: Option<&str>,
     about: Option<&str>,
-    admin: Option<nostr::PublicKey>,
+    admin: Option<nostr::key::PublicKey>,
 ) -> GroupSnapshot {
-    let host = RelayUrl::parse("wss://relay.example").unwrap();
     let mut tags = Vec::new();
     if let Some(parent) = parent {
         tags.push(vec!["parent".to_string(), parent.to_string()]);
@@ -29,30 +25,20 @@ fn group_snapshot(
         metadata: Some(GroupMetadata {
             name: Some(id.to_string()),
             about: about.map(str::to_string),
-            picture: None,
             tags,
-            as_of: Timestamp::from(1),
-            event_id: EventId::all_zeros(),
-            host: host.clone(),
+            as_of: std::time::Duration::from_secs(1),
         }),
         admins: admin
-            .map(|pubkey| ListedSubject {
-                pubkey,
-                role: Some("admin".to_string()),
-                hosts: BTreeSet::from([host]),
-            })
+            .map(|pubkey| ListedSubject::new(pubkey, vec!["admin".to_string()]))
             .into_iter()
             .collect(),
         members: Vec::new(),
         availability: GroupAvailability::Ready,
-        per_host: BTreeMap::new(),
-        disagreements: BTreeSet::new(),
     }
 }
 
 /// The daemon watches groups it already knows AND groups whose relay-signed
-/// roster names one of its identities. Only the second half can discover a
-/// group nobody enumerated, which is the whole reason the subject leaves exist.
+/// roster names one of its identities.
 #[test]
 fn coverage_carries_both_the_known_ids_and_the_local_identities() {
     let coverage = GroupRecordsCoverage::from_snapshot(
@@ -60,20 +46,21 @@ fn coverage_carries_both_the_known_ids_and_the_local_identities() {
             daemon_channels: set(["root"]),
             group_state_channels: set(["cached"]),
             addressed_pubkeys: set(["backend-pk", "session-pk"]),
-            sessions: BTreeMap::from([("session-pk".to_string(), set(["joined"]))]),
-            ..snapshot()
+            sessions: std::collections::BTreeMap::from([
+                ("session-pk".to_string(), set(["joined"])),
+            ]),
+            ..coverage_snapshot()
         },
         &[],
     );
 
     assert_eq!(coverage.ids, set(["root", "cached", "joined"]));
     assert_eq!(coverage.subjects, set(["backend-pk", "session-pk"]));
-    assert!(coverage.predicate().is_some());
+    assert!(!coverage.is_empty());
 }
 
 /// Archived channels are subtracted here, exactly as the subscription
-/// reconciler subtracts them, so the two coverage computations cannot drift
-/// into watching different sets.
+/// reconciler subtracts them.
 #[test]
 fn archived_channels_are_not_watched() {
     let coverage = GroupRecordsCoverage::from_snapshot(
@@ -81,7 +68,7 @@ fn archived_channels_are_not_watched() {
             daemon_channels: set(["live", "old"]),
             group_state_channels: set(["old"]),
             archived_channels: set(["old"]),
-            ..snapshot()
+            ..coverage_snapshot()
         },
         &[],
     );
@@ -89,28 +76,26 @@ fn archived_channels_are_not_watched() {
     assert_eq!(coverage.ids, set(["live"]));
 }
 
-/// Nothing to watch is a real state — a daemon with no channels and no
-/// identities — and it must not be spelled as an empty relay filter, which a
-/// relay would answer with everything or refuse.
+/// Nothing to watch is a real state.
 #[test]
-fn empty_coverage_yields_no_predicate() {
-    let coverage = GroupRecordsCoverage::from_snapshot(&snapshot(), &[]);
-    assert!(coverage.predicate().is_none());
+fn empty_coverage_is_empty() {
+    let coverage = GroupRecordsCoverage::from_snapshot(&coverage_snapshot(), &[]);
+    assert!(coverage.is_empty());
 }
 
-/// Identities alone are enough: a daemon holding no cached channel at all still
-/// asks "which groups list me", which is how a cold cache repopulates.
+/// Identities alone are enough: a daemon holding no cached channel still
+/// wants "which groups list me".
 #[test]
 fn identities_alone_are_watchable() {
     let coverage = GroupRecordsCoverage::from_snapshot(
         &CoverageSnapshot {
             addressed_pubkeys: set(["backend-pk"]),
-            ..snapshot()
+            ..coverage_snapshot()
         },
         &[],
     );
     assert!(coverage.ids.is_empty());
-    assert!(coverage.predicate().is_some());
+    assert!(!coverage.is_empty());
 }
 
 /// The plan is compared by value, so an unchanged daemon does not churn the
@@ -122,7 +107,7 @@ fn equal_snapshots_produce_equal_coverage() {
             &CoverageSnapshot {
                 daemon_channels: set(["root"]),
                 addressed_pubkeys: set(["backend-pk"]),
-                ..snapshot()
+                ..coverage_snapshot()
             },
             &[],
         )
@@ -132,37 +117,24 @@ fn equal_snapshots_produce_equal_coverage() {
 
 #[test]
 fn trusted_operators_are_group_discovery_subjects_but_not_addressed_identities() {
-    let snapshot = CoverageSnapshot {
+    let snap = CoverageSnapshot {
         addressed_pubkeys: set(["backend-pk"]),
-        ..snapshot()
+        ..coverage_snapshot()
     };
-    let coverage = GroupRecordsCoverage::from_snapshot(&snapshot, &["operator-pk".to_string()]);
+    let coverage = GroupRecordsCoverage::from_snapshot(&snap, &["operator-pk".to_string()]);
 
     assert_eq!(coverage.subjects, set(["backend-pk", "operator-pk"]));
-    assert_eq!(snapshot.addressed_pubkeys, set(["backend-pk"]));
+    assert_eq!(snap.addressed_pubkeys, set(["backend-pk"]));
 }
 
 #[test]
-fn retained_group_state_is_the_nmp_observation_itself() {
-    let watch = GroupRecordsWatch::default();
-    let retained: &Option<Arc<GroupObservation>> = &watch.published_observation;
-    assert!(retained.is_none());
-
-    let implementation = include_str!("../group_records.rs");
-    assert!(!implementation.contains("replace_groups"));
-    assert!(!implementation.contains("views().groups"));
-}
-
-#[test]
-fn handoff_requires_every_still_pinned_or_still_subject_owned_group() {
-    let admin = Keys::generate().public_key();
-    let member = Keys::generate().public_key();
+fn filter_keeps_groups_matching_coverage() {
+    let admin = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
     let mut member_group = group_snapshot("member-group", None, None, None);
-    member_group.members.push(ListedSubject {
-        pubkey: member,
-        role: Some("member".to_string()),
-        hosts: BTreeSet::from([RelayUrl::parse("wss://relay.example").unwrap()]),
-    });
+    member_group
+        .members
+        .push(ListedSubject::new(member, Vec::new()));
     let snapshots = vec![
         group_snapshot("pinned", None, None, None),
         group_snapshot("admin-group", None, None, Some(admin)),
@@ -176,25 +148,9 @@ fn handoff_requires_every_still_pinned_or_still_subject_owned_group() {
         ids: set(["pinned"]),
     };
 
-    assert_eq!(
-        handoff::required_snapshot_ids(&coverage, &snapshots),
-        set(["pinned", "admin-group", "member-group"])
-    );
-}
-
-#[test]
-fn handoff_waits_for_established_replacement_rows_not_seed_placeholders() {
-    let required = set(["first", "second"]);
-    let first = group_snapshot("first", None, None, None);
-    let mut second = group_snapshot("second", None, None, None);
-    second.availability = GroupAvailability::Acquiring;
-
-    assert!(!handoff::establishes(
-        &required,
-        &[first.clone(), second.clone()]
-    ));
-    second.availability = GroupAvailability::CachedOnly;
-    assert!(handoff::establishes(&required, &[first, second]));
+    let filtered = filter_for_coverage(&snapshots, &coverage);
+    let ids: BTreeSet<String> = filtered.into_iter().map(|s| s.id).collect();
+    assert_eq!(ids, set(["pinned", "admin-group", "member-group"]));
 }
 
 #[test]
@@ -211,9 +167,9 @@ fn every_new_snapshot_id_is_retained_for_discovery_reconcile() {
 }
 
 #[test]
-fn managed_roots_are_derived_from_current_nmp_snapshots() {
-    let backend = Keys::generate().public_key();
-    let other = Keys::generate().public_key();
+fn managed_roots_are_derived_from_current_snapshots() {
+    let backend = nostr::key::Keys::generate().public_key();
+    let other = nostr::key::Keys::generate().public_key();
     let snapshots = vec![
         group_snapshot("managed", None, None, Some(backend)),
         group_snapshot("child", Some("managed"), None, Some(backend)),

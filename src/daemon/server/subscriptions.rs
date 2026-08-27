@@ -74,6 +74,38 @@ pub(in crate::daemon::server) async fn reconcile_subs_logged(
     }
 }
 
+pub(in crate::daemon::server) fn reconcile_after_group_state_event(
+    state: &Arc<DaemonState>,
+    event: &nostr::event::Event,
+    first_sight: bool,
+) {
+    use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
+    if !first_sight
+        || !matches!(
+            event.kind.as_u16(),
+            KIND_GROUP_METADATA | KIND_GROUP_ADMINS | KIND_GROUP_MEMBERS
+        )
+    {
+        return;
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        reconcile_subs_logged(&state, "group state changed").await;
+    });
+}
+
+/// Apply policy effects through NMP. NMP owns relay planning, observation
+/// lifecycle, reconnect repair, and canonical wire-event deduplication.
+pub(in crate::daemon::server) async fn apply_effects(
+    state: &Arc<DaemonState>,
+    effects: Vec<SubEffect>,
+) -> Result<()> {
+    for effect in effects {
+        apply_effect(state, &effect).await?;
+    }
+    Ok(())
+}
+
 async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()> {
     if let SubEffect::Close { id } = effect {
         tracing::debug!(
@@ -84,12 +116,12 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     state.nmp().apply(effect)
 }
 
-/// Spawn-on-mention catch-up. Under the single broad `#h` observation
-/// (mosaico#837) the channel is already covered, and joining a new channel
-/// replaces the broad observation with the new set so NMP re-emits its
-/// canonical current rows. `RecentRows` already holds the recent window, so a
-/// newly-running session reads current state directly. This is now a no-op;
-/// the call site (`session_start`) keeps the hook for a future per-channel
+/// Reopen the channel observation so the session sees canonical current rows
+/// for a channel it joined after the mention was first observed.
+///
+/// Under the broad `#h` observation this is a no-op: `RecentRows` already
+/// holds the recent window and a newly-running session reads state directly.
+/// The call site in `session_start` keeps the hook for a future per-channel
 /// `request_rows` backfill if a channel's depth needs topping up.
 pub(in crate::daemon::server) async fn replay_channel_chat(_state: &Arc<DaemonState>, h: &str) {
     tracing::debug!(

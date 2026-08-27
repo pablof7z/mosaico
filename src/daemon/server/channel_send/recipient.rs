@@ -41,7 +41,7 @@ pub(in crate::daemon::server) fn resolve_recipient(
             })
         }
         Ref::Pubkey(raw) => {
-            let pubkey = nostr::PublicKey::parse(&raw)
+            let pubkey = nostr::key::PublicKey::parse(&raw)
                 .map(|pk| pk.to_hex())
                 .unwrap_or(raw);
             Ok(ResolvedRecipient {

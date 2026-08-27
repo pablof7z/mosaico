@@ -1,8 +1,95 @@
-use crate::state::Status;
+use crate::state::{Profile, Status};
 
 use super::NmpViews;
 
 impl NmpViews {
+    pub(crate) fn profile(&self, pubkey: &str) -> Option<Profile> {
+        #[cfg(test)]
+        if self.test_relay_delivery().is_some() {
+            return self
+                .projected_profiles()
+                .into_iter()
+                .find(|profile| profile.pubkey == pubkey);
+        }
+        self.observed_profile(pubkey)
+            .map(|profile| profile.as_state_profile())
+    }
+
+    pub(crate) fn profiles(&self) -> Vec<Profile> {
+        self.projected_profiles()
+    }
+
+    pub(crate) fn backend_profiles(&self) -> Vec<Profile> {
+        let mut profiles = self
+            .projected_profiles()
+            .into_iter()
+            .filter(|profile| profile.is_backend)
+            .collect::<Vec<_>>();
+        profiles
+            .sort_by(|left, right| (&left.host, &left.pubkey).cmp(&(&right.host, &right.pubkey)));
+        profiles
+    }
+
+    pub(crate) fn resolve_agent_pubkey(&self, slug: &str, host: &str) -> Option<String> {
+        let name = crate::idref::agent_label(slug, host);
+        let mut matches = self
+            .projected_profiles()
+            .into_iter()
+            .filter(|profile| {
+                !profile.is_backend
+                    && profile.agent_slug.is_empty()
+                    && profile.host == host
+                    && (profile.slug == slug || profile.name == name)
+            })
+            .map(|profile| profile.pubkey)
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.into_iter().next()
+    }
+
+    pub(crate) fn resolve_profile_handle_pubkey(
+        &self,
+        handle: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let handle = handle.trim();
+        let mut matches = self
+            .projected_profiles()
+            .into_iter()
+            .filter(|profile| {
+                !profile.is_backend
+                    && !profile.agent_slug.is_empty()
+                    && (profile.name == handle || profile.slug == handle)
+            })
+            .map(|profile| profile.pubkey)
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.dedup();
+        match matches.as_slice() {
+            [] => Ok(None),
+            [pubkey] => Ok(Some(pubkey.clone())),
+            _ => anyhow::bail!("remote handle {handle:?} is ambiguous"),
+        }
+    }
+
+    pub(crate) fn pubkey_for_backend_label(&self, label: &str) -> Option<String> {
+        let mut matches = self
+            .projected_profiles()
+            .into_iter()
+            .filter(|profile| profile.is_backend && profile.host == label)
+            .map(|profile| profile.pubkey)
+            .collect::<Vec<_>>();
+        matches.sort();
+        matches.into_iter().next()
+    }
+
+    pub(crate) fn slug_for_pubkey(&self, pubkey: &str) -> Option<String> {
+        self.profile(pubkey)
+            .map(|profile| {
+                crate::idref::session_handle_from_profile_name(&profile.slug, &profile.agent_slug)
+            })
+            .filter(|slug| !slug.is_empty())
+    }
+
     pub(crate) fn status(&self, pubkey: &str, channel: &str) -> Option<Status> {
         self.projected_statuses_for_channel(channel)
             .into_iter()
@@ -37,9 +124,11 @@ impl NmpViews {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, RelayUrl, Tag, Timestamp};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
+    use nostr::types::Timestamp;
 
     fn status_row() -> Row {
         let event = EventBuilder::new(Kind::from(30315_u16), "writing focused tests")
@@ -59,33 +148,27 @@ mod tests {
                 Tag::parse(["e", "dispatch-event"]).unwrap(),
             ])
             .custom_created_at(Timestamp::from(123_u64))
-            .sign_with_keys(&Keys::generate())
+            .finalize(&Keys::generate())
             .unwrap();
-        Row::from_relay_event(
-            event,
-            BTreeSet::from([RelayUrl::parse("wss://relay.example").unwrap()]),
-        )
+        Row { event }
     }
 
     #[test]
-    fn status_projection_fans_out_to_every_named_channel_then_disappears() {
-        // Under the single broad `#h` observation (mosaico#837) a kind:30315
-        // status arrives once and names one or more channels in its own `#h`
-        // tags; the projection fans it out to every named channel, and drops it
-        // from all of them when the row leaves. The channel comes from the
-        // decoded status, not a per-channel observation id.
-        let broad = crate::reconcile::subscriptions::BROAD_H_ID;
+    fn status_projection_follows_exact_observation_scope_and_disappearance() {
         let views = NmpViews::default();
         let row = status_row();
-        let id = row.id();
+        let id = row.event.id;
 
-        views.apply_frame(broad, 1, vec![RowDelta::Added(row.clone())], vec![]);
+        views.apply_frame(
+            "mosaico-h-alpha",
+            1,
+            vec![RowDelta::Added(row.clone())],
+        );
         let alpha = views
             .observed_statuses_for_channel("alpha")
             .pop()
-            .expect("alpha is projected by the fan-out");
-        assert_eq!(alpha.row.id(), id);
-        assert_eq!(alpha.row.sources, row.sources);
+            .expect("alpha observation owns the row");
+        assert_eq!(alpha.row.event.id, id);
         assert_eq!(alpha.status.channels, ["alpha", "beta"]);
         assert_eq!(alpha.status.activity, "writing focused tests");
         assert_eq!(alpha.status.rel_cwd, "worktree");
@@ -94,22 +177,23 @@ mod tests {
             Some("dispatch-event")
         );
         assert_eq!(alpha.status.expires_at, Some(1));
-        assert_eq!(
-            views.statuses_in_channel("alpha").len(),
-            1,
-            "alpha is projected"
-        );
-        assert_eq!(
-            views.statuses_in_channel("beta").len(),
-            1,
-            "beta is projected by the fan-out, not by a separate observation"
-        );
-
-        let removed = views.apply_frame(broad, 1, vec![RowDelta::Removed(id)], vec![]);
-        assert_eq!(removed.removed.len(), 1);
-        assert_eq!(removed.removed[0].row.id(), id);
-        assert!(views.statuses_in_channel("alpha").is_empty());
         assert!(views.statuses_in_channel("beta").is_empty());
-        assert!(views.recent_rows().event(&id.to_hex()).is_none());
+
+        views.apply_frame("mosaico-h-beta", 1, vec![RowDelta::Added(row)]);
+        assert_eq!(views.statuses_in_channel("beta").len(), 1);
+
+        let beta_departure = views.close_observation("mosaico-h-beta", 1).removed;
+        assert_eq!(beta_departure.len(), 1);
+        assert_eq!(beta_departure[0].observation_id, "mosaico-h-beta");
+        assert_eq!(beta_departure[0].row.event.id, id);
+        assert!(views.statuses_in_channel("beta").is_empty());
+        assert_eq!(views.statuses_in_channel("alpha").len(), 1);
+
+        let alpha_departure =
+            views.apply_frame("mosaico-h-alpha", 1, vec![RowDelta::Removed(id)]);
+        assert_eq!(alpha_departure.removed.len(), 1);
+        assert_eq!(alpha_departure.removed[0].row.event.id, id);
+        assert!(views.statuses_in_channel("alpha").is_empty());
+        assert!(views.row(&id).is_none());
     }
 }

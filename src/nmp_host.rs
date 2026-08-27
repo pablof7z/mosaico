@@ -1,23 +1,34 @@
-//! NMP-backed Nostr acquisition and durable publication.
+//! Fava-backed Nostr acquisition and durable publication.
 //!
-//! NMP owns relay planning, subscription lifecycle, canonical wire-event
-//! deduplication, current event state, and acquisition evidence. Mosaico keeps
-//! only process-local presentation projections and genuinely local durable
-//! facts. NMP also owns every durable write intent, route, receipt, and bounded
-//! retry. Shared reads are public because Mosaico-created groups are deliberately
-//! public; writes authenticate as the exact event author. The provider supplies
-//! product policy and exact host authority.
+//! Fava owns relay planning, subscription lifecycle, canonical wire-event
+//! deduplication, current event state, and NIP-42 authentication. Mosaico
+//! keeps only process-local presentation projections and genuinely local
+//! durable facts. Fava also owns every durable write intent, route, receipt,
+//! and bounded retry. Shared reads are public because Mosaico-created groups
+//! are deliberately public; writes authenticate as the exact event author.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use nmp::{Engine, EngineConfig, ObservationCancel, PublicKey, RelayUrl};
-use nostr::Keys;
+use fava::{EventValue, Fava, FavaBuilder, Observation, ObservationClosed, RelayUrl};
+use fava_delivery_standard::StandardDeliveryPolicy;
+use fava_event_cache_memory::MemoryEventCache;
+use fava_publisher_nip01::Nip01Publisher;
+use fava_query_standard::StandardQueryEvaluator;
+use fava_router_app_relays::AppRelayRouter;
+use fava_signer_local::LocalSigner;
+use fava_subscriptions_no_grouping::planner;
+use fava_transport_websocket::WebSocketTransport;
+use fava_write_store_memory::MemoryWriteStore;
+use fava_write_store_redb::RedbWriteStore;
+use nostr::key::Keys;
 use tokio::sync::mpsc;
 
 use crate::reconcile::{SubEffect, SubscriptionQuery};
+use crate::row::{Row, RowDelta};
+
 mod auth;
 mod query;
 pub(crate) mod read;
@@ -30,7 +41,6 @@ mod test_io;
 pub(crate) mod write;
 
 use crate::nmp_views::{NmpViews, RowTransition};
-use auth::IdentityRegistration;
 
 mod profile_feed;
 pub(crate) use profile_feed::ProfileFeed;
@@ -40,50 +50,40 @@ mod test_relay;
 pub(crate) use test_relay::PlainRelay;
 
 const VIEW_TRANSITION_QUEUE_CAPACITY: usize = 2048;
-const MAX_LOCAL_IDENTITIES: usize = 4096;
 
-/// Bounded newest-first window per observation: NMP delivers the recent
-/// `OBSERVATION_WINDOW_INITIAL` rows on boot and grows up to
-/// `OBSERVATION_WINDOW_MAX` on explicit `request_rows` (the on-demand path for
-/// agent tools reading older history). This bounds the boot read and the
-/// retained row set — no O(history) mirror rebuild (#837). The max matches
-/// `RecentRows`' per-channel cap so the retained window and the delivered
-/// window agree.
-const OBSERVATION_WINDOW_INITIAL: usize = 500;
+/// Maximum row target for a windowed broad `#h` observation (mosaico#837).
+/// Fava delivers complete snapshots rather than windowed streams, so this
+/// constant is exposed for callers that expect it but `request_rows` is a
+/// no-op: all retained rows are already in the `RecentRows` store.
 pub(crate) const OBSERVATION_WINDOW_MAX: usize = 10_000;
 
 struct ActiveObservation {
-    cancel: ObservationCancel,
-    /// Cloneable growth capability for a windowed observation. `None` for an
-    /// unbounded observation. `request_rows` grows the window for on-demand
-    /// older-history backfill (mosaico#837).
-    window: Option<nmp::WindowHandle>,
+    // Task owns the Observation; aborting drops it → Observation::drop → close().
+    _task: tokio::task::JoinHandle<()>,
 }
 
 pub(crate) struct NmpHost {
-    engine: Engine,
+    pub(crate) fava: Fava,
     relays: BTreeSet<RelayUrl>,
-    profile_relays: BTreeSet<RelayUrl>,
-    identities: Mutex<BTreeMap<nostr::PublicKey, IdentityRegistration>>,
-    signing: Mutex<()>,
+    pub(crate) profile_relays: BTreeSet<RelayUrl>,
     subscriptions: Mutex<BTreeMap<String, ActiveObservation>>,
     next_observation_generation: Mutex<u64>,
     views: Arc<NmpViews>,
     transition_tx: Mutex<Option<mpsc::Sender<RowTransition>>>,
     transition_rx: Mutex<Option<mpsc::Receiver<RowTransition>>>,
     #[cfg(test)]
-    test_io: test_io::TestIo,
+    pub(crate) test_io: test_io::TestIo,
 }
 
 impl NmpHost {
-    /// Open the durable store and the engine over it.
+    /// Open the durable store and the fava engine over it.
     ///
-    /// A store NMP refuses comes back as an error carrying the typed
-    /// [`nmp::EngineError`] as its source, so a caller decides what to do from
-    /// [`store::StoreCondition::of_open_error`] — never by reading the message.
-    /// The distinction that matters is the one between a superseded schema
-    /// epoch, which only discarding the store fixes, and every other refusal,
-    /// which discarding the store makes permanently worse.
+    /// A store refusal comes back as an error carrying the typed
+    /// [`store::StoreCondition`] as its source, so a caller decides what to do
+    /// from [`store::StoreCondition::of_open_error`] — never by reading the
+    /// message. The distinction that matters is the one between a superseded
+    /// schema epoch, which only discarding the store fixes, and every other
+    /// refusal, which discarding the store makes permanently worse.
     pub(crate) fn open(
         relays: &[String],
         indexer_relay: Option<&str>,
@@ -94,30 +94,18 @@ impl NmpHost {
             .iter()
             .map(|relay| RelayUrl::parse(relay).with_context(|| format!("invalid relay {relay}")))
             .collect::<Result<BTreeSet<_>>>()?;
-        let mut config = EngineConfig {
-            store_path: store_path.map(|path| path.to_string_lossy().into_owned()),
-            app_relays: relays.to_vec(),
-            ..EngineConfig::default()
-        };
-        // A daemon can host many durable agent identities over its lifetime.
-        // Keep the registry finite, but do not inherit NMP's small demo default.
-        // Each identity consumes one signer registration and one AUTH-policy
-        // registration from NMP's shared capability ceiling.
-        config.max_auth_capabilities = MAX_LOCAL_IDENTITIES * 2;
         let mut profile_relays = parsed.clone();
         if let Some(indexer) = indexer_relay.filter(|relay| !relay.is_empty()) {
             let parsed_indexer = RelayUrl::parse(indexer)
                 .with_context(|| format!("invalid indexer relay {indexer}"))?;
             profile_relays.insert(parsed_indexer);
         }
-        let engine = Engine::new(config).map_err(store::opening_refused)?;
+        let fava = build_fava(&parsed, store_path, backend_keys)?;
         let (transition_tx, transition_rx) = mpsc::channel(VIEW_TRANSITION_QUEUE_CAPACITY);
-        let host = Self {
-            engine,
+        Ok(Self {
+            fava,
             relays: parsed,
             profile_relays,
-            identities: Mutex::new(BTreeMap::new()),
-            signing: Mutex::new(()),
             subscriptions: Mutex::new(BTreeMap::new()),
             next_observation_generation: Mutex::new(0),
             views: Arc::new(NmpViews::default()),
@@ -125,21 +113,10 @@ impl NmpHost {
             transition_rx: Mutex::new(Some(transition_rx)),
             #[cfg(test)]
             test_io: test_io::TestIo::default(),
-        };
-        host.ensure_identity(backend_keys)
-            .context("registering backend NIP-42 identity")?;
-        // The backend key is the engine's default current account: `sign_event`
-        // signs as whichever account is current, and Mosaico's sign path
-        // temporarily swaps in the target author before restoring this one.
-        host.engine
-            .make_current_account(backend_keys.public_key())
-            .context("selecting backend NMP account")?;
-        Ok(host)
+        })
     }
 
-    /// Take the one lossless stream feeding Mosaico's product side effects.
-    /// A bounded channel deliberately backpressures observation drains instead
-    /// of dropping NMP transitions under a relay burst.
+    /// The product-side view projections accumulated from fava deliveries.
     pub(crate) fn views(&self) -> &NmpViews {
         &self.views
     }
@@ -148,6 +125,9 @@ impl NmpHost {
         self.views.clone()
     }
 
+    /// Take the one lossless stream feeding Mosaico's product side effects.
+    /// A bounded channel deliberately backpressures observation drains instead
+    /// of dropping transitions under a relay burst.
     pub(crate) fn take_view_transitions(&self) -> Result<mpsc::Receiver<RowTransition>> {
         self.transition_rx
             .lock()
@@ -156,33 +136,42 @@ impl NmpHost {
             .context("NMP view transition stream is already owned")
     }
 
-    /// Open a caller-owned NMP observation. Dropping the returned value closes
-    /// it, making this suitable for precise, short-lived correlation queries.
-    pub(crate) fn observe(&self, query: &SubscriptionQuery) -> Result<nmp::Subscription> {
-        self.observe_with_access(query, None)
+    /// The loopback / private-network hosts the operator opted in by naming
+    /// them as relays.
+    ///
+    /// One allowlist, one vocabulary. A Blossom dial to the same host has to
+    /// clear the same destination policy the engine applies to the relay, or
+    /// a local test fixture works for one and is refused by the other.
+    pub(crate) fn allowed_local_hosts(&self) -> BTreeSet<String> {
+        local_relay_hosts(self.profile_relays.iter())
+            .into_iter()
+            .collect()
     }
 
-    fn observe_with_access(
+    /// Open a caller-owned fava observation. Dropping the returned value closes
+    /// it, making this suitable for precise, short-lived correlation queries.
+    pub(crate) fn observe(&self, query: &SubscriptionQuery) -> Result<Observation> {
+        let q = self.fava_query(query)?;
+        observe_sync(&self.fava, q)
+    }
+
+    /// Open a retained observation over all group records (39000/39001/39002).
+    /// Sync entry point; bridges via the current tokio runtime handle.
+    pub(crate) fn open_group_records_observation(&self) -> Result<Observation> {
+        let query = self.all_group_records_query()?;
+        observe_sync(&self.fava, query)
+    }
+
+    /// Open a retained observation over one group's records (async entry point).
+    pub(crate) async fn open_one_group_records_observation(
         &self,
-        query: &SubscriptionQuery,
-        authenticate_as: Option<PublicKey>,
-    ) -> Result<nmp::Subscription> {
-        // Bounded newest-first window: NMP delivers only the recent INITIAL
-        // rows on boot and grows up to MAX on explicit `request_rows` (the
-        // on-demand path for agent tools reading older history). This bounds
-        // the boot read and the retained row set — no O(history) mirror
-        // rebuild (#837). It is the option-B contract: recent activity is
-        // sync-readable from the retained window; older rows are fetched on
-        // demand, not mirrored.
-        let window = nmp::Window::Expandable {
-            initial: std::num::NonZeroUsize::new(OBSERVATION_WINDOW_INITIAL)
-                .expect("window initial is nonzero"),
-            max: std::num::NonZeroUsize::new(OBSERVATION_WINDOW_MAX)
-                .expect("window max is nonzero"),
-        };
-        self.engine
-            .observe(self.live_query(query, authenticate_as)?, Some(window))
-            .context("opening NMP observation")
+        group: &str,
+    ) -> Result<Observation> {
+        let query = self.one_group_records_query(group)?;
+        self.fava
+            .observe(query)
+            .await
+            .context("opening one-group-records observation")
     }
 
     pub(crate) fn shutdown(&self) {
@@ -193,13 +182,19 @@ impl NmpHost {
                 .unwrap_or_else(|poison| poison.into_inner()),
         );
         for (_, active) in subscriptions {
-            active.cancel.cancel();
+            active._task.abort();
         }
         self.transition_tx
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take();
-        self.engine.shutdown();
+    }
+
+    /// No-op under fava: fava delivers complete snapshots rather than windowed
+    /// streams, so all retained rows are already in `RecentRows`. The constant
+    /// `OBSERVATION_WINDOW_MAX` is exposed for callers that need the max value.
+    pub(crate) fn request_rows(&self, _id: &str, _at_least: usize) -> Result<()> {
+        Ok(())
     }
 
     pub(crate) fn apply(&self, effect: &SubEffect) -> Result<()> {
@@ -215,11 +210,11 @@ impl NmpHost {
     }
 
     fn open_subscription(&self, id: &str, query: &SubscriptionQuery) -> Result<()> {
-        let subscription = self
-            .observe(query)
-            .with_context(|| format!("opening NMP observation {id}"))?;
-        let cancel = subscription.cancel_handle();
-        let window = subscription.window_handle();
+        let q = self
+            .fava_query(query)
+            .with_context(|| format!("building fava query for subscription {id}"))?;
+        let observation = observe_sync(&self.fava, q)
+            .with_context(|| format!("opening fava observation {id}"))?;
         let generation = self.allocate_observation_generation();
         self.views.begin_observation(id, generation);
         let transitions = self
@@ -230,69 +225,32 @@ impl NmpHost {
             .context("NMP host is shut down")?;
         let views = self.views.clone();
         let observation_id = id.to_string();
-        std::thread::Builder::new()
-            .name(format!("nmp-{id}"))
-            .spawn(move || {
-                while let Ok(frame) = subscription.recv() {
-                    let transition = views.apply_frame(
-                        &observation_id,
-                        generation,
-                        frame.deltas,
-                        frame.evidence,
-                    );
-                    if !transition.is_empty() && transitions.blocking_send(transition).is_err() {
-                        return;
-                    }
-                }
-                let transition = views.close_observation(&observation_id, generation);
-                if !transition.is_empty() {
-                    let _ = transitions.blocking_send(transition);
-                }
-            })
-            .with_context(|| format!("starting NMP observation drain {id}"))?;
-        let previous = self
-            .subscriptions
+        // Drop previous before spawning; dropping ActiveObservation aborts its
+        // task, which drops the Observation → Observation::Drop → close().
+        self.subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
-            .insert(id.to_string(), ActiveObservation { cancel, window });
-        if let Some(previous) = previous {
-            previous.cancel.cancel();
-        }
+            .remove(id);
+        let task = tokio::spawn(drain_subscription(
+            observation,
+            views,
+            transitions,
+            observation_id,
+            generation,
+        ));
+        self.subscriptions
+            .lock()
+            .expect("NMP subscription mutex poisoned")
+            .insert(id.to_string(), ActiveObservation { _task: task });
         Ok(())
     }
 
     fn close_subscription(&self, id: &str) {
-        if let Some(active) = self
-            .subscriptions
+        // Dropping the ActiveObservation aborts its task → drops Observation → close().
+        self.subscriptions
             .lock()
             .expect("NMP subscription mutex poisoned")
-            .remove(id)
-        {
-            active.cancel.cancel();
-        }
-    }
-
-    /// Monotonically raise the windowed observation's row target to at least
-    /// `at_least`, clamped to the observation's declared max. Idempotent; a
-    /// value at or below the current target is a no-op. The broad `#h`
-    /// observation's window is total across all channels (not per `#h`), so this
-    /// backfills older history for every covered channel at once (mosaico#837).
-    /// Growth arrives as new rows in subsequent frames — the caller re-reads to
-    /// see them. Returns an error for an unwindowed or unknown observation.
-    pub(crate) fn request_rows(&self, id: &str, at_least: usize) -> Result<()> {
-        let active = self
-            .subscriptions
-            .lock()
-            .expect("NMP subscription mutex poisoned")
-            .get(id)
-            .map(|active| active.window.clone());
-        match active {
-            Some(Some(handle)) => handle
-                .request_rows(at_least)
-                .with_context(|| format!("requesting {at_least} rows for {id}")),
-            Some(None) => anyhow::bail!("observation {id} is not windowed"),
-            None => anyhow::bail!("observation {id} is not open"),
-        }
+            .remove(id);
     }
 
     fn allocate_observation_generation(&self) -> u64 {
@@ -311,6 +269,111 @@ impl Drop for NmpHost {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+async fn drain_subscription(
+    mut observation: Observation,
+    views: Arc<NmpViews>,
+    transitions: mpsc::Sender<RowTransition>,
+    observation_id: String,
+    generation: u64,
+) {
+    let mut prev_ids: BTreeSet<nostr::event::EventId> = BTreeSet::new();
+    loop {
+        match observation.changed().await {
+            Ok(snapshot) => {
+                let curr_events: BTreeMap<nostr::event::EventId, Row> = snapshot
+                    .events
+                    .iter()
+                    .filter_map(|record| match record.event() {
+                        EventValue::Signed(e) => Some((e.id, Row { event: e.clone() })),
+                        EventValue::Unsigned(_) => None,
+                    })
+                    .collect();
+                let curr_ids: BTreeSet<nostr::event::EventId> = curr_events.keys().copied().collect();
+                let mut deltas = Vec::new();
+                for removed_id in prev_ids.difference(&curr_ids) {
+                    deltas.push(RowDelta::Removed(*removed_id));
+                }
+                for added_id in curr_ids.difference(&prev_ids) {
+                    if let Some(row) = curr_events.get(added_id).cloned() {
+                        deltas.push(RowDelta::Added(row));
+                    }
+                }
+                prev_ids = curr_ids;
+                if !deltas.is_empty() {
+                    let transition = views.apply_frame(&observation_id, generation, deltas);
+                    if !transition.is_empty() && transitions.send(transition).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            Err(ObservationClosed) => break,
+        }
+    }
+    let transition = views.close_observation(&observation_id, generation);
+    if !transition.is_empty() {
+        let _ = transitions.send(transition).await;
+    }
+}
+
+/// Bridge a sync caller into an async `fava.observe()` via the current runtime.
+///
+/// Uses a new OS thread so that `Handle::block_on` is not called from within an
+/// existing async task (which would panic on both single- and multi-thread
+/// runtimes).
+pub(crate) fn observe_sync(fava: &Fava, query: fava::Query) -> Result<Observation> {
+    let handle = tokio::runtime::Handle::try_current()
+        .context("fava observe: no tokio runtime available")?;
+    let fava = fava.clone();
+    std::thread::spawn(move || handle.block_on(fava.observe(query)))
+        .join()
+        .map_err(|_| anyhow::anyhow!("fava observe thread panicked"))?
+        .context("opening fava observation")
+}
+
+fn build_fava(relays: &BTreeSet<RelayUrl>, store_path: Option<&Path>, keys: &Keys) -> Result<Fava> {
+    let event_cache = Arc::new(MemoryEventCache::default());
+    let evaluator = Arc::new(StandardQueryEvaluator);
+    let sub_planner = Arc::new(planner());
+    let transport = Arc::new(WebSocketTransport::new());
+    let router = Arc::new(AppRelayRouter::new("app", relays.iter().cloned()));
+    let signer = Arc::new(LocalSigner::new(keys.clone()));
+    let publisher = Arc::new(Nip01Publisher);
+    let delivery = Arc::new(StandardDeliveryPolicy::default());
+
+    let base = FavaBuilder::default()
+        .event_cache(event_cache)
+        .query_evaluator(evaluator)
+        .subscription_planner(sub_planner)
+        .transport(transport)
+        .router(router)
+        .signer(signer)
+        .publisher(publisher)
+        .delivery_policy(delivery);
+
+    if let Some(path) = store_path {
+        let store = RedbWriteStore::open(path)
+            .map_err(|e| store::opening_refused(e, path))?;
+        base.write_store(Arc::new(store))
+    } else {
+        base.write_store(Arc::new(MemoryWriteStore::default()))
+    }
+    .build()
+    .map_err(|e| anyhow::anyhow!("fava build failed: {e}"))
+}
+
+fn local_relay_hosts<'a>(relays: impl IntoIterator<Item = &'a RelayUrl>) -> Vec<String> {
+    relays
+        .into_iter()
+        .filter(|relay| relay.is_localhost() || relay.is_local_addr())
+        .filter_map(|relay| match relay.host() {
+            Some(url::Host::Domain(d)) => Some(d.to_string()),
+            Some(url::Host::Ipv4(ip)) => Some(ip.to_string()),
+            Some(url::Host::Ipv6(ip)) => Some(ip.to_string()),
+            None => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

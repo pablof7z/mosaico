@@ -26,14 +26,14 @@ fn superseded_epoch_store(path: &Path) {
 }
 
 fn condition_for(path: &Path) -> StoreCondition {
-    let error = super::super::NmpHost::open(&[], None, Some(path), &nostr::Keys::generate())
+    let error = super::super::NmpHost::open(&[], None, Some(path), &nostr::key::Keys::generate())
         .err()
         .expect("fixture must make NMP refuse the store");
     StoreCondition::of_open_error(&error).expect("refusal must remain a typed store condition")
 }
 
-#[test]
-fn a_superseded_epoch_is_the_one_condition_that_names_a_full_reset() {
+#[tokio::test]
+async fn a_superseded_epoch_is_the_one_condition_that_names_a_full_reset() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
@@ -99,15 +99,15 @@ fn damaged_bytes_are_a_condition_that_offers_no_reset() {
     );
 }
 
-#[test]
-fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
+#[tokio::test]
+async fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
 
     reset(&path).expect("a closed superseded store must be resettable");
     assert!(!path.exists(), "NMP's reset must remove the complete store");
-    let reopened = super::super::NmpHost::open(&[], None, Some(&path), &nostr::Keys::generate())
+    let reopened = super::super::NmpHost::open(&[], None, Some(&path), &nostr::key::Keys::generate())
         .expect("the path an operator was told to clear must open afterwards");
     drop(reopened);
     reset(&path).expect("a missing store is already reset");
@@ -115,13 +115,13 @@ fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
 
 /// A refusal `NmpHost::open` returns must still be classifiable after `anyhow`
 /// has carried it.
-#[test]
-fn the_condition_survives_the_host_open_door_as_a_type_not_a_message() {
+#[tokio::test]
+async fn the_condition_survives_the_host_open_door_as_a_type_not_a_message() {
     let fixture = tempfile::tempdir().expect("temporary directory");
     let path = fixture.path().join("superseded.redb");
     superseded_epoch_store(&path);
 
-    let error = super::super::NmpHost::open(&[], None, Some(&path), &nostr::Keys::generate())
+    let error = super::super::NmpHost::open(&[], None, Some(&path), &nostr::key::Keys::generate())
         .err()
         .expect("a superseded-epoch store must refuse the host open");
     let condition = StoreCondition::of_open_error(&error)
@@ -137,7 +137,7 @@ fn the_condition_survives_the_host_open_door_as_a_type_not_a_message() {
         &["not a relay url".to_string()],
         None,
         None,
-        &nostr::Keys::generate(),
+        &nostr::key::Keys::generate(),
     )
     .err()
     .expect("an unparseable relay must refuse the host open");

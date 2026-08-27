@@ -7,7 +7,8 @@
 
 use crate::fabric::nip29::wire::{kind, KIND_CHAT, KIND_STATUS};
 use anyhow::Result;
-use nostr::*;
+use nostr::event::{Event, EventBuilder, Tag};
+use nostr::key::Keys;
 
 pub const MOSAICO_OP_SESSION_DISPATCH: &str = "session.dispatch.v1";
 
@@ -45,8 +46,7 @@ pub fn build_session_dispatch_event(
         tags.push(tag(&["channel", channel])?);
     }
     Ok(EventBuilder::new(kind(KIND_CHAT), prose)
-        .tags(tags)
-        .allow_self_tagging())
+        .tags(tags))
 }
 
 pub fn parse_session_dispatch(event: &Event) -> Option<SessionDispatchOp> {
@@ -128,7 +128,8 @@ mod tests {
     use super::*;
 
     fn sign(b: EventBuilder) -> Event {
-        b.sign_with_keys(&Keys::generate()).unwrap()
+        use nostr::event::FinalizeEvent;
+        b.finalize(&Keys::generate()).unwrap()
     }
 
     /// Sign the draft into `group` exactly as the publish path does: NMP's

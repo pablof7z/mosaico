@@ -16,7 +16,8 @@ use crate::daemon::server::DaemonState;
 use crate::state::Store;
 use crate::util::pubkey_short;
 use nostr::nips::nip19::Nip19Profile;
-use nostr::{FromBech32, PublicKey};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::FromBech32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 

@@ -2,7 +2,7 @@ use super::Nip29Provider;
 use crate::domain::{DomainEvent, Reaction};
 use crate::fabric::NostrEventCodec;
 use anyhow::Result;
-use nostr::Keys;
+use nostr::key::Keys;
 
 impl Nip29Provider {
     /// Publish a NIP-25 kind:7 reaction through NMP's group door, gating the

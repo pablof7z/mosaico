@@ -5,7 +5,7 @@ use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
 use mosaico::identity;
 use mosaico::state::{Session, Store};
-use nostr::Keys;
+use nostr::key::Keys;
 use std::path::Path;
 use std::time::Duration;
 
@@ -204,8 +204,9 @@ async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .expect("encode kind:9");
+    use nostr::event::FinalizeEvent as _;
     let signed = sign_builder_into_group(channel, builder, &keys)
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .expect("sign kind:9");
     let out = client.send_event(&signed).await.expect("publish kind:9");
     assert!(

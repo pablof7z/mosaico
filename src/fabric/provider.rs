@@ -77,7 +77,7 @@ impl Nip29Provider {
     }
 
     /// Encode a domain event to an `EventBuilder` via the NIP-29 wire codec.
-    pub fn encode(&self, ev: &DomainEvent) -> Result<nostr::EventBuilder> {
+    pub fn encode(&self, ev: &DomainEvent) -> Result<nostr::event::EventBuilder> {
         self.wire.encode(ev)
     }
 
@@ -88,7 +88,7 @@ impl Nip29Provider {
 
     /// Encode, sign, and durably enqueue one domain event. Relay delivery is
     /// always owned by NMP after this local acceptance boundary.
-    pub async fn enqueue(&self, ev: &DomainEvent, keys: &nostr::Keys) -> Result<nostr::EventId> {
+    pub async fn enqueue(&self, ev: &DomainEvent, keys: &nostr::key::Keys) -> Result<nostr::event::EventId> {
         self.enqueue_with_confirmed_scope(ev, keys, None).await
     }
 
@@ -98,9 +98,9 @@ impl Nip29Provider {
     pub(crate) async fn enqueue_status_after_confirmed_scope(
         &self,
         status: &crate::domain::Status,
-        keys: &nostr::Keys,
+        keys: &nostr::key::Keys,
         scope: &ConfirmedGroupScope,
-    ) -> Result<nostr::EventId> {
+    ) -> Result<nostr::event::EventId> {
         self.enqueue_with_confirmed_scope(&DomainEvent::Status(status.clone()), keys, Some(scope))
             .await
     }
@@ -108,9 +108,9 @@ impl Nip29Provider {
     async fn enqueue_with_confirmed_scope(
         &self,
         ev: &DomainEvent,
-        keys: &nostr::Keys,
+        keys: &nostr::key::Keys,
         confirmed_scope: Option<&ConfirmedGroupScope>,
-    ) -> Result<nostr::EventId> {
+    ) -> Result<nostr::event::EventId> {
         // kind:0 profiles route to BOTH the indexer relay (purplepag.es) AND
         // the main NIP-29 relay(s) — the group relay accepts kind:0 fine, so
         // relying on the indexer alone leaves backend/agent name resolution

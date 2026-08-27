@@ -1,12 +1,17 @@
-//! Lifecycle-owned presentation state accumulated from NMP deliveries.
+//! Lifecycle-owned presentation state accumulated from fava deliveries.
 //!
 //! This is deliberately process-local. It owns no replacement, relay-union,
-//! freshness, or persistence rule: NMP supplies those answers. Mosaico only
+//! freshness, or persistence rule: fava supplies those answers. Mosaico only
 //! retains the latest delivered values while their observations are alive.
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use nmp::{AcquisitionEvidence, Row, RowDelta};
+use nostr::event::EventId;
+
+use crate::group_snapshot::GroupSnapshot;
+use crate::recent_rows::RecentRows;
+use crate::row::Row;
+use crate::row::RowDelta;
 
 mod groups;
 pub(crate) use groups::GroupProjection;
@@ -24,13 +29,13 @@ pub(crate) use test_delivery::TestRelayDelivery;
 
 #[derive(Default)]
 pub(crate) struct NmpViews {
-    group_observation: RwLock<Option<Arc<nmp_nip29::GroupObservation>>>,
+    group_snapshots: RwLock<Vec<GroupSnapshot>>,
     #[cfg(test)]
     test_group_delivery: RwLock<Option<TestGroupDelivery>>,
     #[cfg(test)]
     test_relay_delivery: RwLock<Option<TestRelayDelivery>>,
     rows: Mutex<RowViews>,
-    recent_rows: crate::recent_rows::RecentRows,
+    recent_rows: Arc<RecentRows>,
 }
 
 #[derive(Default)]
@@ -67,25 +72,19 @@ impl RowTransition {
 }
 
 impl NmpViews {
-    /// Register the retained NMP observation handle. This stores no group
-    /// value: every read below calls `GroupObservation::latest()`.
-    pub(crate) fn set_group_observation(
-        &self,
-        observation: Option<Arc<nmp_nip29::GroupObservation>>,
-    ) {
+    /// Replace the retained group snapshot set from the group-records drain.
+    pub(crate) fn set_group_snapshots(&self, snapshots: Vec<GroupSnapshot>) {
         *self
-            .group_observation
+            .group_snapshots
             .write()
-            .expect("NMP group observation slot poisoned") = observation;
+            .expect("NMP group snapshots poisoned") = snapshots;
     }
 
-    pub(crate) fn group_snapshots(&self) -> Vec<nmp_nip29::GroupSnapshot> {
-        self.group_observation
+    pub(crate) fn group_snapshots(&self) -> Vec<GroupSnapshot> {
+        self.group_snapshots
             .read()
-            .expect("NMP group observation slot poisoned")
-            .as_ref()
-            .map(|observation| observation.latest())
-            .unwrap_or_default()
+            .expect("NMP group snapshots poisoned")
+            .clone()
     }
 
     pub(crate) fn with_groups<R>(&self, read: impl FnOnce(GroupProjection) -> R) -> R {
@@ -112,12 +111,9 @@ impl NmpViews {
 
     #[cfg(test)]
     pub(crate) fn install_test_relay_delivery(&self, next: TestRelayDelivery) {
-        // The test seam replaces the whole delivered row set, so the retained
-        // recent-rows window is reset to exactly these events. Product reads
-        // route through `recent_rows`, so the seam must populate it directly.
         self.recent_rows.clear();
         for event in &next.events {
-            self.recent_rows.add("test-delivery", event.clone());
+            self.recent_rows.add("test", event.clone());
         }
         *self
             .test_relay_delivery
@@ -133,23 +129,30 @@ impl NmpViews {
             .clone()
     }
 
+    /// The bounded recent-rows store, populated from observation frames.
+    pub(crate) fn recent_rows(&self) -> Arc<RecentRows> {
+        Arc::clone(&self.recent_rows)
+    }
+
     pub(crate) fn apply_frame(
         &self,
         observation_id: &str,
         generation: u64,
         deltas: Vec<RowDelta>,
-        evidence: Vec<AcquisitionEvidence>,
     ) -> RowTransition {
-        self.rows
+        let transition = self.rows
             .lock()
             .expect("NMP row views poisoned")
-            .apply_frame(
-                observation_id,
-                generation,
-                deltas,
-                evidence,
-                &self.recent_rows,
-            )
+            .apply_frame(observation_id, generation, deltas);
+        for entered in &transition.entered {
+            self.recent_rows
+                .add(&entered.observation_id, relay::relay_event(&entered.row.event));
+        }
+        for departed in &transition.removed {
+            self.recent_rows
+                .remove(&departed.observation_id, &departed.row.event.id.to_hex());
+        }
+        transition
     }
 
     pub(crate) fn begin_observation(&self, observation_id: &str, generation: u64) {
@@ -160,19 +163,52 @@ impl NmpViews {
     }
 
     pub(crate) fn close_observation(&self, observation_id: &str, generation: u64) -> RowTransition {
-        self.rows.lock().expect("NMP row views poisoned").close(
-            observation_id,
-            generation,
-            &self.recent_rows,
-        )
+        let transition = self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .close(observation_id, generation);
+        self.recent_rows.close_observation(observation_id);
+        transition
     }
 
-    /// The bounded sync-readable recent-rows window, fed from the same live
-    /// observation deltas as the row mirror. Product reads of chat / events /
-    /// reactions / status route here; the mirror's own indices are being
-    /// retired.
-    pub(crate) fn recent_rows(&self) -> &crate::recent_rows::RecentRows {
-        &self.recent_rows
+    pub(crate) fn row(&self, id: &EventId) -> Option<Row> {
+        self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .row(id)
+            .map(|row| row.row)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn rows(&self) -> Vec<Row> {
+        self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .rows()
+            .into_iter()
+            .map(|row| row.row)
+            .collect()
+    }
+
+    fn rows_for_kind(&self, kind: u16) -> Vec<rows::ViewRow> {
+        self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .rows_for_kind(kind)
+    }
+
+    fn rows_for_kind_author(&self, kind: u16, author: &str) -> Vec<rows::ViewRow> {
+        self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .rows_for_kind_author(kind, author)
+    }
+
+    fn rows_for_kind_channel(&self, kind: u16, channel: &str) -> Vec<rows::ViewRow> {
+        self.rows
+            .lock()
+            .expect("NMP row views poisoned")
+            .rows_for_kind_channel(kind, channel)
     }
 }
 

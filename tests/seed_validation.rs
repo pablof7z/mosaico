@@ -22,7 +22,7 @@
 
 use mosaico::domain::{AgentRef, DomainEvent, Profile as MosaicoProfile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nostr::*;
+use nostr::prelude::*;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn relay_url() -> String {
@@ -46,11 +46,12 @@ async fn connect(keys: Keys, relay: &str) -> NmpRelayClient {
 /// Build a signed event from a domain event through the real codec, stamping an
 /// explicit created_at so the conversation orders deterministically.
 async fn sign_domain(keys: &Keys, ev: &DomainEvent, created_at: u64) -> Event {
+    use nostr::event::FinalizeEvent as _;
     let builder = Nip29WireCodec
         .encode_event(ev)
         .expect("encode")
         .custom_created_at(Timestamp::from_secs(created_at));
-    builder.sign_with_keys(keys).expect("sign")
+    builder.finalize(keys).expect("sign")
 }
 
 async fn publish(client: &NmpRelayClient, signed: &Event, label: &str) {
@@ -103,11 +104,8 @@ async fn seed_session_with_thread_root_link() {
     let mut created = false;
     for (attempt, backoff) in [2u64, 5, 12].into_iter().enumerate() {
         let create = EventBuilder::new(Kind::from(9007u16), "")
-            .tags([Tag::custom(
-                TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
-                [channel.clone()],
-            )])
-            .sign_with_keys(&admin)
+            .tags([Tag::custom("h", [channel.clone()])])
+            .finalize(&admin)
             .expect("sign create");
         match admin_c.send_event(&create).await {
             Ok(out) if !out.success.is_empty() => {
@@ -188,7 +186,7 @@ async fn seed_session_with_thread_root_link() {
         .fetch_events(
             Filter::new()
                 .kind(Kind::from(30315u16))
-                .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &channel),
+                .custom_tag(SingleLetterTag::LOWERCASE_H, &channel),
             Duration::from_secs(5),
         )
         .await

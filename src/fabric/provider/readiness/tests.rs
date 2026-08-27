@@ -1,55 +1,31 @@
 use super::*;
-use std::collections::{BTreeMap, BTreeSet};
+use crate::group_snapshot::{GroupAvailability, GroupMetadata, GroupSnapshot, ListedSubject};
 
 fn ready_snapshot(
     parent: &str,
-    admins: &[nostr::PublicKey],
-    members: &[nostr::PublicKey],
-) -> nmp_nip29::GroupSnapshot {
-    use nmp_nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
-    let host = nostr::RelayUrl::parse("wss://relay.example").unwrap();
-    let subjects = |keys: &[nostr::PublicKey]| {
+    admins: &[nostr::key::PublicKey],
+    members: &[nostr::key::PublicKey],
+) -> GroupSnapshot {
+    let subjects = |keys: &[nostr::key::PublicKey]| {
         keys.iter()
-            .map(|pubkey| ListedSubject {
-                pubkey: *pubkey,
-                role: None,
-                hosts: BTreeSet::from([host.clone()]),
-            })
+            .map(|pubkey| ListedSubject::new(*pubkey, Vec::new()))
             .collect::<Vec<_>>()
     };
-    let admins = subjects(admins);
-    let members = subjects(members);
-    let record = |subjects| ListedRecord {
-        subjects,
-        as_of: nostr::Timestamp::from(101),
-        event_id: nostr::EventId::all_zeros(),
-        host: host.clone(),
-    };
-    let metadata = GroupMetadata {
-        name: Some("room".into()),
-        about: None,
-        picture: None,
-        tags: vec![vec!["parent".into(), parent.into()]],
-        as_of: nostr::Timestamp::from(100),
-        event_id: nostr::EventId::all_zeros(),
-        host: host.clone(),
-    };
-    nmp_nip29::GroupSnapshot {
+    let mut tags = Vec::new();
+    if !parent.is_empty() {
+        tags.push(vec!["parent".into(), parent.into()]);
+    }
+    GroupSnapshot {
         id: "room".into(),
-        metadata: Some(metadata.clone()),
-        admins: admins.clone(),
-        members: members.clone(),
+        metadata: Some(GroupMetadata {
+            name: Some("room".into()),
+            about: None,
+            tags,
+            as_of: std::time::Duration::from_secs(100),
+        }),
+        admins: subjects(admins),
+        members: subjects(members),
         availability: GroupAvailability::Ready,
-        per_host: BTreeMap::from([(
-            host.clone(),
-            HostRecords {
-                metadata: Some(metadata),
-                admins: Some(record(admins)),
-                members: Some(record(members)),
-                availability: GroupAvailability::Ready,
-            },
-        )]),
-        disagreements: BTreeSet::new(),
     }
 }
 
@@ -64,8 +40,8 @@ fn context<'a>(expect_member: &'a str, parent_hint: Option<&'a str>) -> ChannelC
 
 #[test]
 fn nmp_snapshot_proves_existing_member_ready() {
-    let admin = nostr::Keys::generate().public_key();
-    let member = nostr::Keys::generate().public_key();
+    let admin = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[admin], &[member]);
 
     assert!(local::snapshot_ready(
@@ -78,9 +54,9 @@ fn nmp_snapshot_proves_existing_member_ready() {
 
 #[test]
 fn nmp_snapshot_does_not_prove_missing_member_ready() {
-    let admin = nostr::Keys::generate().public_key();
-    let member = nostr::Keys::generate().public_key();
-    let other = nostr::Keys::generate().public_key();
+    let admin = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
+    let other = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[admin], &[member]);
 
     assert!(!local::snapshot_ready(
@@ -93,9 +69,9 @@ fn nmp_snapshot_does_not_prove_missing_member_ready() {
 
 #[test]
 fn nmp_snapshot_does_not_prove_missing_admin_ready() {
-    let admin = nostr::Keys::generate().public_key();
-    let other_admin = nostr::Keys::generate().public_key();
-    let member = nostr::Keys::generate().public_key();
+    let admin = nostr::key::Keys::generate().public_key();
+    let other_admin = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[other_admin], &[member]);
 
     assert!(!local::snapshot_ready(
@@ -108,9 +84,9 @@ fn nmp_snapshot_does_not_prove_missing_admin_ready() {
 
 #[test]
 fn managed_nmp_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
-    let admin = nostr::Keys::generate().public_key();
-    let obsolete = nostr::Keys::generate().public_key();
-    let member = nostr::Keys::generate().public_key();
+    let admin = nostr::key::Keys::generate().public_key();
+    let obsolete = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[admin, obsolete], &[member]);
 
     assert!(!local::snapshot_ready(
@@ -123,8 +99,8 @@ fn managed_nmp_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
 
 #[test]
 fn nmp_subgroup_needs_relay_parent_consent_check() {
-    let admin = nostr::Keys::generate().public_key();
-    let member = nostr::Keys::generate().public_key();
+    let admin = nostr::key::Keys::generate().public_key();
+    let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("parent", &[admin], &[member]);
 
     assert!(!local::snapshot_ready(
@@ -214,8 +190,8 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
 async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roster_patch() {
     use crate::state::{TestGroup, TestGroupDelivery};
 
-    let configured = nostr::Keys::generate().public_key().to_hex();
-    let removed = nostr::Keys::generate().public_key().to_hex();
+    let configured = nostr::key::Keys::generate().public_key().to_hex();
+    let removed = nostr::key::Keys::generate().public_key().to_hex();
     let state =
         crate::daemon::server::DaemonState::new_for_test_with_whitelisted(vec![configured.clone()])
             .await;
@@ -223,9 +199,9 @@ async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roste
     let snapshot = ready_snapshot(
         "",
         &[
-            nostr::PublicKey::from_hex(&management).unwrap(),
-            nostr::PublicKey::from_hex(&configured).unwrap(),
-            nostr::PublicKey::from_hex(&removed).unwrap(),
+            nostr::key::PublicKey::from_hex(&management).unwrap(),
+            nostr::key::PublicKey::from_hex(&configured).unwrap(),
+            nostr::key::PublicKey::from_hex(&removed).unwrap(),
         ],
         &[],
     );

@@ -3,7 +3,8 @@
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use anyhow::Result;
-use nostr::{EventBuilder, Kind, Tag};
+use nostr::event::{EventBuilder, Kind};
+use nostr::event::Tag;
 
 /// Publish a 👍 kind:7 reaction for a management command that has already been
 /// parsed, authorized, and durably claimed. This is best-effort: acknowledgement
@@ -54,9 +55,9 @@ fn build_thumbs_up(event_id: &str) -> Result<EventBuilder> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::Keys;
+    use nostr::key::Keys;
 
-    fn tag_value<'a>(tags: impl IntoIterator<Item = &'a nostr::Tag>, name: &str) -> Option<String> {
+    fn tag_value<'a>(tags: impl IntoIterator<Item = &'a nostr::event::Tag>, name: &str) -> Option<String> {
         tags.into_iter().find_map(|tag| {
             let parts = tag.as_slice();
             (parts.first().map(String::as_str) == Some(name))
@@ -68,9 +69,10 @@ mod tests {
     #[test]
     fn acknowledgement_is_kind_7_thumbs_up_targeting_the_command() {
         let event_id = "ab".repeat(32);
+        use nostr::event::FinalizeUnsignedEvent;
         let unsigned = build_thumbs_up(&event_id)
             .unwrap()
-            .build(Keys::generate().public_key());
+            .finalize_unsigned(Keys::generate().public_key());
 
         assert_eq!(unsigned.kind.as_u16(), KIND_REACTION);
         assert_eq!(unsigned.content, "👍");

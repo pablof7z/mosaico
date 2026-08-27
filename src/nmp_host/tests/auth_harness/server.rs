@@ -8,7 +8,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use nostr::{ClientMessage, JsonUtil, Kind, PublicKey, RelayMessage, RelayUrl};
+use nostr::event::Kind;
+use nostr::key::PublicKey;
+use nostr::message::{ClientMessage, RelayMessage};
+use nostr::types::RelayUrl;
 use tungstenite::{Error as WebSocketError, Message};
 
 use super::protocol::{send, validate_auth_event};

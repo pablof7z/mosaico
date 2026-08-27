@@ -1,6 +1,8 @@
 use super::*;
 use axum::{body::Bytes, routing::get, Router};
-use nostr::{EventBuilder, Keys, Kind, Tag};
+use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+use nostr::event::Tag;
+use nostr::key::Keys;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -60,7 +62,7 @@ async fn remote_attachment_is_verified_before_direct_inbox_routing() {
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
             attachment_tag(&url, "plan/report.md", b"finished plan"),
         ])
-        .sign_with_keys(&Keys::generate())
+        .finalize(&Keys::generate())
         .unwrap();
 
     inbound_dispatch::handle_for_test(&state, &event).await;
@@ -97,7 +99,7 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
             attachment_tag(&url, "missing.md", b"never served"),
         ])
-        .sign_with_keys(&Keys::generate())
+        .finalize(&Keys::generate())
         .unwrap();
 
     inbound_dispatch::handle_for_test(&state, &event).await;
@@ -167,7 +169,7 @@ async fn slow_attachment_does_not_stall_demux() {
                 b"eventual file",
             ),
         ])
-        .sign_with_keys(&sender)
+        .finalize(&sender)
         .unwrap();
 
     inbound_dispatch::dispatch(&state, &slow);
@@ -179,7 +181,7 @@ async fn slow_attachment_does_not_stall_demux() {
             Tag::parse(["h", "room"]).unwrap(),
             Tag::parse(["p", receiver_pk.as_str()]).unwrap(),
         ])
-        .sign_with_keys(&sender)
+        .finalize(&sender)
         .unwrap();
     inbound_dispatch::dispatch(&state, &fast);
 

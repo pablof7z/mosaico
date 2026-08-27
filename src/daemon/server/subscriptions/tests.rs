@@ -7,7 +7,8 @@
 
 use std::time::{Duration, Instant};
 
-use nostr::Keys;
+use nostr::event::FinalizeEvent;
+use nostr::key::Keys;
 
 use crate::daemon::server::DaemonState;
 use crate::domain::{AgentRef, DomainEvent, Profile as DomainProfile};
@@ -18,7 +19,7 @@ use crate::state::{Store, TestGroup, TestGroupDelivery};
 use super::sync_subscriptions;
 
 /// One non-backend kind:0 signed by `keys` carrying `name` as its metadata.
-fn kind0_event(keys: &Keys, name: &str, host: &str, created_at: u64) -> nostr::Event {
+fn kind0_event(keys: &Keys, name: &str, host: &str, created_at: u64) -> nostr::event::Event {
     let profile = DomainProfile {
         agent: AgentRef::new(keys.public_key().to_hex(), name),
         agent_slug: String::new(),
@@ -32,8 +33,8 @@ fn kind0_event(keys: &Keys, name: &str, host: &str, created_at: u64) -> nostr::E
     Nip29WireCodec
         .encode_event(&DomainEvent::Profile(profile))
         .expect("encode kind:0")
-        .custom_created_at(nostr::Timestamp::from(created_at))
-        .sign_with_keys(keys)
+        .custom_created_at(nostr::types::Timestamp::from(created_at))
+        .finalize(keys)
         .expect("sign kind:0")
 }
 

@@ -1,6 +1,7 @@
 use super::TaggedRecipient;
 use anyhow::{Context, Result};
-use nostr::{PublicKey, ToBech32};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::ToBech32;
 
 pub(super) struct FormattedBody {
     pub(super) wire: String,

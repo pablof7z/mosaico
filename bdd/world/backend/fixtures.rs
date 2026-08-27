@@ -4,7 +4,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use nostr::Keys;
+use nostr::key::Keys;
 
 use super::Backend;
 

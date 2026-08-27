@@ -51,8 +51,7 @@ const EXAMPLE_BACKEND_SEC_HEX: &str =
 
 /// Derive the hex pubkey from an nsec/hex seckey at runtime.
 fn pubkey_of(sec: &str) -> String {
-    use nostr::Keys;
-    Keys::parse(sec).unwrap().public_key().to_hex()
+    nostr::key::Keys::parse(sec).unwrap().public_key().to_hex()
 }
 
 fn rewrite_config_with_user_nsec(home: &Home) {
@@ -128,32 +127,32 @@ pub(crate) fn initialize_workspace_root(channel: &str, path: &str) {
 }
 
 async fn precreate_channel_group_as_user(channel: &str) {
-    use nostr::Keys;
+    use fava_simple_groups::{create_group, edit_metadata, SimpleGroup};
+    use nostr::event::{FinalizeEvent as _, FinalizeUnsignedEvent as _};
+    use nostr::key::Keys;
 
-    let relay = shared_nip29_relay_url();
+    let relay_str = shared_nip29_relay_url();
+    let relay_url = fava::RelayUrl::parse(&relay_str).expect("parse relay url");
     let user_keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = NmpRelayClient::connect(user_keys.clone(), &relay)
+    let client = NmpRelayClient::connect(user_keys.clone(), &relay_str)
         .await
         .expect("connect NMP relay client");
 
-    // This client talks to the relay directly rather than through NMP's group
-    // door, so the context row has to be minted explicitly -- by NMP's own
-    // contextualizer, never by hand.
-    for (label, builder) in [
-        ("9007 create-group", nmp_nip29::create_group(None)),
+    let sg = SimpleGroup::new(channel, vec![relay_url]).expect("build SimpleGroup");
+    let author = user_keys.public_key();
+    let lock_edit = mosaico::fabric::nip29::lifecycle::group_lock_closed(channel, channel);
+
+    for (label, unsigned) in [
+        (
+            "9007 create-group",
+            create_group(author, &sg).expect("build create-group"),
+        ),
         (
             "9002 lock-closed",
-            mosaico::fabric::nip29::lifecycle::group_lock_closed(channel, channel),
+            edit_metadata(author, &sg, &lock_edit).expect("build edit-metadata"),
         ),
     ] {
-        let contextualized = nmp_nip29::contextualize(
-            &std::collections::BTreeSet::from([channel.to_string()]),
-            builder,
-        )
-        .unwrap();
-        let signed = mosaico::fabric::nip29::lifecycle::as_nostr(contextualized)
-            .sign_with_keys(&user_keys)
-            .unwrap();
+        let signed = unsigned.finalize(&user_keys).expect("sign event");
         let out = client.send_event(&signed).await.unwrap();
         assert!(
             !out.success.is_empty(),

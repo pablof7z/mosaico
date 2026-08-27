@@ -1,6 +1,7 @@
 use super::*;
 use anyhow::Context;
-use nostr::{PublicKey, ToBech32};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::ToBech32;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -73,11 +74,11 @@ pub(super) async fn rpc_dispatch(
         .nmp()
         .publish_group(&route_channel, builder, &keys)?
         .to_hex();
-    let ack_events = state
+    let ack_observation = state
         .nmp()
         .observe(&dispatch_ack_query(&dispatch_event_id))?;
 
-    let ack = wait_dispatch_ack(ack_events, dispatch_event_id.clone()).await?;
+    let ack = wait_dispatch_ack(ack_observation, dispatch_event_id.clone()).await?;
     let body = dispatch_message_body(&p.message, &ack.pubkey)?;
     let message_event_id =
         send_dispatch_message(state, &caller, &route_channel, &body, &ack).await?;
@@ -192,46 +193,35 @@ fn dispatch_ack_query(dispatch_event_id: &str) -> crate::reconcile::Subscription
 }
 
 async fn wait_dispatch_ack(
-    events: nmp::Subscription,
+    mut observation: fava::Observation,
     dispatch_event_id: String,
 ) -> Result<DispatchAck> {
-    tokio::task::spawn_blocking(move || wait_dispatch_ack_blocking(events, &dispatch_event_id))
-        .await
-        .context("joining dispatch ACK observation")?
-}
-
-fn wait_dispatch_ack_blocking(
-    events: nmp::Subscription,
-    dispatch_event_id: &str,
-) -> Result<DispatchAck> {
-    let deadline = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            anyhow::bail!("dispatched agent did not ACK after 30 seconds");
-        }
-        let frame = match events.recv_timeout(remaining) {
-            Ok(frame) => frame,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                anyhow::bail!("dispatched agent did not ACK after 30 seconds")
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!("relay notification stream closed while waiting for dispatch ACK")
-            }
-        };
-        for event in frame
-            .deltas
-            .iter()
-            .filter_map(|delta| delta.row()?.signed_event())
-        {
-            if crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
-                == Some(dispatch_event_id)
-            {
-                return Ok(DispatchAck {
-                    pubkey: event.pubkey.to_hex(),
-                });
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            match observation.changed().await {
+                Ok(snapshot) => {
+                    for record in snapshot.events.iter() {
+                        if let fava::EventValue::Signed(event) = record.event() {
+                            if crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
+                                == Some(&dispatch_event_id)
+                            {
+                                return Ok(DispatchAck {
+                                    pubkey: event.pubkey.to_hex(),
+                                });
+                            }
+                        }
+                    }
+                }
+                Err(fava::ObservationClosed) => {
+                    anyhow::bail!("relay stream closed while waiting for dispatch ACK")
+                }
             }
         }
+    })
+    .await;
+    match result {
+        Ok(r) => r,
+        Err(_elapsed) => anyhow::bail!("dispatched agent did not ACK after 30 seconds"),
     }
 }
 

@@ -1,31 +1,31 @@
-//! Test relay actor backed by the same supported NMP facade as production.
+//! Test relay client backed by fava, replacing the old NMP engine facade.
 
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use nmp::{
-    AuthPolicy, AuthPolicyOp, AuthPolicyRegistration, AuthPolicyRequest, Engine, EngineConfig,
-    FifoReceiver, FifoRecvTimeoutError, NotSentReason, RelayState, RelayUrl, SessionAccount,
-    SigningState, Window, WriteFact, WriteOutcome,
-};
-use nmp_grammar::{Identity, WriteIntent, WritePayload, WriteRouting};
-use nostr::{Event, EventBuilder, EventId, Filter, Keys};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
-    time::{Duration, Instant},
-};
+use fava::RelayUrl;
+use nostr::event::{Event, EventBuilder, EventId, FinalizeEvent as _};
+use nostr::filter::Filter;
+use nostr::key::Keys;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::time::Duration;
 
-#[path = "nmp_client/read.rs"]
-mod read;
-use read::{nmp_filter, pinned_query, receive_window};
+use fava::FavaBuilder;
+use fava_delivery_standard::StandardDeliveryPolicy;
+use fava_event_cache_memory::MemoryEventCache;
+use fava_publisher_nip01::Nip01Publisher;
+use fava_query_standard::StandardQueryEvaluator;
+use fava_router_app_relays::AppRelayRouter;
+use fava_signer_local::LocalSigner;
+use fava_subscriptions_no_grouping::planner;
+use fava_transport_websocket::WebSocketTransport;
+use fava_write_store_memory::MemoryWriteStore;
 
 pub struct NmpRelayClient {
-    engine: Engine,
+    fava: fava::Fava,
     relay: RelayUrl,
     keys: Keys,
-    _accounts: Vec<SessionAccount>,
-    _auth_policies: Vec<AuthPolicyRegistration>,
 }
 
 #[derive(Debug)]
@@ -35,240 +35,148 @@ pub struct WriteAck {
     pub failed: BTreeMap<String, String>,
 }
 
-#[derive(Clone)]
-struct AllowExactRelay {
-    pubkey: nostr::PublicKey,
-    relay: RelayUrl,
-}
-
-impl AuthPolicy for AllowExactRelay {
-    fn evaluate(&self, request: AuthPolicyRequest) -> AuthPolicyOp {
-        if request.expected_pubkey() == self.pubkey && request.relay() == &self.relay {
-            AuthPolicyOp::allow()
-        } else {
-            AuthPolicyOp::deny("test client AUTH identity or relay mismatch")
-        }
-    }
-}
-
 impl NmpRelayClient {
     pub async fn connect(keys: Keys, relay: &str) -> Result<Self> {
         let relay = RelayUrl::parse(relay).context("parse test relay URL")?;
-        let config = EngineConfig {
-            app_relays: vec![relay.to_string()],
-            ..EngineConfig::default()
-        };
-        let engine = Engine::new(config).context("start NMP test client")?;
-        let secret = keys.secret_key().to_secret_bytes();
-        let account = engine
-            .add_private_key_account(&secret, true)
-            .context("register NMP test account")?;
-        let auth_policy = engine
-            .add_auth_policy(
-                keys.public_key(),
-                AllowExactRelay {
-                    pubkey: keys.public_key(),
-                    relay: relay.clone(),
-                },
-            )
-            .context("register NMP test AUTH policy")?;
-        Ok(Self {
-            engine,
-            relay,
-            keys,
-            _accounts: vec![account],
-            _auth_policies: vec![auth_policy],
-        })
+        let fava = FavaBuilder::default()
+            .event_cache(Arc::new(MemoryEventCache::default()))
+            .query_evaluator(Arc::new(StandardQueryEvaluator))
+            .subscription_planner(Arc::new(planner()))
+            .transport(Arc::new(WebSocketTransport::new()))
+            .router(Arc::new(AppRelayRouter::new("app", [relay.clone()])))
+            .signer(Arc::new(LocalSigner::new(keys.clone())))
+            .publisher(Arc::new(Nip01Publisher))
+            .delivery_policy(Arc::new(StandardDeliveryPolicy::default()))
+            .write_store(Arc::new(MemoryWriteStore::default()))
+            .build()
+            .context("build fava test client")?;
+        Ok(Self { fava, relay, keys })
     }
 
-    pub fn register_identity(&mut self, keys: &Keys) -> Result<()> {
-        let secret = keys.secret_key().to_secret_bytes();
-        let account = self
-            .engine
-            .add_private_key_account(&secret, false)
-            .context("register additional NMP test account")?;
-        let auth_policy = self
-            .engine
-            .add_auth_policy(
-                keys.public_key(),
-                AllowExactRelay {
-                    pubkey: keys.public_key(),
-                    relay: self.relay.clone(),
-                },
-            )
-            .context("register additional NMP test AUTH policy")?;
-        self._accounts.push(account);
-        self._auth_policies.push(auth_policy);
+    pub fn register_identity(&mut self, _keys: &Keys) -> Result<()> {
+        // In fava the signer is per-client; multi-key publish uses pre-signed events.
+        // This is a no-op for tests that send pre-signed events via send_event().
         Ok(())
     }
 
     pub async fn send_event_builder(&self, builder: EventBuilder) -> Result<WriteAck> {
-        let event = builder
-            .sign_with_keys(&self.keys)
-            .context("sign test event")?;
+        let event = builder.finalize(&self.keys).context("sign test event")?;
         self.send_event(&event).await
     }
 
     pub async fn send_event(&self, event: &Event) -> Result<WriteAck> {
-        let receipt = self
-            .engine
-            .publish(WriteIntent {
-                payload: WritePayload::Signed(event.clone()),
-                routing: WriteRouting::Explicit(vec![self.relay.clone()]),
-                identity: Identity::Explicit(event.pubkey),
-            })
-            .context("submit NMP test write")?;
-        let relay = self.relay.clone();
+        let relay_url = self.relay.clone();
         let event_id = event.id;
-        tokio::task::spawn_blocking(move || wait_for_write(receipt.statuses, relay, event_id))
-            .await
-            .context("join NMP test write")?
+        let relay_str = relay_url.to_string();
+        let write = self
+            .fava
+            .to([relay_url])
+            .context("build relay route")?
+            .publish(event.clone())
+            .context("submit fava test write")?;
+        match write.settled(fava::all_terminal()).await {
+            Ok(_) => Ok(WriteAck {
+                val: event_id,
+                success: BTreeSet::from([relay_str]),
+                failed: BTreeMap::new(),
+            }),
+            Err(fava::PublishError::NotReached { receipt }) => {
+                // Route settled but not every destination accepted — report per-relay.
+                let mut success = BTreeSet::new();
+                let mut failed = BTreeMap::new();
+                for (session, outcome) in receipt.destinations() {
+                    let dest = session.relay.to_string();
+                    use fava::RelayDeliveryOutcome;
+                    match outcome {
+                        RelayDeliveryOutcome::Acknowledged { .. } => { success.insert(dest); }
+                        RelayDeliveryOutcome::Rejected { message } => {
+                            failed.insert(dest, message.clone());
+                        }
+                        _ => { failed.insert(dest, format!("{outcome:?}")); }
+                    }
+                }
+                Ok(WriteAck { val: event_id, success, failed })
+            }
+            Err(e) => Err(anyhow::anyhow!("fava test write failed: {e:#}")),
+        }
     }
 
     pub async fn fetch_events(&self, filter: Filter, timeout: Duration) -> Result<Vec<Event>> {
-        let max_rows = filter.limit.unwrap_or(200).max(1);
-        let mut filter = nmp_filter(filter)?;
-        filter.limit = None;
-        let query = pinned_query(self.relay.clone(), filter, None)?;
-        let bound = NonZeroUsize::new(max_rows).expect("positive test read bound");
-        let subscription = self
-            .engine
-            .observe(
-                query,
-                Some(Window::Expandable {
-                    initial: bound,
-                    max: bound,
-                }),
-            )
-            .context("open NMP test read")?;
-        tokio::task::spawn_blocking(move || receive_window(subscription, timeout))
-            .await
-            .context("join NMP test read")?
-    }
+        use fava_query::Query;
+        let relay = self.relay.clone();
 
-    pub fn observe(
-        &self,
-        filter: Filter,
-        authenticate_as: Option<nostr::PublicKey>,
-    ) -> Result<nmp::Subscription> {
-        let query = pinned_query(self.relay.clone(), nmp_filter(filter)?, authenticate_as)?;
-        self.engine
-            .observe(query, None)
-            .context("open NMP test observation")
+        let mut query = Query::events()
+            .only_from_relays([relay])
+            .context("build pinned relay query")?;
+        if let Some(kinds) = filter.kinds {
+            query = query
+                .kinds(kinds)
+                .context("apply kinds to query")?;
+        }
+        if let Some(authors) = filter.authors {
+            query = query
+                .authors(authors)
+                .context("apply authors to query")?;
+        }
+        if let Some(ids) = filter.ids {
+            query = query.ids(ids).context("apply ids to query")?;
+        }
+        if let Some(limit) = filter.limit {
+            query = query.limit(limit).context("apply limit to query")?;
+        }
+
+        let mut observation = self
+            .fava
+            .observe(query)
+            .await
+            .context("open fava test observation")?;
+
+        let deadline = std::time::Instant::now() + timeout;
+        let mut snapshot = observation.current();
+
+        loop {
+            // Acquisition is done when at least one relay has sent EOSE or
+            // withdrawn (refused, unreachable, timed out, etc.).
+            let settled = snapshot.evidence.relays.iter().any(|relay| {
+                use fava_query::RelaySourceState;
+                matches!(
+                    relay.state,
+                    RelaySourceState::StoredEventsComplete { .. }
+                        | RelaySourceState::Refused { .. }
+                        | RelaySourceState::TimedOut { .. }
+                        | RelaySourceState::Unreachable { .. }
+                        | RelaySourceState::Withdrawn { .. }
+                )
+            });
+            if settled {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match tokio::time::timeout(remaining, observation.changed()).await {
+                Ok(Ok(s)) => snapshot = s,
+                _ => break,
+            }
+        }
+        observation.close();
+
+        let events = snapshot
+            .events
+            .iter()
+            .filter_map(|rec| {
+                if let fava::EventValue::Signed(e) = rec.event() {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Ok(events)
     }
 
     pub async fn disconnect(&self) {
-        self.engine.shutdown();
-    }
-}
-
-/// Drain one write's facts to its settlement.
-///
-/// This is a TEST HARNESS driving a real relay, not an app: proving what a
-/// relay did with an event is the whole point of it. It is still allowed to
-/// end only on a fact -- every stream carries exactly one `WriteOutcome` --
-/// so the deadline below is a harness guard against a write that legitimately
-/// parks forever (no signer, no resolvable route), never the way a settled
-/// write is recognised.
-fn wait_for_write(
-    receiver: FifoReceiver<WriteFact>,
-    relay: RelayUrl,
-    event_id: EventId,
-) -> Result<WriteAck> {
-    let deadline = Instant::now() + Duration::from_secs(12);
-    let mut success = BTreeSet::new();
-    let mut failed = BTreeMap::new();
-    let mut last_fact = String::from("no fact observed");
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            anyhow::bail!("NMP test write parked without settling (last fact: {last_fact})");
-        }
-        match receiver.recv_timeout(remaining) {
-            Ok(WriteFact::Relay { relay, state, .. }) => {
-                last_fact = format!("{relay}: {state:?}");
-                match state {
-                    RelayState::Published => {
-                        success.insert(relay.to_string());
-                    }
-                    RelayState::Rejected { reason } => {
-                        failed.insert(relay.to_string(), reason);
-                    }
-                    // Never folded into a rejection: the app's own policy or
-                    // signer declining is not the relay refusing the event.
-                    RelayState::AuthFailed {
-                        pubkey,
-                        source,
-                        reason,
-                    } => {
-                        failed.insert(
-                            relay.to_string(),
-                            format!("AUTH failed for {pubkey} ({source:?}): {reason}"),
-                        );
-                    }
-                    RelayState::GaveUp => {
-                        failed.insert(
-                            relay.to_string(),
-                            "NMP reached its publish attempt ceiling".to_string(),
-                        );
-                    }
-                    RelayState::Waiting(_)
-                    | RelayState::Attempting { .. }
-                    | RelayState::Sent { .. } => {}
-                }
-            }
-            Ok(WriteFact::Signing(SigningState::Refused { reason })) => {
-                anyhow::bail!("NMP test write was refused by the signer: {reason}")
-            }
-            Ok(WriteFact::Signing(signing)) => last_fact = format!("{signing:?}"),
-            Ok(WriteFact::Destinations {
-                relays,
-                complete,
-                awaiting_author_routes,
-            }) => {
-                // `awaiting_author_routes` is WHY resolution is still open,
-                // as keys. A probe that dropped it would report "still
-                // resolving" with no way to say who it is waiting for.
-                last_fact = format!(
-                    "destinations {relays:?} complete={complete} awaiting={awaiting_author_routes:?}"
-                );
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::Settled)) => {
-                return Ok(WriteAck {
-                    val: event_id,
-                    success,
-                    failed,
-                })
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::NoDestination)) => {
-                anyhow::bail!("NMP test write routing named no relays")
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Cancelled))) => {
-                anyhow::bail!("NMP test write was cancelled")
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::SignerRefused))) => {
-                anyhow::bail!("NMP test write was refused by the signer")
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::NotSent(NotSentReason::Superseded))) => {
-                anyhow::bail!("NMP test write was superseded by a newer write")
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::Superseded)) => {
-                anyhow::bail!(
-                    "NMP test write was superseded after its relay handoff could not be ruled out"
-                )
-            }
-            Ok(WriteFact::Outcome(WriteOutcome::Refused(reason))) => {
-                anyhow::bail!("NMP test write was refused at acceptance: {reason:?}")
-            }
-            Err(FifoRecvTimeoutError::Timeout) => {
-                anyhow::bail!("NMP test write parked without settling (last fact: {last_fact})")
-            }
-            Err(FifoRecvTimeoutError::Closed) => {
-                anyhow::bail!("NMP test write receipt disconnected for {relay}")
-            }
-            Err(FifoRecvTimeoutError::Lagged) => {
-                anyhow::bail!("NMP test write receipt lagged for {relay}")
-            }
-        }
+        // Fava cleanup happens on drop; no explicit shutdown needed.
     }
 }

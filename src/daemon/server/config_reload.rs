@@ -107,6 +107,10 @@ fn reload_relay_runtime(
     *state.subscriptions.reconciler.lock().unwrap() =
         crate::reconcile::SubscriptionReconciler::new();
     state.nmp().shutdown();
+    // The fava write store (redb) holds an exclusive file lock for the
+    // lifetime of the NmpHost. Drop the old host before opening the
+    // replacement so the new build can acquire the lock.
+    release_store_lock(state, next_backend_keys)?;
     match build_runtime(next, storage, next_backend_keys, &state.store) {
         Ok((nmp, provider)) => install_runtime(state, nmp, provider, next.clone()),
         Err(reload_error) => {
@@ -123,6 +127,17 @@ fn reload_relay_runtime(
     }
     super::spawn_demux(state.clone());
     sync_subscriptions(state);
+    Ok(())
+}
+
+/// Swap the current NmpHost for a lock-free in-memory placeholder so the
+/// redb exclusive lock is released before `build_runtime` reopens the file.
+fn release_store_lock(state: &Arc<DaemonState>, keys: &Keys) -> Result<()> {
+    let placeholder = Arc::new(
+        crate::nmp_host::NmpHost::open(&[], None, None, keys)
+            .context("creating lock-release placeholder NmpHost")?,
+    );
+    *state.nmp.write().unwrap_or_else(|p| p.into_inner()) = placeholder;
     Ok(())
 }
 

@@ -130,7 +130,7 @@ fn an_acquiring_group_never_claims_a_complete_agent_count() {
     store.install_test_nmp_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
-        partial_group().availability(nmp_nip29::GroupAvailability::Acquiring),
+        partial_group().availability(crate::group_snapshot::GroupAvailability::Acquiring),
     ]));
     assert_eq!(
         crate::channel_ref::full_channel_ref(&store, "partial-h"),
@@ -146,7 +146,7 @@ fn an_acquiring_group_never_claims_a_complete_agent_count() {
     store.install_test_nmp_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
-        partial_group().availability(nmp_nip29::GroupAvailability::Ready),
+        partial_group().availability(crate::group_snapshot::GroupAvailability::Ready),
     ]));
     let complete = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(

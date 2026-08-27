@@ -1,5 +1,7 @@
 use crate::nmp_client::NmpRelayClient;
-use nostr::*;
+use nostr::event::{Event, EventBuilder, FinalizeEvent as _, Kind, Tag};
+use nostr::filter::Filter;
+use nostr::key::Keys;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub(crate) const KIND_CREATE_GROUP: u16 = 9007;
@@ -23,10 +25,7 @@ pub(crate) fn unique_slug() -> String {
 }
 
 pub(crate) fn h_tag(slug: &str) -> Tag {
-    Tag::custom(
-        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
-        [slug],
-    )
+    Tag::parse(["h", slug]).unwrap()
 }
 
 pub(crate) async fn connect(keys: Keys, relay: &str) -> NmpRelayClient {
@@ -86,7 +85,7 @@ pub(crate) async fn create_group_with_retry(
     for (attempt, backoff_s) in [2u64, 5, 12].into_iter().enumerate() {
         let create = EventBuilder::new(Kind::from(KIND_CREATE_GROUP), "")
             .tags([h_tag(slug)])
-            .sign_with_keys(admin)
+            .finalize(admin)
             .expect("sign create");
         match admin_c.send_event(&create).await {
             Ok(out) if !out.success.is_empty() => {

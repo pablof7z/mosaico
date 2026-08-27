@@ -1,6 +1,7 @@
 use crate::daemon_harness::Home;
 use mosaico::state::{Session, Store};
-use nostr::{PublicKey, ToBech32};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::ToBech32;
 
 pub(super) fn redirected_stdin_body_for_session(
     home: &Home,

@@ -16,15 +16,15 @@ pub mod provider;
 /// is NIP-29-over-Nostr-specific. Future providers should own their native
 /// envelope type instead of making this enum a cross-fabric dumping ground.
 pub enum RawEnvelope {
-    Nostr(nostr::Event),
+    Nostr(nostr::event::Event),
 }
 
 /// Encode/decode between `DomainEvent` and Nostr event envelopes.
 ///
-/// The return type is `nostr::EventBuilder`, so this boundary is explicitly
+/// The return type is `nostr::event::EventBuilder`, so this boundary is explicitly
 /// Nostr-specific even when a concrete codec maps NIP-29 group semantics.
 pub trait NostrEventCodec {
-    fn encode(&self, ev: &crate::domain::DomainEvent) -> anyhow::Result<nostr::EventBuilder>;
+    fn encode(&self, ev: &crate::domain::DomainEvent) -> anyhow::Result<nostr::event::EventBuilder>;
     fn decode(&self, env: &RawEnvelope) -> Option<crate::domain::DomainEvent>;
 }
 
@@ -101,29 +101,31 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
 mod tests {
     use super::*;
     use crate::state::{RegisterSession, Store, TestGroup, TestGroupDelivery};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     fn make_tag(parts: &[&str]) -> Tag {
         Tag::parse(parts.iter().copied()).unwrap()
     }
 
-    fn build_event(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>) -> nostr::Event {
+    fn build_event(keys: &Keys, kind_n: u16, content: &str, tags: Vec<Tag>) -> nostr::event::Event {
         EventBuilder::new(Kind::from(kind_n), content)
             .tags(tags)
-            .sign_with_keys(keys)
+            .finalize(keys)
             .unwrap()
     }
 
-    fn relay_event(event: &nostr::Event) -> crate::state::RelayEvent {
+    fn relay_event(event: &nostr::event::Event) -> crate::state::RelayEvent {
         crate::state::RelayEvent {
             id: event.id.to_hex(),
             kind: event.kind.as_u16() as u32,
             pubkey: event.pubkey.to_hex(),
             created_at: event.created_at.as_secs(),
-            channel_h: crate::fabric::nip29::nostr_tag(&event.tags, "h")
+            channel_h: crate::fabric::nip29::nostr_tag(event, "h")
                 .unwrap_or_default()
                 .into(),
-            d_tag: crate::fabric::nip29::nostr_tag(&event.tags, "d")
+            d_tag: crate::fabric::nip29::nostr_tag(event, "d")
                 .unwrap_or_default()
                 .into(),
             content: event.content.clone(),

@@ -2,7 +2,7 @@ use super::*;
 use crate::nmp_client::NmpRelayClient;
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nostr::Keys;
+use nostr::key::Keys;
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -157,8 +157,9 @@ async fn publish_management_command(channel: &str, body: &str) {
     let builder = Nip29WireCodec
         .encode_event(&DomainEvent::ChatMessage(chat))
         .unwrap();
+    use nostr::event::FinalizeEvent as _;
     let event = sign_builder_into_group(channel, builder, &keys)
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     let output = client.send_event(&event).await.unwrap();
     assert!(!output.success.is_empty(), "management kind:9 rejected");

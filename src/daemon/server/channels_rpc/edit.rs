@@ -23,13 +23,13 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     let channel_h = resolve_target_channel(state, &p.channel)?;
 
     let mgmt_keys = state.management_keys()?;
-    let builder = as_nostr(nmp_nip29::edit_metadata(nmp_nip29::GroupMetadataEdit {
+    let edit = fava_simple_groups::MetadataEdit {
         about: Some(p.about.clone()),
-        ..nmp_nip29::GroupMetadataEdit::default()
-    }));
+        ..Default::default()
+    };
     let event_id = state
         .nmp()
-        .publish_group_and_wait(&channel_h, builder, &mgmt_keys)
+        .publish_metadata_edit_and_wait(&channel_h, &edit, &mgmt_keys)
         .await
         .context("publishing channel description")?;
     let channel = state

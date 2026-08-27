@@ -17,7 +17,10 @@
 mod nmp_client;
 
 use nmp_client::NmpRelayClient;
-use nostr::*;
+use nostr::event::{EventBuilder, Kind, Tag};
+use nostr::filter::Filter;
+use nostr::key::Keys;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn relay_url() -> String {
@@ -43,11 +46,43 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
         .await
         .expect("connect daemon NMP client");
 
-    // Subscribe (on the A-authed connection) to kind:1 events p-tagging B.
-    let sub = Filter::new().kind(Kind::from(1u16)).pubkey(pk_b);
-    let subscription = daemon
-        .observe(sub, Some(key_a.public_key()))
-        .expect("subscribe through NMP");
+    // Open a fava observation on the A-authed connection for kind:1 p-tagging B.
+    let relay_url = fava::RelayUrl::parse(&relay).expect("valid relay URL");
+    let fava_for_obs = {
+        use fava::FavaBuilder;
+        use fava_delivery_standard::StandardDeliveryPolicy;
+        use fava_event_cache_memory::MemoryEventCache;
+        use fava_publisher_nip01::Nip01Publisher;
+        use fava_query_standard::StandardQueryEvaluator;
+        use fava_router_app_relays::AppRelayRouter;
+        use fava_signer_local::LocalSigner;
+        use fava_subscriptions_no_grouping::planner;
+        use fava_transport_websocket::WebSocketTransport;
+        use fava_write_store_memory::MemoryWriteStore;
+        FavaBuilder::default()
+            .event_cache(Arc::new(MemoryEventCache::default()))
+            .query_evaluator(Arc::new(StandardQueryEvaluator))
+            .subscription_planner(Arc::new(planner()))
+            .transport(Arc::new(WebSocketTransport::new()))
+            .router(Arc::new(AppRelayRouter::new("app", [relay_url.clone()])))
+            .signer(Arc::new(LocalSigner::new(key_a.clone())))
+            .publisher(Arc::new(Nip01Publisher))
+            .delivery_policy(Arc::new(StandardDeliveryPolicy::default()))
+            .write_store(Arc::new(MemoryWriteStore::default()))
+            .build()
+            .expect("fava build for observation")
+    };
+    let query = fava_query::Query::events()
+        .kinds([nostr::event::Kind::from(1u16)])
+        .expect("bounded kinds")
+        .tag_values(
+            fava_query::SingleLetterTag::LOWERCASE_P,
+            [pk_b.to_hex()],
+        )
+        .expect("p-tag filter")
+        .only_from_relays([relay_url])
+        .expect("relay set");
+    let mut observation = fava_for_obs.observe(query).await.expect("open observation");
 
     // A separate sender (key C) publishes a kind:1 p-tagging B.
     let key_c = Keys::generate();
@@ -62,31 +97,25 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
         .expect("send mention to B");
     eprintln!("[probe] sent mention to B with marker {marker}");
 
-    // Did the A-authed NMP observation receive it?
-    let expected = marker.clone();
-    let got = tokio::task::spawn_blocking(move || {
-        let deadline = std::time::Instant::now() + Duration::from_secs(6);
-        loop {
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return false;
+    // Did the A-authed fava observation receive it?
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+    let mut got = false;
+    while !got && tokio::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(remaining, observation.changed()).await {
+            Ok(Ok(snapshot)) => {
+                got = snapshot.events.iter().any(|rec| {
+                    if let fava::EventValue::Signed(e) = rec.event() {
+                        e.content == marker
+                    } else {
+                        false
+                    }
+                });
             }
-            let Ok(frame) = subscription.recv_timeout(remaining) else {
-                return false;
-            };
-            if frame
-                .deltas
-                .iter()
-                .filter_map(|delta| delta.row()?.signed_event())
-                .any(|event| event.content == expected)
-            {
-                return true;
-            }
+            _ => break,
         }
-    })
-    .await
-    .expect("join NMP observation");
-
+    }
+    observation.close();
     daemon.disconnect().await;
     sender.disconnect().await;
 
@@ -121,8 +150,9 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
 
     // Publish an event SIGNED BY B over the A-authed connection via send_event.
     let marker = format!("mosaico-probe-multisign-{}", key_b.public_key().to_hex());
+    use nostr::event::FinalizeEvent as _;
     let signed = EventBuilder::new(Kind::from(1u16), &marker)
-        .sign_with_keys(&key_b)
+        .finalize(&key_b)
         .expect("sign with B");
     let res = daemon.send_event(&signed).await;
     eprintln!("[probe] publish B-signed over A-conn: {res:?}");

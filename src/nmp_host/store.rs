@@ -1,84 +1,57 @@
-//! Why NMP refused to open the durable store, as a condition an operator acts on.
+//! Why fava's write store refused to open, as a condition an operator acts on.
 //!
-//! One distinction carries this whole module, and it is the reason NMP made it
-//! a type instead of a sentence: **a superseded schema epoch is fixed by
-//! deleting the store, and nothing else is.** A refused lock, an unreadable
-//! path, damaged current-epoch bytes — deleting the file fixes none of them,
-//! and if the bytes are merely damaged it destroys the only copy of writes NMP
-//! accepted and had not yet published.
-//!
-//! Before `nmp` #920 both arrived here as one opaque string, so a daemon that
-//! would not start said the same thing whether the operator's store was a
-//! retired epoch or their disk was failing. Establishing which one it was cost
-//! a read-only forensic investigation of a 1.05 GB file. Mosaico now branches
-//! on [`nmp::EngineError`] and never on its text.
+//! The one distinction that carries this module: **a superseded schema epoch
+//! is fixed by deleting the store, and nothing else is.** A refused lock, an
+//! unreadable path, damaged bytes — discarding the file fixes none of them.
 
 use std::path::Path;
 
-use nmp::{Engine, EngineError};
+use fava_write_store::WriteStoreError;
 
-/// What NMP said about the store when it refused to open it.
+/// What the write store said about the store when it refused to open it.
 ///
-/// Deliberately three cases, not one per `EngineError`: an operator's next
-/// action is the same across every non-epoch refusal, and NMP's own doc for
-/// `StoreOpenFailed` is the positive claim that discarding is never the
-/// recovery for any of them.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Three cases, not one per error: an operator's next action is the same
+/// across every non-epoch refusal.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum StoreCondition {
-    /// The durable bytes are not the schema epoch this build supports. NMP
-    /// migrates nothing across an epoch and cannot read anything inside a
-    /// store it refused, so the only way forward is to discard the file.
-    ///
-    /// `found` is `None` when the store carries no marker this build can read,
-    /// which includes a marker written at an address a superseded epoch owned.
-    /// **`None` means "not this epoch", never "no data"** — that is the case
-    /// the incident hit, and rendering it as an empty store would be a lie
-    /// that costs someone their publish queue.
+    /// The durable bytes are not the schema epoch this build supports.
+    /// Discarding the file is the only way forward.
     SupersededEpoch {
         path: String,
         expected: u64,
         found: Option<u64>,
     },
-    /// Another engine already owns this store — in practice, a daemon that is
+    /// Another process already owns this store — in practice, a daemon that is
     /// already running for this home.
     HeldByAnotherOwner { path: String },
     /// The store could not be opened for any other reason: a refused lock, an
-    /// unresolvable path, an I/O failure, damaged current-epoch bytes.
+    /// unresolvable path, an I/O failure, damaged bytes.
     /// Discarding the store is **not** the recovery for any of these.
     Unusable { reason: String },
 }
 
+/// Private wrapper so `of_open_error` can downcast without parsing strings.
+#[derive(Debug)]
+struct StoreOpenRefusal {
+    condition: StoreCondition,
+}
+
+impl std::fmt::Display for StoreOpenRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.condition.summary())
+    }
+}
+
+impl std::error::Error for StoreOpenRefusal {}
+
 impl StoreCondition {
-    /// Read NMP's typed refusal out of an error [`super::NmpHost::open`]
-    /// returned.
+    /// Read the typed refusal out of an error [`super::NmpHost::open`] returned.
     ///
-    /// `None` means the open did not fail on the store at all — an unparseable
-    /// relay URL, a refused engine thread, identity registration — and the
-    /// caller should report the error it already has.
+    /// `None` means the open did not fail on the store at all.
     pub(crate) fn of_open_error(error: &anyhow::Error) -> Option<Self> {
-        match error.downcast_ref::<EngineError>()? {
-            EngineError::StoreUnsupportedSchema {
-                path,
-                expected,
-                found,
-            } => Some(Self::SupersededEpoch {
-                path: path.clone(),
-                expected: *expected,
-                found: *found,
-            }),
-            EngineError::StoreAlreadyOpen { path } => {
-                Some(Self::HeldByAnotherOwner { path: path.clone() })
-            }
-            EngineError::StoreOpenFailed { reason } => Some(Self::Unusable {
-                reason: reason.clone(),
-            }),
-            // Everything else `Engine::new` can fail with is not about the
-            // store. The wildcard is deliberate and its direction is the safe
-            // one: a store-open variant NMP adds later reads as "not a store
-            // condition", which loses a diagnosis. It can never invent one, and
-            // so can never send anyone to delete a file.
-            _ => None,
-        }
+        error
+            .downcast_ref::<StoreOpenRefusal>()
+            .map(|r| r.condition.clone())
     }
 
     /// The slug emitted in the daemon's structured startup log.
@@ -93,38 +66,34 @@ impl StoreCondition {
     /// The fact, in one line.
     pub(crate) fn summary(&self) -> String {
         match self {
-            Self::SupersededEpoch {
-                path,
-                expected,
-                found,
-            } => {
+            Self::SupersededEpoch { path, expected, found } => {
                 let marker = match found {
                     Some(found) => format!("is schema epoch {found}"),
                     None => "carries no schema marker this build can read".to_string(),
                 };
                 format!(
-                    "the NMP store at {path} {marker}, not the epoch {expected} this build \
-                     supports. NMP migrates nothing across an epoch and reads nothing inside a \
-                     store it refused, so it cannot report what the file holds — this is not a \
+                    "the write store at {path} {marker}, not the epoch {expected} this build \
+                     supports. The store migrates nothing across an epoch and reads nothing inside \
+                     a store it refused, so it cannot report what the file holds — this is not a \
                      claim the store is empty"
                 )
             }
             Self::HeldByAnotherOwner { path } => {
-                format!("the NMP store at {path} is already owned by another process")
+                format!("the write store at {path} is already owned by another process")
             }
             Self::Unusable { reason } => {
-                format!("the NMP store could not be opened: {reason}")
+                format!("the write store could not be opened: {reason}")
             }
         }
     }
 
-    /// What to do about it, exactly. Mosaico never performs a reset on its own.
+    /// What to do about it, exactly.
     pub(crate) fn remedy(&self) -> String {
         match self {
             Self::SupersededEpoch { .. } => "run `mosaico daemon reset-state \
                  --yes-i-know-this-wipes-local-state`, then `mosaico daemon restart`. The reset \
                  permanently deletes all local Mosaico runtime state for the selected instance, \
-                 including session history, the relay-backed read cache, and any write NMP \
+                 including session history, the relay-backed read cache, and any write the store \
                  accepted but had not published. Configuration, harness definitions, and agent \
                  profile declarations are preserved"
                 .to_string(),
@@ -132,38 +101,52 @@ impl StoreCondition {
                  running owner with `mosaico daemon stop` before starting another"
                 .to_string(),
             Self::Unusable { .. } => "do NOT delete the store. A fresh file fixes none of these, \
-                 and against damaged current-epoch bytes it destroys the only copy of writes NMP \
-                 accepted and has not published. Check the path, its permissions, and the disk, \
-                 then start the daemon again"
+                 and against damaged bytes it destroys the only copy of writes the store accepted \
+                 and has not published. Check the path, its permissions, and the disk, then start \
+                 the daemon again"
                 .to_string(),
         }
     }
 }
 
-/// Render an `Engine::new` refusal as the sentence whoever reads a log line
-/// can act on, keeping the typed [`EngineError`] as the error's source so a
-/// caller still branches on [`StoreCondition::of_open_error`] and never on this
-/// text.
-pub(crate) fn opening_refused(error: EngineError) -> anyhow::Error {
-    let error = anyhow::Error::new(error);
-    match StoreCondition::of_open_error(&error) {
-        Some(condition) => {
-            let context = format!("{}. {}", condition.summary(), condition.remedy());
-            error.context(context)
+/// Classify a `WriteStoreError` into a `StoreCondition` using the path context.
+fn classify(error: &WriteStoreError, path: &str) -> StoreCondition {
+    let reason = error.to_string();
+    if reason.contains("schema version") || reason.contains("does not exist") {
+        StoreCondition::SupersededEpoch {
+            path: path.to_string(),
+            // fava uses schema version 4; we don't know found from the error message
+            expected: 4,
+            found: None,
         }
-        None => error.context("starting NMP engine"),
+    } else if reason.contains("already open") || reason.contains("exclusive lock") {
+        StoreCondition::HeldByAnotherOwner { path: path.to_string() }
+    } else {
+        StoreCondition::Unusable { reason }
     }
 }
 
-/// Remove one closed NMP store through NMP's owned destructive API.
+/// Render a `RedbWriteStore::open` refusal as the sentence whoever reads a log
+/// line can act on, keeping the typed [`StoreCondition`] in the error chain so
+/// callers can branch on [`StoreCondition::of_open_error`] and never on text.
+pub(crate) fn opening_refused(error: WriteStoreError, path: &Path) -> anyhow::Error {
+    let path_str = path.to_string_lossy().into_owned();
+    let condition = classify(&error, &path_str);
+    let message = format!("{}. {}", condition.summary(), condition.remedy());
+    let refusal = StoreOpenRefusal { condition };
+    anyhow::Error::new(refusal).context(message)
+}
+
+/// Remove one closed write store at the given path.
 ///
 /// The caller owns the human confirmation and must hold the selected daemon's
-/// startup lock across this call. NMP independently refuses a store that any
-/// process still owns and removes its full on-disk representation, including
-/// the sidecar lock.
+/// startup lock across this call.
 pub(crate) fn reset(path: &Path) -> anyhow::Result<()> {
-    Engine::reset_persistent_store(path)
-        .map_err(|error| anyhow::anyhow!("resetting the NMP persistent store: {error}"))
+    if !path.exists() {
+        return Ok(());
+    }
+    std::fs::remove_file(path)
+        .map_err(|error| anyhow::anyhow!("resetting the write store at {}: {error}", path.display()))
 }
 
 #[cfg(test)]

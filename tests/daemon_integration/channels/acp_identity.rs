@@ -1,5 +1,5 @@
 use super::*;
-use nostr::Keys;
+use nostr::key::Keys;
 use std::time::Duration;
 
 #[test]
@@ -92,7 +92,7 @@ fn assert_acp_identity(harness: &str, prompt: Option<&str>) {
     let mut lines = captured.lines();
     let pubkey = lines.next().expect("captured pubkey");
     let nsec = lines.next().expect("captured nsec");
-    assert_eq!(Keys::parse(nsec).unwrap().public_key().to_hex(), pubkey);
+    assert_eq!(nostr::key::Keys::parse(nsec).unwrap().public_key().to_hex(), pubkey);
     assert!(wait_until(Duration::from_secs(10), || {
         Store::open(&home.store_path())
             .and_then(|store| store.native_resume_locator(pubkey, harness))

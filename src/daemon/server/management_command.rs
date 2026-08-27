@@ -3,7 +3,7 @@ use super::resolution::work_root_for;
 use super::*;
 use crate::domain::{AgentRef, ChatMessage};
 use anyhow::{Context, Result};
-use nostr::Event;
+use nostr::event::Event;
 
 mod list_agents;
 mod parse;

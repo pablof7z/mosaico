@@ -33,15 +33,13 @@ pub(in crate::daemon::server) async fn archive_channel(
         (String::new(), true)
     } else {
         let mgmt_keys = state.management_keys()?;
-        let builder = crate::fabric::nip29::lifecycle::as_nostr(nmp_nip29::edit_metadata(
-            nmp_nip29::GroupMetadataEdit {
-                about: Some(archived_about.clone()),
-                ..nmp_nip29::GroupMetadataEdit::default()
-            },
-        ));
+        let edit = fava_simple_groups::MetadataEdit {
+            about: Some(archived_about.clone()),
+            ..Default::default()
+        };
         let event_id = state
             .nmp()
-            .publish_group_and_wait(channel, builder, &mgmt_keys)
+            .publish_metadata_edit_and_wait(channel, &edit, &mgmt_keys)
             .await
             .context("publishing archived channel metadata")?;
         (event_id.to_hex(), true)

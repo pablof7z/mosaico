@@ -1,6 +1,6 @@
 use crate::daemon::server::DaemonState;
 use anyhow::{Context, Result};
-use nostr::ToBech32;
+use nostr::nips::nip19::ToBech32;
 use std::sync::Arc;
 
 #[derive(Clone)]

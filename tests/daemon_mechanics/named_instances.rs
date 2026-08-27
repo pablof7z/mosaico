@@ -1,6 +1,6 @@
 use super::*;
 use mosaico::daemon::protocol::{protocol_version, Response};
-use nostr::Keys;
+use nostr::key::Keys;
 use std::process::{Child, Stdio};
 
 struct NamedDaemon {

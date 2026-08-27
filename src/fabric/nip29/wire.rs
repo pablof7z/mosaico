@@ -28,7 +28,7 @@
 use crate::domain::{AgentRef, ChatAttachment, ChatMessage, DomainEvent, Reaction, Status};
 use crate::fabric::{NostrEventCodec, RawEnvelope};
 use anyhow::Result;
-use nostr::*;
+use nostr::event::{Event, EventBuilder, Kind, Tag};
 
 pub const KIND_PROFILE: u16 = 0;
 pub const KIND_CHAT: u16 = 9;
@@ -193,7 +193,6 @@ impl Nip29WireCodec {
                 }
                 EventBuilder::new(kind(KIND_CHAT), body.clone())
                     .tags(tags)
-                    .allow_self_tagging()
             }
             DomainEvent::Reaction(Reaction {
                 reactor: _reactor,

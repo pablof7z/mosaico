@@ -30,7 +30,7 @@ fn press(code: KeyCode) -> KeyEvent {
 #[test]
 fn generated_identity_is_valid() {
     let state = fixture();
-    assert!(nostr::Keys::parse(&state.identity.nsec).is_ok());
+    assert!(nostr::key::Keys::parse(&state.identity.nsec).is_ok());
     assert!(state.identity.npub.starts_with("npub1"));
     assert_eq!(state.identity.pubkey_hex.len(), 64);
 }
