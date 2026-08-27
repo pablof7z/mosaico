@@ -1,4 +1,6 @@
 use super::*;
+use nostr::event::FinalizeEvent;
+use nostr::key::Keys;
 
 mod chat;
 mod profile;
@@ -69,7 +71,7 @@ fn status_rel_cwd_roundtrips_and_emits_tag() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(has_tag(&signed, "rel-cwd", "worktree1"));
     assert!(!has_tag_name(&signed, "agent"));
@@ -82,7 +84,7 @@ fn empty_rel_cwd_emits_no_tag_and_decodes_empty() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(!has_tag_name(&signed, "rel-cwd"));
     match Nip29WireCodec.decode_event(&signed) {
@@ -99,7 +101,7 @@ fn status_is_per_group_self_contained_signal() {
     let signed = Nip29WireCodec
         .encode_event(&status(&keys, true, "worktree1"))
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert_eq!(signed.kind.as_u16(), KIND_STATUS);
     assert!(has_tag(&signed, "d", "status"));
@@ -142,7 +144,7 @@ fn status_slug_is_canonical_hint_not_agent_tag() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(has_tag(&signed, "slug", "coder"));
     assert!(!has_tag_name(&signed, "agent"));
@@ -155,7 +157,7 @@ fn idle_status_marks_idle_and_keeps_title() {
     let signed = Nip29WireCodec
         .encode_event(&status(&keys, false, ""))
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(has_tag(&signed, "state", "idle"));
     // Title persists across idle; content (live activity) is empty.
@@ -184,7 +186,7 @@ fn status_expiration_roundtrips_and_emits_tag() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(has_tag(&signed, "expiration", "1900000000"));
     match Nip29WireCodec.decode_event(&signed) {
@@ -206,7 +208,7 @@ fn status_uses_constant_address_independent_from_channel_h() {
             tag(&["workspace", "mosaico"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     match Nip29WireCodec.decode_event(&event) {
         Some(DomainEvent::Status(s)) => {
@@ -226,7 +228,7 @@ fn status_private_runtime_id_d_is_rejected() {
             tag(&["title", "codec refactor"]).unwrap(),
             tag(&["host", "laptop"]).unwrap(),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&event).is_none());
 }
@@ -235,7 +237,7 @@ fn bare_reaction_without_e_tag_decodes_to_none() {
     // A kind:7 with no `e` tag is not a domain reaction: it has no target.
     let keys = Keys::generate();
     let reaction = EventBuilder::new(Kind::from(7u16), "+")
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(Nip29WireCodec.decode_event(&reaction).is_none());
 }
@@ -256,7 +258,7 @@ fn reaction_with_oversized_or_textual_content_decodes_to_none() {
     ] {
         let event = EventBuilder::new(Kind::from(7u16), bad)
             .tags([tag(&["e", &target]).unwrap()])
-            .sign_with_keys(&keys)
+            .finalize(&keys)
             .unwrap();
         assert!(
             Nip29WireCodec.decode_event(&event).is_none(),

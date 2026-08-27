@@ -2,7 +2,7 @@ use super::Nip29Provider;
 use crate::fabric::group_management::{
     GroupMutationOutcome, GroupOperationError, GroupOperationStage, GroupPublishOutcome,
 };
-use nostr::{prelude::Keys, EventBuilder};
+use nostr::{prelude::Keys, event::EventBuilder};
 
 mod roles;
 mod topology;
@@ -66,7 +66,7 @@ impl Nip29Provider {
         &self,
         group: &str,
         builder: EventBuilder,
-        keys: &nostr::Keys,
+        keys: &nostr::key::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
         self.publish_group_management_outcome(group, builder, keys, label)
@@ -77,7 +77,7 @@ impl Nip29Provider {
         &self,
         group: &str,
         builder: EventBuilder,
-        keys: &nostr::Keys,
+        keys: &nostr::key::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
         match self.nmp.publish_group_and_wait(group, builder, keys).await {

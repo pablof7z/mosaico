@@ -78,7 +78,7 @@ mod tests {
     use crate::identity::LocalAgentUpdate;
     use crate::state::{RegisterSession, RelayEvent, TestRelayDelivery};
     use crate::test_env::EnvGuard;
-    use nostr::Keys;
+    use nostr::key::Keys;
 
     #[tokio::test(flavor = "current_thread")]
     async fn ownership_router_parks_stable_and_revoked_targets_but_ignores_remote() {

@@ -251,6 +251,7 @@ pub(crate) use message_search::{
 };
 mod messages;
 mod native_turn_attempts;
+mod observed_decode;
 pub use native_turn_attempts::{
     FinishNativeTurnAttempt, NativeTurnAttempt, NativeTurnDeliveryKind, NativeTurnOutcome,
     NewNativeTurnAttempt,

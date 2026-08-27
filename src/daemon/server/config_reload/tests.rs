@@ -1,6 +1,10 @@
 use super::*;
 use crate::config::{BoundaryAction, CrossProjectBoundary};
 
+fn init_tls() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 fn document(key: &str, relay: &str, read: &str, write: &str) -> String {
     serde_json::json!({
         "relays": [relay],
@@ -48,6 +52,7 @@ async fn wait_for_relay_runtime(
 
 #[tokio::test]
 async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
+    init_tls();
     let root = tempfile::tempdir().unwrap();
     let home = root.path().join("mosaico");
     std::fs::create_dir_all(&home).unwrap();

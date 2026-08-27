@@ -3,13 +3,37 @@
 //! Message identity, content, ordering, and `p`-tag recipients belong to NMP.
 //! SQLite retains only the independently keyed local attachment directory.
 
+use super::observed_decode::{decode_message, MessageProjection};
 use super::*;
+use crate::fabric::nip29::wire::KIND_CHAT;
 use std::collections::BTreeMap;
 
 mod attachments;
 mod wait_cursor;
 
 impl Store {
+    /// All retained kind:9 chat rows decoded into the message projection, read
+    /// from the bounded recent-rows window. The mirror's `messages()` is
+    /// retired; this is its sync successor.
+    pub(super) fn message_projections(&self) -> Vec<MessageProjection> {
+        self.nmp_views
+            .recent_rows()
+            .events_by_kind(KIND_CHAT, u32::MAX)
+            .into_iter()
+            .filter_map(decode_message)
+            .collect()
+    }
+
+    /// One chat projection by id, or `None` if the id is absent or not a chat
+    /// row in the retained window.
+    pub(super) fn message_projection_by_id(&self, message_id: &str) -> Option<MessageProjection> {
+        self.nmp_views
+            .recent_rows()
+            .event(message_id)
+            .filter(|event| event.kind == KIND_CHAT as u32)
+            .and_then(decode_message)
+    }
+
     fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
         message.attachment_dir = self.message_attachment_dir(&message.message_id)?;
         Ok(message)
@@ -20,8 +44,7 @@ impl Store {
             return self.get_message(prefix);
         }
         let mut matches = self
-            .nmp_views
-            .messages()
+            .message_projections()
             .into_iter()
             .filter(|row| row.message.message_id.starts_with(prefix));
         let first = matches.next();
@@ -34,8 +57,7 @@ impl Store {
     }
 
     pub fn get_message(&self, message_id: &str) -> Result<Option<Message>> {
-        self.nmp_views
-            .message(message_id)
+        self.message_projection_by_id(message_id)
             .map(|row| self.with_local_attachment(row.message))
             .transpose()
     }
@@ -58,8 +80,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<Message>> {
         let mut messages = self
-            .nmp_views
-            .messages()
+            .message_projections()
             .into_iter()
             .map(|row| row.message)
             .filter(|message| message.channel_h == channel_h && message.created_at > since)
@@ -87,8 +108,7 @@ impl Store {
 
     pub fn recent_chat_messages(&self, since: u64, limit: u32) -> Result<Vec<Message>> {
         let mut messages = self
-            .nmp_views
-            .messages()
+            .message_projections()
             .into_iter()
             .map(|row| row.message)
             .filter(|message| message.created_at >= since)
@@ -101,7 +121,7 @@ impl Store {
 
     pub fn latest_message_at_by_channel(&self) -> Result<BTreeMap<String, u64>> {
         let mut latest = BTreeMap::new();
-        for row in self.nmp_views.messages() {
+        for row in self.message_projections() {
             latest
                 .entry(row.message.channel_h)
                 .and_modify(|at: &mut u64| *at = (*at).max(row.message.created_at))
@@ -116,7 +136,7 @@ impl Store {
         channel_h: &str,
         since: u64,
     ) -> Result<bool> {
-        Ok(self.nmp_views.messages().into_iter().any(|row| {
+        Ok(self.message_projections().into_iter().any(|row| {
             row.message.author_pubkey == pubkey
                 && row.message.channel_h == channel_h
                 && row.message.created_at > since
@@ -138,15 +158,13 @@ impl Store {
 
     pub fn message_recipients(&self, message_id: &str) -> Result<Vec<MessageRecipient>> {
         Ok(self
-            .nmp_views
-            .message(message_id)
+            .message_projection_by_id(message_id)
             .map(|row| row.recipients)
             .unwrap_or_default())
     }
 
     pub(super) fn message_projection(&self) -> Result<Vec<(Message, Vec<MessageRecipient>)>> {
-        self.nmp_views
-            .messages()
+        self.message_projections()
             .into_iter()
             .map(|row| Ok((self.with_local_attachment(row.message)?, row.recipients)))
             .collect()
@@ -158,8 +176,7 @@ impl Store {
         include: impl Fn(&Message) -> bool,
     ) -> Result<Vec<Message>> {
         let mut messages = self
-            .nmp_views
-            .messages()
+            .message_projections()
             .into_iter()
             .map(|row| row.message)
             .filter(include)

@@ -37,9 +37,10 @@ fn addressed_chat(recipient: &str) -> ChatMessage {
 
 /// The draft is inspected unsigned because that is all Mosaico ever holds: NMP
 /// signs inside its own publish door and hands back an id, never an event.
-fn draft_tags(builder: nostr::EventBuilder) -> Vec<Vec<String>> {
+fn draft_tags(builder: nostr::event::EventBuilder) -> Vec<Vec<String>> {
+    use nostr::event::FinalizeUnsignedEvent;
     builder
-        .build(Keys::generate().public_key())
+        .finalize_unsigned(Keys::generate().public_key())
         .tags
         .iter()
         .map(|tag| tag.as_slice().to_vec())
@@ -150,7 +151,8 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
         store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .members(vec![author])
-            .availability(nmp::nip29::GroupAvailability::SourceUnavailable)]));
+            .availability(crate::group_snapshot::GroupAvailability::SourceUnavailable)]));
+
     });
 
     provider

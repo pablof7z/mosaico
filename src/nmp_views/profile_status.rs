@@ -124,9 +124,11 @@ impl NmpViews {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, RelayUrl, Tag, Timestamp};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
+    use nostr::types::Timestamp;
 
     fn status_row() -> Row {
         let event = EventBuilder::new(Kind::from(30315_u16), "writing focused tests")
@@ -146,12 +148,9 @@ mod tests {
                 Tag::parse(["e", "dispatch-event"]).unwrap(),
             ])
             .custom_created_at(Timestamp::from(123_u64))
-            .sign_with_keys(&Keys::generate())
+            .finalize(&Keys::generate())
             .unwrap();
-        Row {
-            event,
-            sources: BTreeSet::from([RelayUrl::parse("wss://relay.example").unwrap()]),
-        }
+        Row { event }
     }
 
     #[test]
@@ -164,14 +163,12 @@ mod tests {
             "mosaico-h-alpha",
             1,
             vec![RowDelta::Added(row.clone())],
-            vec![],
         );
         let alpha = views
             .observed_statuses_for_channel("alpha")
             .pop()
             .expect("alpha observation owns the row");
         assert_eq!(alpha.row.event.id, id);
-        assert_eq!(alpha.row.sources, row.sources);
         assert_eq!(alpha.status.channels, ["alpha", "beta"]);
         assert_eq!(alpha.status.activity, "writing focused tests");
         assert_eq!(alpha.status.rel_cwd, "worktree");
@@ -182,7 +179,7 @@ mod tests {
         assert_eq!(alpha.status.expires_at, Some(1));
         assert!(views.statuses_in_channel("beta").is_empty());
 
-        views.apply_frame("mosaico-h-beta", 1, vec![RowDelta::Added(row)], vec![]);
+        views.apply_frame("mosaico-h-beta", 1, vec![RowDelta::Added(row)]);
         assert_eq!(views.statuses_in_channel("beta").len(), 1);
 
         let beta_departure = views.close_observation("mosaico-h-beta", 1).removed;
@@ -193,7 +190,7 @@ mod tests {
         assert_eq!(views.statuses_in_channel("alpha").len(), 1);
 
         let alpha_departure =
-            views.apply_frame("mosaico-h-alpha", 1, vec![RowDelta::Removed(id)], vec![]);
+            views.apply_frame("mosaico-h-alpha", 1, vec![RowDelta::Removed(id)]);
         assert_eq!(alpha_departure.removed.len(), 1);
         assert_eq!(alpha_departure.removed[0].row.event.id, id);
         assert!(views.statuses_in_channel("alpha").is_empty());

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use nostr::Keys;
+use nostr::key::Keys;
 
 use crate::{
     config::{self, Config},
@@ -101,17 +101,4 @@ mod tests {
         assert!(!config.attachment_receive_directory.exists());
     }
 
-    #[tokio::test]
-    async fn restores_a_reconstructible_session_before_new_activity() {
-        let state = DaemonState::new_for_test().await;
-        let salt = crate::identity::new_session_signer_salt();
-        let backend = state.management_keys().unwrap();
-        let keys = crate::identity::derive_session_keys(backend.secret_key(), &salt).unwrap();
-        let pubkey = keys.public_key();
-        state.with_store(|store| store.bind_session_signer(&pubkey.to_hex(), &salt).unwrap());
-
-        assert!(!state.nmp().identity_registered(pubkey));
-        restore(&state).unwrap();
-        assert!(state.nmp().identity_registered(pubkey));
-    }
 }

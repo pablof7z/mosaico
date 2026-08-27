@@ -1,5 +1,5 @@
 use super::*;
-use nostr::Keys;
+use nostr::key::Keys;
 
 fn agent() -> crate::identity::AgentIdentity {
     crate::identity::AgentIdentity {

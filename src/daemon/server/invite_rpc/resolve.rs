@@ -68,7 +68,8 @@ fn one_remote_session(selector: &str, matches: Vec<RemoteSession>) -> Result<Rem
 mod tests {
     use super::*;
     use crate::state::{Profile, Status, Store, TestRelayDelivery};
-    use nostr::{Keys, ToBech32};
+    use nostr::key::Keys;
+    use nostr::nips::nip19::ToBech32;
 
     fn profile(pubkey: &str, handle: &str) -> Profile {
         Profile {

@@ -34,7 +34,9 @@ mod nmp_client;
 #[path = "nip29_probe/support.rs"]
 mod support;
 
-use nostr::*;
+use nostr::event::{EventBuilder, FinalizeEvent as _, Kind, Tag};
+use nostr::filter::{Filter, SingleLetterTag};
+use nostr::key::Keys;
 use std::time::Duration;
 use support::*;
 
@@ -76,16 +78,13 @@ async fn nip29_group_lifecycle() {
     let id_honored = group_id_honored(&admin_c, &slug, created_ok).await;
 
     // ── Q3: put-user (9000) adding `member`. Try role tag ["p", pk, "member"].
-    let put = EventBuilder::new(Kind::from(KIND_PUT_USER), "")
+    let put = nostr::event::EventBuilder::new(Kind::from(KIND_PUT_USER), "")
         .tags([
             h_tag(&slug),
-            Tag::custom(
-                TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
-                [member.public_key().to_hex(), "member".to_string()],
-            ),
+            Tag::parse(["p", &member.public_key().to_hex(), "member"]).unwrap(),
         ])
-        .build(admin.public_key());
-    let put = admin.sign_event(put).await.expect("sign put-user");
+        .finalize(&admin)
+        .expect("sign put-user");
     let put_ok = publish(&admin_c, &put, "9000 put-user (role=member)").await;
 
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -113,17 +112,17 @@ async fn nip29_group_lifecycle() {
     let outsider_c = connect(outsider.clone(), &relay).await;
 
     let m_marker = format!("mosaico-probe-member-{}", slug);
-    let m_note = EventBuilder::new(Kind::from(KIND_NOTE), &m_marker)
+    let m_note = nostr::event::EventBuilder::new(Kind::from(KIND_NOTE), &m_marker)
         .tags([h_tag(&slug)])
-        .build(member.public_key());
-    let m_note = member.sign_event(m_note).await.unwrap();
+        .finalize(&member)
+        .unwrap();
     publish(&member_c, &m_note, "member kind:1 into group").await;
 
     let o_marker = format!("mosaico-probe-outsider-{}", slug);
-    let o_note = EventBuilder::new(Kind::from(KIND_NOTE), &o_marker)
+    let o_note = nostr::event::EventBuilder::new(Kind::from(KIND_NOTE), &o_marker)
         .tags([h_tag(&slug)])
-        .build(outsider.public_key());
-    let o_note = outsider.sign_event(o_note).await.unwrap();
+        .finalize(&outsider)
+        .unwrap();
     publish(&outsider_c, &o_note, "outsider kind:1 into group").await;
 
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -131,7 +130,7 @@ async fn nip29_group_lifecycle() {
         &admin_c,
         Filter::new()
             .kind(Kind::from(KIND_NOTE))
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &slug),
+            .custom_tag(SingleLetterTag::LOWERCASE_H, &slug),
         "kind:1 in group (readback)",
     )
     .await;
@@ -155,30 +154,30 @@ async fn nip29_group_lifecycle() {
     // closed => only members may write; public => anyone (incl. the non-member
     // daemon AUTH key) may still read.
     eprintln!("\n[probe] ----- Q5b: 9002 edit-metadata lock (closed+public) -----");
-    let edit = EventBuilder::new(Kind::from(9002u16), "")
+    let edit = nostr::event::EventBuilder::new(Kind::from(9002u16), "")
         .tags([
             h_tag(&slug),
-            Tag::custom(TagKind::Custom("name".into()), [slug.clone()]),
-            Tag::custom(TagKind::Custom("closed".into()), Vec::<String>::new()),
-            Tag::custom(TagKind::Custom("public".into()), Vec::<String>::new()),
+            Tag::parse(["name", &slug]).unwrap(),
+            Tag::parse(["closed"]).unwrap(),
+            Tag::parse(["public"]).unwrap(),
         ])
-        .build(admin.public_key());
-    let edit = admin.sign_event(edit).await.expect("sign 9002");
+        .finalize(&admin)
+        .expect("sign 9002");
     publish(&admin_c, &edit, "9002 edit-metadata closed+public").await;
     tokio::time::sleep(Duration::from_millis(900)).await;
 
     let m2 = format!("mosaico-probe-member2-{slug}");
-    let m2e = EventBuilder::new(Kind::from(KIND_NOTE), &m2)
+    let m2e = nostr::event::EventBuilder::new(Kind::from(KIND_NOTE), &m2)
         .tags([h_tag(&slug)])
-        .build(member.public_key());
-    let m2e = member.sign_event(m2e).await.unwrap();
+        .finalize(&member)
+        .unwrap();
     let member_write_after_lock = publish(&member_c, &m2e, "member kind:1 AFTER lock").await;
 
     let o2 = format!("mosaico-probe-outsider2-{slug}");
-    let o2e = EventBuilder::new(Kind::from(KIND_NOTE), &o2)
+    let o2e = nostr::event::EventBuilder::new(Kind::from(KIND_NOTE), &o2)
         .tags([h_tag(&slug)])
-        .build(outsider.public_key());
-    let o2e = outsider.sign_event(o2e).await.unwrap();
+        .finalize(&outsider)
+        .unwrap();
     let outsider_write_after_lock = publish(&outsider_c, &o2e, "outsider kind:1 AFTER lock").await;
     eprintln!(
         "[probe] Q5b AFTER LOCK: member_write={member_write_after_lock} outsider_write={outsider_write_after_lock} (outsider expected REJECTED)"
@@ -192,7 +191,7 @@ async fn nip29_group_lifecycle() {
         &reader_c,
         Filter::new()
             .kind(Kind::from(KIND_NOTE))
-            .custom_tag(SingleLetterTag::lowercase(Alphabet::H), &slug),
+            .custom_tag(SingleLetterTag::LOWERCASE_H, &slug),
         "non-member reads group kind:1",
     )
     .await;

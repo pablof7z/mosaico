@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock};
 
-use nostr::Keys;
+use nostr::key::Keys;
 use tokio::sync::mpsc;
 
 use crate::domain::{DomainEvent, Status};

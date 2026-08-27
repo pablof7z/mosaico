@@ -14,7 +14,7 @@ fn canonical_state_tag_is_accepted() {
             tag(&["workspace", "mosaico"]).unwrap(),
             tag(&["slug", "codex"]).unwrap(),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     match Nip29WireCodec.decode_event(&event) {
         Some(DomainEvent::Status(s)) => {

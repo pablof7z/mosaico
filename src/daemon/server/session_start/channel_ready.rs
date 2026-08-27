@@ -140,20 +140,17 @@ async fn ensure_existing_channel_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::{BTreeMap, BTreeSet};
 
     const FAILURE: &str =
         "fault=latched durability=absent reopen=required: Previous I/O error occurred";
 
-    fn absent_group_snapshot(group: &str) -> nmp::nip29::GroupSnapshot {
-        nmp::nip29::GroupSnapshot {
+    fn absent_group_snapshot(group: &str) -> crate::group_snapshot::GroupSnapshot {
+        crate::group_snapshot::GroupSnapshot {
             id: group.to_string(),
             metadata: None,
             admins: Vec::new(),
             members: Vec::new(),
-            availability: nmp::nip29::GroupAvailability::Ready,
-            per_host: BTreeMap::new(),
-            disagreements: BTreeSet::new(),
+            availability: crate::group_snapshot::GroupAvailability::Ready,
         }
     }
 
@@ -224,7 +221,7 @@ mod tests {
             None,
             None,
             None,
-            &nostr::Keys::generate().public_key().to_hex(),
+            &nostr::key::Keys::generate().public_key().to_hex(),
         )
         .await
         .expect_err("session readiness must fail");

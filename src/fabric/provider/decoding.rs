@@ -25,13 +25,15 @@ fn roster_snapshot_channel(env: &RawEnvelope) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::{EventBuilder, Keys, Kind, Tag};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     fn event(kind: u16, tags: Vec<Tag>) -> RawEnvelope {
         RawEnvelope::Nostr(
             EventBuilder::new(Kind::from(kind), "")
                 .tags(tags)
-                .sign_with_keys(&Keys::generate())
+                .finalize(&Keys::generate())
                 .unwrap(),
         )
     }

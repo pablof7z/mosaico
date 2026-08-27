@@ -1,4 +1,6 @@
 use super::*;
+use nostr::event::FinalizeEvent;
+use nostr::key::Keys;
 
 fn at(pk: &str, slug: &str) -> AddTarget {
     AddTarget {
@@ -20,7 +22,7 @@ fn resume(pk: &str, slug: &str, session_pubkey: &str) -> AddTarget {
 /// they assert what `parse_orchestration` does with bytes that ARRIVED, so the
 /// context row is part of the fixture rather than something to mint.
 fn sign(b: EventBuilder) -> Event {
-    b.sign_with_keys(&Keys::generate()).unwrap()
+    b.finalize(&Keys::generate()).unwrap()
 }
 
 /// Sign the draft into `group` exactly as the publish path does: NMP's
@@ -109,8 +111,7 @@ fn parse_none_for_plain_chat_without_mosaico_op() {
     // A prose-only kind:9 chat message must be ignored.
     let ev = sign(
         EventBuilder::new(kind(KIND_CHAT), "just chatting")
-            .tags([tag(&["h", "p"]).unwrap()])
-            .allow_self_tagging(),
+            .tags([tag(&["h", "p"]).unwrap()]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -125,8 +126,7 @@ fn parse_none_for_different_mosaico_op() {
                 tag(&["parent", "p"]).unwrap(),
                 tag(&["h-target", "c"]).unwrap(),
                 tag(&["add", "bk", "r"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -141,8 +141,7 @@ fn parse_none_when_h_differs_from_parent() {
                 tag(&["parent", "p"]).unwrap(),
                 tag(&["h-target", "c"]).unwrap(),
                 tag(&["add", "bk", "r"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -156,8 +155,7 @@ fn parse_none_when_h_target_missing() {
                 tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
                 tag(&["parent", "p"]).unwrap(),
                 tag(&["add", "bk", "r"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -173,8 +171,7 @@ fn parse_none_when_two_h_target_tags() {
                 tag(&["h-target", "c1"]).unwrap(),
                 tag(&["h-target", "c2"]).unwrap(),
                 tag(&["add", "bk", "r"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -188,8 +185,7 @@ fn parse_none_when_no_add_tags() {
                 tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
                 tag(&["parent", "p"]).unwrap(),
                 tag(&["h-target", "c"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }
@@ -205,8 +201,7 @@ fn parse_none_for_wrong_kind() {
                 tag(&["parent", "p"]).unwrap(),
                 tag(&["h-target", "c"]).unwrap(),
                 tag(&["add", "bk", "r"]).unwrap(),
-            ])
-            .allow_self_tagging(),
+            ]),
     );
     assert!(parse_orchestration(&ev).is_none());
 }

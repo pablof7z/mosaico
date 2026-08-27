@@ -155,7 +155,7 @@ pub(super) fn capture_messages(
         .filter(|e| {
             input.session.is_none_or(|session| {
                 store
-                    .session_membership_admits_event(&session.pubkey, channel, &e.id)
+                    .session_membership_admits_event(session.pubkey.as_str(), channel, e)
                     .unwrap_or(false)
             })
         })

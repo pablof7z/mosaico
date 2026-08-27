@@ -9,7 +9,7 @@
 use anyhow::{Context, Result};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use nostr::Keys;
+use nostr::key::Keys;
 
 use super::{
     login_html, oauth_error, random_token, AuthState, AuthorizeForm, AuthorizeParams,

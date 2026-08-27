@@ -173,7 +173,7 @@ fn explicit_leave_and_rejoin_resets_both_membership_fences() {
     let store = Store::open_memory().unwrap();
     let (generation, session) = running(&store);
     store.grant_session_route("pk", "joined", 2).unwrap();
-    insert_chat(&store, "before-rejoin", "joined", 10);
+    let before_rejoin = insert_chat(&store, "before-rejoin", "joined", 10);
     let before = route_fence(&store, "pk", "joined");
 
     assert!(store
@@ -187,7 +187,7 @@ fn explicit_leave_and_rejoin_resets_both_membership_fences() {
     assert_eq!(after.0, 12);
     assert!(after.1 > before.1);
     assert!(!store
-        .session_membership_admits_event("pk", "joined", "before-rejoin")
+        .session_membership_admits_event("pk", "joined", &before_rejoin)
         .unwrap());
 }
 
@@ -195,32 +195,46 @@ fn explicit_leave_and_rejoin_resets_both_membership_fences() {
 fn automatic_body_eligibility_requires_arrival_and_signed_time_fences() {
     let store = Store::open_memory().unwrap();
     running(&store);
-    insert_chat(&store, "future-seen-before", "joined", 500);
+    let future_seen_before = insert_chat(&store, "future-seen-before", "joined", 500);
     store.grant_session_route("pk", "joined", 100).unwrap();
-    insert_chat(&store, "same-second", "joined", 100);
-    insert_chat(&store, "backdated", "joined", 99);
-    insert_chat(&store, "wrong-channel", "other", 101);
+    let same_second = insert_chat(&store, "same-second", "joined", 100);
+    let backdated = insert_chat(&store, "backdated", "joined", 99);
+    let wrong_channel = insert_chat(&store, "wrong-channel", "other", 101);
 
     assert!(store
-        .session_membership_admits_event("pk", "joined", "same-second")
+        .session_membership_admits_event("pk", "joined", &same_second)
         .unwrap());
-    for event_id in [
-        "future-seen-before",
-        "backdated",
-        "wrong-channel",
-        "missing",
-    ] {
+    for event in [&future_seen_before, &backdated, &wrong_channel] {
         assert!(
             !store
-                .session_membership_admits_event("pk", "joined", event_id)
+                .session_membership_admits_event("pk", "joined", event)
                 .unwrap(),
-            "{event_id} must fail closed"
+            "{} must fail closed",
+            event.id
         );
     }
+    assert!(!store
+        .session_membership_admits_event(
+            "pk",
+            "joined",
+            &RelayEvent {
+                id: "missing".into(),
+                kind: 9,
+                pubkey: "human".into(),
+                created_at: 100,
+                channel_h: "joined".into(),
+                d_tag: String::new(),
+                content: String::new(),
+                tags_json: "[]".into(),
+            }
+        )
+        .unwrap());
 
+    // Re-observing a future-dated event first seen before the join still fails
+    // the arrival-order fence: its arrival sequence is unchanged.
     insert_chat(&store, "future-seen-before", "joined", 500);
     assert!(!store
-        .session_membership_admits_event("pk", "joined", "future-seen-before")
+        .session_membership_admits_event("pk", "joined", &future_seen_before)
         .unwrap());
 }
 
@@ -231,25 +245,25 @@ fn persisted_join_fence_survives_restart_and_nmp_view_rebuild() {
     {
         let store = Store::open(&path).unwrap();
         running(&store);
-        insert_chat(&store, "before", "joined", 500);
+        let before = insert_chat(&store, "before", "joined", 500);
         store.grant_session_route("pk", "joined", 100).unwrap();
-        insert_chat(&store, "after", "joined", 100);
+        let after = insert_chat(&store, "after", "joined", 100);
         assert!(!store
-            .session_membership_admits_event("pk", "joined", "before")
+            .session_membership_admits_event("pk", "joined", &before)
             .unwrap());
         assert!(store
-            .session_membership_admits_event("pk", "joined", "after")
+            .session_membership_admits_event("pk", "joined", &after)
             .unwrap());
     }
 
     let reopened = Store::open(&path).unwrap();
-    insert_chat(&reopened, "before", "joined", 500);
-    insert_chat(&reopened, "after", "joined", 100);
+    let before = insert_chat(&reopened, "before", "joined", 500);
+    let after = insert_chat(&reopened, "after", "joined", 100);
     assert!(!reopened
-        .session_membership_admits_event("pk", "joined", "before")
+        .session_membership_admits_event("pk", "joined", &before)
         .unwrap());
     assert!(reopened
-        .session_membership_admits_event("pk", "joined", "after")
+        .session_membership_admits_event("pk", "joined", &after)
         .unwrap());
 }
 
@@ -266,12 +280,13 @@ fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
         .unwrap()
 }
 
-fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) {
+fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> RelayEvent {
     let mut events = store
         .nmp_views
+        .recent_rows()
         .events_by_kind(crate::fabric::nip29::wire::KIND_CHAT, u32::MAX);
     events.retain(|event| event.id != id);
-    events.push(RelayEvent {
+    let event = RelayEvent {
         id: id.into(),
         kind: 9,
         pubkey: "human".into(),
@@ -280,6 +295,8 @@ fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) {
         d_tag: String::new(),
         content: id.into(),
         tags_json: "[]".into(),
-    });
+    };
+    events.push(event.clone());
     store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events(events));
+    event
 }

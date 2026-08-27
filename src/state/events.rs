@@ -4,15 +4,15 @@ use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.nmp_views.event(id))
+        Ok(self.nmp_views.recent_rows().event(id))
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
-        self.nmp_views.event_by_prefix(prefix)
+        self.nmp_views.recent_rows().event_by_prefix(prefix)
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.nmp_views.event(id).is_some())
+        Ok(self.nmp_views.recent_rows().event(id).is_some())
     }
 
     pub fn chat_for_channel(
@@ -21,30 +21,22 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<RelayEvent>> {
-        Ok(self.nmp_views.events_in_channel(channel_h, since, limit))
-    }
-
-    pub fn chat_for_channel_after(
-        &self,
-        channel_h: &str,
-        after_created_at: u64,
-        after_id: &str,
-        limit: u32,
-    ) -> Result<Vec<RelayEvent>> {
         Ok(self
             .nmp_views
-            .events_in_channel_after(channel_h, after_created_at, after_id, limit))
+            .recent_rows()
+            .events_in_channel(channel_h, since, limit))
     }
 
     pub fn latest_message_at_by_pubkey(
         &self,
         channel_h: &str,
     ) -> Result<std::collections::HashMap<String, u64>> {
-        Ok(self.nmp_views.latest_chat_by_author(channel_h))
-    }
-
-    pub fn count_channel_events_before(&self, channel_h: &str, before: u64) -> Result<u32> {
-        Ok(self.nmp_views.count_chat_before(channel_h, before))
+        Ok(self
+            .nmp_views
+            .recent_rows()
+            .latest_chat_by_author(channel_h, crate::fabric::nip29::wire::KIND_CHAT)
+            .into_iter()
+            .collect())
     }
 
     pub fn prejoin_chat_for_session(
@@ -66,7 +58,11 @@ impl Store {
             return Ok(Vec::new());
         };
         let mut events = Vec::new();
-        for event in self.nmp_views.events_in_channel(channel_h, 0, u32::MAX) {
+        for event in self
+            .nmp_views
+            .recent_rows()
+            .events_in_channel(channel_h, 0, u32::MAX)
+        {
             if event.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 {
                 continue;
             }
@@ -86,7 +82,7 @@ impl Store {
 
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let kind = u16::try_from(kind).context("Nostr kind exceeds u16")?;
-        Ok(self.nmp_views.events_by_kind(kind, limit))
+        Ok(self.nmp_views.recent_rows().events_by_kind(kind, limit))
     }
 }
 

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use anyhow::Result;
-use nmp::nip29::{GroupAvailability, GroupSnapshot};
+use crate::group_snapshot::{GroupAvailability, GroupSnapshot};
 
 use crate::state::{Channel, ChannelMember};
 

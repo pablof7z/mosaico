@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::{Profile, RelayEvent, TestRelayDelivery};
-use nostr::Keys;
+use nostr::key::Keys;
 use std::cell::RefCell;
 
 struct Fixture {

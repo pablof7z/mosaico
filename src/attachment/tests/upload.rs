@@ -7,7 +7,7 @@ use axum::routing::put;
 use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use nostr::{Event, JsonUtil};
+use nostr::event::Event;
 use std::sync::Mutex;
 
 #[derive(Clone, Debug, Default)]

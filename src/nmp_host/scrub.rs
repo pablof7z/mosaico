@@ -1,6 +1,6 @@
 //! Product credential scrubbing applied before NMP freezes a write.
 
-use nostr::*;
+use nostr::event::UnsignedEvent;
 
 /// Scrub content in-place on an `UnsignedEvent`. Resets `id` to `None` when
 /// content changed so the signing step recomputes the event ID over the
@@ -23,6 +23,8 @@ pub(crate) fn scrub_unsigned(unsigned: &mut UnsignedEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nostr::event::{EventBuilder, FinalizeUnsignedEvent, Kind, SignEvent};
+    use nostr::key::Keys;
 
     #[test]
     fn redacts_aws_key() {
@@ -98,7 +100,7 @@ mod tests {
         let raw_content = format!("leak {token} in prompt");
 
         let builder = EventBuilder::new(Kind::from(1u16), raw_content);
-        let mut unsigned = builder.build(keys.public_key());
+        let mut unsigned = builder.finalize_unsigned(keys.public_key());
         scrub_unsigned(&mut unsigned);
 
         assert!(unsigned.content.contains("[REDACTED]"), "content scrubbed");
@@ -106,7 +108,7 @@ mod tests {
 
         // Sign and verify: nostr recomputes the id from scrubbed content
         // on sign, so verify() must succeed (proves id reset was applied).
-        let signed = keys.sign_event(unsigned).await.expect("signing");
+        let signed = keys.sign_event(unsigned).expect("signing");
         assert!(
             signed.verify().is_ok(),
             "signature valid over scrubbed content"
@@ -122,7 +124,7 @@ mod tests {
         let keys = Keys::generate();
         // Kind 9000 put-user events have empty content; it must be untouched.
         let builder = EventBuilder::new(Kind::from(9000u16), "");
-        let mut unsigned = builder.build(keys.public_key());
+        let mut unsigned = builder.finalize_unsigned(keys.public_key());
         let original_id = unsigned.id;
         scrub_unsigned(&mut unsigned);
         assert_eq!(

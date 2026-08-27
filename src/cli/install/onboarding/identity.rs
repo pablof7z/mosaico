@@ -4,7 +4,8 @@
 //! machine can stay free of key generation and hostname handling.
 
 use anyhow::{Context, Result};
-use nostr::{Keys, ToBech32};
+use nostr::key::Keys;
+use nostr::nips::nip19::ToBech32;
 
 pub(super) const DEVICE_NAME_CAP: usize = 18;
 

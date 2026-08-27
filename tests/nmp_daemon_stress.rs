@@ -9,7 +9,8 @@ mod relay;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use nostr::{Event, EventBuilder, Keys, Kind, Tag};
+use nostr::event::{Event, EventBuilder, FinalizeEvent as _, Kind, Tag};
+use nostr::key::Keys;
 use process::{sample, DaemonProcess};
 use relay::{CountingRelay, RelaySnapshot};
 
@@ -150,11 +151,11 @@ fn group_snapshots() -> [Event; 2] {
             Tag::identifier("stress-root"),
             Tag::parse(["name", "stress-root"]).expect("group name tag"),
         ])
-        .sign_with_keys(&relay)
+        .finalize(&relay)
         .expect("sign relay-authored group metadata");
     let admins = EventBuilder::new(Kind::from(39_001), "")
         .tags(tags)
-        .sign_with_keys(&relay)
+        .finalize(&relay)
         .expect("sign relay-authored group admins");
     [metadata, admins]
 }

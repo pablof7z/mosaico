@@ -1,6 +1,6 @@
 use super::*;
+use crate::group_snapshot::{GroupAvailability, GroupSnapshot, ListedSubject};
 use crate::state::RegisterSession;
-use std::collections::{BTreeMap, BTreeSet};
 
 const SCRIPTED_CLASSIFIED_FAILURE: &str =
     "fault=latched durability=absent reopen=required: Previous I/O error occurred";
@@ -8,65 +8,35 @@ const SCRIPTED_CLASSIFIED_FAILURE: &str =
 fn ready_group_snapshot(
     group: &str,
     name: &str,
-    admins: &[nostr::PublicKey],
-    members: &[nostr::PublicKey],
-) -> nmp::nip29::GroupSnapshot {
-    use nmp::nip29::{GroupAvailability, GroupMetadata, HostRecords, ListedRecord, ListedSubject};
-    let host = nostr::RelayUrl::parse("wss://relay.example").unwrap();
-    let subjects = |keys: &[nostr::PublicKey]| {
+    admins: &[nostr::key::PublicKey],
+    members: &[nostr::key::PublicKey],
+) -> GroupSnapshot {
+    let subjects = |keys: &[nostr::key::PublicKey]| {
         keys.iter()
-            .map(|pubkey| ListedSubject {
-                pubkey: *pubkey,
-                role: None,
-                hosts: BTreeSet::from([host.clone()]),
-            })
+            .map(|pubkey| ListedSubject::new(*pubkey, Vec::new()))
             .collect::<Vec<_>>()
     };
-    let admins = subjects(admins);
-    let members = subjects(members);
-    let record = |subjects| ListedRecord {
-        subjects,
-        as_of: nostr::Timestamp::from(2),
-        event_id: nostr::EventId::all_zeros(),
-        host: host.clone(),
-    };
-    let metadata = GroupMetadata {
-        name: Some(name.to_string()),
-        about: None,
-        picture: None,
-        tags: Vec::new(),
-        as_of: nostr::Timestamp::from(1),
-        event_id: nostr::EventId::all_zeros(),
-        host: host.clone(),
-    };
-    nmp::nip29::GroupSnapshot {
+    GroupSnapshot {
         id: group.to_string(),
-        metadata: Some(metadata.clone()),
-        admins: admins.clone(),
-        members: members.clone(),
+        metadata: Some(crate::group_snapshot::GroupMetadata {
+            name: Some(name.to_string()),
+            about: None,
+            tags: Vec::new(),
+            as_of: std::time::Duration::from_secs(1),
+        }),
+        admins: subjects(admins),
+        members: subjects(members),
         availability: GroupAvailability::Ready,
-        per_host: BTreeMap::from([(
-            host.clone(),
-            HostRecords {
-                metadata: Some(metadata),
-                admins: Some(record(admins)),
-                members: Some(record(members)),
-                availability: GroupAvailability::Ready,
-            },
-        )]),
-        disagreements: BTreeSet::new(),
     }
 }
 
-fn absent_group_snapshot(group: &str) -> nmp::nip29::GroupSnapshot {
-    nmp::nip29::GroupSnapshot {
+fn absent_group_snapshot(group: &str) -> GroupSnapshot {
+    GroupSnapshot {
         id: group.to_string(),
         metadata: None,
         admins: Vec::new(),
         members: Vec::new(),
-        availability: nmp::nip29::GroupAvailability::Ready,
-        per_host: BTreeMap::new(),
-        disagreements: BTreeSet::new(),
+        availability: GroupAvailability::Ready,
     }
 }
 
@@ -110,7 +80,7 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     let project = ready_group_snapshot(
         "project",
         "project",
-        &[nostr::PublicKey::from_hex(&management).unwrap()],
+        &[nostr::key::PublicKey::from_hex(&management).unwrap()],
         &[],
     );
     for _ in 0..5 {
@@ -166,7 +136,7 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
     let project = ready_group_snapshot(
         "project",
         "project",
-        &[nostr::PublicKey::from_hex(&management).unwrap()],
+        &[nostr::key::PublicKey::from_hex(&management).unwrap()],
         &[],
     );
     state.nmp().script_group_snapshot(absent_child.clone());

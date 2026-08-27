@@ -14,7 +14,8 @@ use crate::session::Harness;
 use crate::state::Store;
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
-use nostr::{Event, Keys};
+use nostr::event::Event;
+use nostr::key::Keys;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -199,26 +200,7 @@ use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
 mod dispatch;
 use dispatch::dispatch;
-const SEEN_EVENTS_CAP: usize = 4096;
 impl DaemonState {
-    /// True exactly once per native event id (bounded memory). Subsequent
-    /// sightings — NMP notifying for every matching observation —
-    /// return false and must be ignored.
-    fn first_sight(&self, event_id: &str) -> bool {
-        let mut g = self.dedup.events.lock().unwrap();
-        let (set, order) = &mut *g;
-        if set.contains(event_id) {
-            return false;
-        }
-        set.insert(event_id.to_owned());
-        order.push_back(event_id.to_owned());
-        if order.len() > SEEN_EVENTS_CAP {
-            if let Some(old) = order.pop_front() {
-                set.remove(&old);
-            }
-        }
-        true
-    }
     fn tail_subscribe(&self) -> tokio::sync::broadcast::Receiver<TailEvent> {
         self.connections.tail_tx.subscribe()
     }

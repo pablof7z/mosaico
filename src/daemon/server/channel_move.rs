@@ -209,7 +209,7 @@ pub(super) fn current_evidence(
 }
 
 fn random_roll() -> u64 {
-    let hex = nostr::Keys::generate().public_key().to_hex();
+    let hex = nostr::key::Keys::generate().public_key().to_hex();
     u64::from_str_radix(&hex[..16], 16).unwrap_or(u64::MAX)
 }
 

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use nostr::Event;
+use nostr::event::Event;
 use tungstenite::{accept, Error, Message};
 
 #[derive(Clone, Copy, Debug, Default)]

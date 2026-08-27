@@ -1,234 +1,181 @@
-//! How a Mosaico question becomes an NMP live query.
+//! How a Mosaico question becomes a fava `Query`.
 //!
-//! The whole point of this module is that the two host-scoping axes are
-//! decided HERE, once, and never inherited by accident. `SourceAuthority`
-//! scopes which relays are ASKED; `CacheMode` scopes which locally cached
-//! rows may ANSWER. Their defaults disagree — a `Demand` is `Pinned` only
-//! when you say so, but it is `Agnostic` unless you say otherwise — and
-//! mosaico#741 is exactly what happens when only the first one is set.
+//! Each `SubscriptionQuery` variant maps to a declarative `fava::Query`. The
+//! relay scope is always explicit (`from_relays` / `only_from_relays`) so
+//! that authority rules are stated once here and never inherited by accident.
 
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
-use nmp::{
-    AccessContext, Binding, CacheMode, Demand, IndexedTagName, LiveQuery, RelayUrl, SourceAuthority,
-};
+use fava::{Query, RelayUrl, SingleLetterTag};
 
 use crate::reconcile::SubscriptionQuery;
 
 use super::NmpHost;
 
 impl NmpHost {
-    /// The relays a NIP-29 group lives on, as NMP's own scope value. Every
-    /// NIP-29 read is minted from here so the host set is named once and the
-    /// per-host branch structure is NMP's to build, not Mosaico's to imitate.
-    pub(crate) fn nip29_scope(&self) -> Result<nmp::nip29::RelayScope> {
-        nmp::nip29::on(self.relays.iter().cloned())
-            .map_err(|error| anyhow::anyhow!("NIP-29 relay scope: {error}"))
-    }
-
-    /// One group's read declaration for an app-supplied selection: one
-    /// complete branch per host, each `Pinned` to that host alone and
-    /// `CacheMode::Strict`, scoped by `#h`. NMP refuses a selection that
-    /// already constrains `#h`, which is why the group id is a parameter here
-    /// and never a tag the caller writes.
-    pub(crate) fn group_contents_query(
-        &self,
-        group: &str,
-        selection: nmp::Filter,
-    ) -> Result<LiveQuery> {
-        self.nip29_scope()?
-            .group(group)
-            .read(selection)
-            .map_err(|error| anyhow::anyhow!("NIP-29 group read for {group:?}: {error}"))
-    }
-
-    /// Watch the relay-signed records of every group matching `predicate`.
-    ///
-    /// The returned [`GroupObservation`](nmp::nip29::GroupObservation) is the
-    /// handle and Mosaico owns its lifetime: dropping it withdraws the demand.
-    /// NMP deliberately caches nothing keyed by group on the app's behalf.
-    ///
-    /// Branches scale with HOSTS, not groups — every group this daemon watches
-    /// rides the same one-branch-per-relay observation. The honest limit is at
-    /// the wire, not here: the id leaf lowers to a `#d` set, and a relay may
-    /// refuse or truncate a filter carrying very many values, so a daemon
-    /// watching very many groups at once would need to shard across several
-    /// observations.
-    pub(crate) fn observe_group_records(
-        &self,
-        predicate: nmp::nip29::GroupPredicate,
-    ) -> Result<nmp::nip29::GroupObservation> {
-        self.nip29_scope()?
-            .observe(&self.engine, predicate, nmp::nip29::GroupRecord::ALL, None)
-            .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
-    }
-
-    /// Watch one group's relay-signed records through NMP's group facade.
-    ///
-    /// The returned observation is the state owner. Callers read its complete
-    /// [`nmp::nip29::GroupSnapshot`] deliveries directly; Mosaico does not
-    /// materialize or merge another group record set.
-    pub(crate) fn observe_one_group_records(
-        &self,
-        group: &str,
-    ) -> Result<nmp::nip29::GroupObservation> {
-        self.nip29_scope()?
-            .group(group)
-            .observe(&self.engine, nmp::nip29::GroupRecord::ALL)
-            .map_err(|error| anyhow::anyhow!("NIP-29 group records observation: {error}"))
-    }
-
-    /// The relay-signed records describing ONE group — kinds 39000/39001/39002
-    /// joined on `d`. One complete branch per host, `Pinned` and `Strict` at
-    /// every nesting level, because these three kinds are signed by the RELAY
-    /// and a row relay B served is no evidence about relay A's group.
-    pub(crate) fn group_records_query(&self, group: &str) -> Result<LiveQuery> {
-        let records = BTreeSet::from(nmp_nip29::GroupRecord::ALL);
-        let predicate = Binding::Literal(BTreeSet::from([group.to_string()]));
-        let branches = self
-            .relays
-            .iter()
-            .map(|host| nmp_nip29::group_records_at(host, &records, Some(predicate.clone()), None))
-            .collect::<Vec<_>>();
-        union_branches(branches)
-    }
-
-    /// Every group these hosts describe (kind:39000, unkeyed).
-    ///
-    /// The absent `d` binding is NMP's own spelling of "no constraint" —
-    /// `group_records_at` with `None` builds a branch carrying no `#d` row at
-    /// all, which is the only honest lowering of an unpredicated listing.
-    pub(crate) fn all_group_metadata_query(&self) -> Result<LiveQuery> {
-        let records = BTreeSet::from([nmp_nip29::GroupRecord::Metadata]);
-        let branches = self
-            .relays
-            .iter()
-            .map(|host| nmp_nip29::group_records_at(host, &records, None, None))
-            .collect::<Vec<_>>();
-        union_branches(branches)
-    }
-
-    /// A read NMP's NIP-29 vocabulary does not mint, pinned to `relays` with
-    /// an EXPLICIT cache mode.
-    ///
-    /// `cache` is a parameter and never a default because the default is
-    /// `Agnostic` — "serve every matching cached row regardless of
-    /// provenance" — and inheriting it silently is precisely the defect
-    /// mosaico#741 records. The two rules Mosaico applies:
-    ///
-    /// * Pinned to the GROUP hosts → `Strict`. Those hosts are asked because
-    ///   they are the authority for the answer; a row a different relay
-    ///   served is not evidence about them. Mosaico's own not-yet-carried
-    ///   writes stay visible regardless — NMP decides that by ours-versus-
-    ///   foreign, not by carried-versus-uncarried.
-    /// * Pinned to the PROFILE hosts → `Agnostic`. kind:0 is
-    ///   self-authenticating, the answer does not depend on who served it,
-    ///   and the indexer is in that set precisely so it can answer for
-    ///   relays outside the app's own.
-    pub(super) fn host_pinned_query(
-        &self,
-        relays: &BTreeSet<RelayUrl>,
-        filter: nmp::Filter,
-        access: AccessContext,
-        cache: CacheMode,
-    ) -> Result<LiveQuery> {
-        let demand = if relays.is_empty() {
-            Demand::from_filter(filter)
-        } else {
-            let mut demand = Demand::new(filter, SourceAuthority::Pinned(relays.clone()), access)?;
-            demand.cache = cache;
-            demand
-        };
-        Ok(LiveQuery::single(demand))
-    }
-
-    /// kind:0 for the current member set, pinned to the profile relays,
-    /// `Agnostic`. This is the retained profile feed's query (mosaico#837):
-    /// one observation scoped to `authors:[members]`, draining into a small
-    /// bounded per-pubkey profile map. kind:0 is self-authenticating, so the
-    /// cache stays provenance-agnostic exactly like the single-profile read.
-    pub(crate) fn profile_feed_query(&self, authors: &BTreeSet<String>) -> Result<LiveQuery> {
-        let mut filter = kinds_filter(&BTreeSet::from([0u16]));
-        filter.authors = Some(Binding::Literal(authors.clone()));
-        self.host_pinned_query(
-            &self.profile_relays,
-            filter,
-            AccessContext::Public,
-            CacheMode::Agnostic,
-        )
-    }
-
-    /// Open a caller-owned NMP observation over an already-built live query.
-    /// The caller owns the [`nmp::Subscription`] and its drain. Used by
-    /// retained feeds that keep their own projection rather than the daemon
-    /// demux transition stream.
-    pub(crate) fn observe_query(&self, query: LiveQuery) -> Result<nmp::Subscription> {
-        self.engine
-            .observe(query, None)
-            .context("opening NMP observation")
-    }
-
-    pub(super) fn live_query(
-        &self,
-        query: &SubscriptionQuery,
-        access: AccessContext,
-    ) -> Result<LiveQuery> {
+    /// Convert one Mosaico subscription question into a fava `Query`.
+    pub(crate) fn fava_query(&self, query: &SubscriptionQuery) -> Result<Query> {
         match query {
-            SubscriptionQuery::AllGroupMetadata => self.all_group_metadata_query(),
-            SubscriptionQuery::GroupContents { group, kinds } => {
-                self.group_contents_query(group, kinds_filter(kinds))
-            }
-            SubscriptionQuery::Kinds { kinds } => {
-                self.host_pinned_query(&self.relays, kinds_filter(kinds), access, CacheMode::Strict)
-            }
-            SubscriptionQuery::Mentions { pubkey, kinds } => {
-                let mut filter = kinds_filter(kinds);
-                filter.tags.insert(
-                    indexed_tag('p')?,
-                    Binding::Literal(BTreeSet::from([pubkey.clone()])),
-                );
-                self.host_pinned_query(&self.relays, filter, access, CacheMode::Strict)
+            SubscriptionQuery::GroupContentsMulti { groups, kinds } => {
+                self.group_contents_multi_query(groups, kinds)
             }
             SubscriptionQuery::References { event_id, kinds } => {
-                let mut filter = kinds_filter(kinds);
-                filter.tags.insert(
-                    indexed_tag('e')?,
-                    Binding::Literal(BTreeSet::from([event_id.clone()])),
-                );
-                self.host_pinned_query(&self.relays, filter, access, CacheMode::Strict)
-            }
-            SubscriptionQuery::Profile { pubkey } => {
-                let mut filter = kinds_filter(&BTreeSet::from([0u16]));
-                filter.authors = Some(Binding::Literal(BTreeSet::from([pubkey.clone()])));
-                self.host_pinned_query(&self.profile_relays, filter, access, CacheMode::Agnostic)
+                self.references_query(event_id, kinds)
             }
         }
     }
-}
 
-pub(super) fn kinds_filter(kinds: &BTreeSet<u16>) -> nmp::Filter {
-    nmp::Filter {
-        kinds: (!kinds.is_empty()).then(|| kinds.clone()),
-        ..nmp::Filter::default()
+    /// Content kinds for SEVERAL groups at once, scoped by multi-value `#h`.
+    fn group_contents_multi_query(
+        &self,
+        groups: &BTreeSet<String>,
+        kinds: &BTreeSet<u16>,
+    ) -> Result<Query> {
+        let h = SingleLetterTag::from_char('h').expect("h is a single-letter tag");
+        let mut q = Query::events();
+        if !kinds.is_empty() {
+            q = q
+                .kinds(kinds.iter().map(|&k| fava::Kind::from_u16(k)))
+                .context("group-contents-multi kinds")?;
+        }
+        q = q
+            .tag_values(h, groups.iter().map(String::as_str))
+            .context("group-contents-multi h-tag")?
+            .only_from_relays(self.relays.iter().cloned())
+            .context("group-contents-multi relay scope")?;
+        Ok(q)
+    }
+
+    /// Events with `#e` tag = event_id, from the group relays.
+    fn references_query(&self, event_id: &str, kinds: &BTreeSet<u16>) -> Result<Query> {
+        let e = SingleLetterTag::from_char('e').expect("e is a single-letter tag");
+        let mut q = Query::events();
+        if !kinds.is_empty() {
+            q = q
+                .kinds(kinds.iter().map(|&k| fava::Kind::from_u16(k)))
+                .context("references kinds")?;
+        }
+        q = q
+            .tag_values(e, [event_id])
+            .context("references e-tag")?
+            .only_from_relays(self.relays.iter().cloned())
+            .context("references relay scope")?;
+        Ok(q)
+    }
+
+    /// kind:0 for one pubkey from the profile relays.
+    fn profile_query(&self, pubkey: &str) -> Result<Query> {
+        let pubkey = nostr::key::PublicKey::from_hex(pubkey)
+            .with_context(|| format!("invalid pubkey in profile query: {pubkey}"))?;
+        Query::events()
+            .kinds([fava::Kind::from_u16(0)])
+            .context("profile kinds")?
+            .authors([pubkey])
+            .context("profile author")?
+            .from_relays(self.profile_relays.iter().cloned())
+            .context("profile relay scope")
+    }
+
+    /// kind:0 for the current member set, from the profile relays.
+    /// Used by the retained profile feed.
+    pub(crate) fn profile_feed_query(&self, authors: &BTreeSet<String>) -> Result<Query> {
+        if authors.is_empty() {
+            // Empty author set matches nothing — return a vacuous query.
+            return Ok(Query::events()
+                .kinds([fava::Kind::from_u16(0)])
+                .context("profile-feed kinds")?);
+        }
+        let pubkeys = authors
+            .iter()
+            .filter_map(|hex| nostr::key::PublicKey::from_hex(hex).ok())
+            .collect::<Vec<_>>();
+        Query::events()
+            .kinds([fava::Kind::from_u16(0)])
+            .context("profile-feed kinds")?
+            .authors(pubkeys)
+            .context("profile-feed authors")?
+            .from_relays(self.profile_relays.iter().cloned())
+            .context("profile-feed relay scope")
+    }
+
+    /// kinds 39000/39001/39002 for ALL groups, from the group relays.
+    /// Used by the group-records watcher.
+    pub(crate) fn all_group_records_query(&self) -> Result<Query> {
+        Query::events()
+            .kinds([
+                fava::Kind::from_u16(39_000),
+                fava::Kind::from_u16(39_001),
+                fava::Kind::from_u16(39_002),
+            ])
+            .context("all-group-records kinds")?
+            .only_from_relays(self.relays.iter().cloned())
+            .context("all-group-records relay scope")
+    }
+
+    /// kinds 39000/39001/39002 for one group id, from the group relays.
+    pub(crate) fn one_group_records_query(&self, group: &str) -> Result<Query> {
+        let d = SingleLetterTag::from_char('d').expect("d is a single-letter tag");
+        Query::events()
+            .kinds([
+                fava::Kind::from_u16(39_000),
+                fava::Kind::from_u16(39_001),
+                fava::Kind::from_u16(39_002),
+            ])
+            .context("one-group-records kinds")?
+            .tag_values(d, [group])
+            .context("one-group-records d-tag")?
+            .only_from_relays(self.relays.iter().cloned())
+            .context("one-group-records relay scope")
     }
 }
 
-fn indexed_tag(name: char) -> Result<IndexedTagName> {
-    IndexedTagName::new(name).with_context(|| format!("invalid indexed tag name {name}"))
+/// Build a `filter` used by fabric callers that compose their own filter before
+/// handing it to `fetch_profiles`.
+pub(crate) fn filter(
+    kinds: &[u16],
+    authors: &[String],
+    tags: &[(char, String)],
+) -> Result<FetchFilter> {
+    let pubkeys = authors
+        .iter()
+        .filter_map(|hex| nostr::key::PublicKey::from_hex(hex).ok())
+        .collect::<Vec<_>>();
+    Ok(FetchFilter {
+        kinds: kinds.to_vec(),
+        authors: pubkeys,
+        tags: tags.to_vec(),
+    })
 }
 
-/// One live query out of one complete branch per host, exactly as NMP's own
-/// NIP-29 read door folds them (`nmp::nip29::read::one_live_query`).
-fn union_branches(branches: Vec<Demand>) -> Result<LiveQuery> {
-    let mut branches = branches;
-    match branches.len() {
-        0 => anyhow::bail!("no configured group host to read from"),
-        1 => Ok(LiveQuery::single(
-            branches.pop().expect("exactly one branch"),
-        )),
-        _ => LiveQuery::union(branches.into_iter().map(LiveQuery::single), None)
-            .map_err(|error| anyhow::anyhow!("composing per-host read branches: {error}")),
+/// A structured filter for bounded reads, replacing `nmp::Filter`.
+#[derive(Clone, Default)]
+pub(crate) struct FetchFilter {
+    pub(crate) kinds: Vec<u16>,
+    pub(crate) authors: Vec<nostr::key::PublicKey>,
+    pub(crate) tags: Vec<(char, String)>,
+}
+
+impl FetchFilter {
+    pub(crate) fn into_query(
+        self,
+        relays: impl IntoIterator<Item = RelayUrl>,
+    ) -> Result<Query> {
+        let mut q = Query::events();
+        if !self.kinds.is_empty() {
+            q = q
+                .kinds(self.kinds.iter().map(|&k| fava::Kind::from_u16(k)))
+                .context("fetch filter kinds")?;
+        }
+        if !self.authors.is_empty() {
+            q = q.authors(self.authors).context("fetch filter authors")?;
+        }
+        for (name, value) in &self.tags {
+            let key = SingleLetterTag::from_char(*name)
+                .with_context(|| format!("invalid tag name {name:?} in fetch filter"))?;
+            q = q.tag_values(key, [value.as_str()]).context("fetch filter tag")?;
+        }
+        q.from_relays(relays).context("fetch filter relay scope")
     }
 }
 

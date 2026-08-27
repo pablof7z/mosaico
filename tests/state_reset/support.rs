@@ -97,7 +97,7 @@ pub(super) fn seed_configuration_at(
         "backendName": "reset-contract",
         "relays": ["wss://relay.invalid"],
         "indexerRelay": "wss://relay.invalid",
-        "mosaicoPrivateKey": nostr::Keys::generate().secret_key().to_secret_hex(),
+        "mosaicoPrivateKey": nostr::key::Keys::generate().secret_key().to_secret_hex(),
         "attachmentReceiveDirectory": attachment_directory,
     })
     .to_string()

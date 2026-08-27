@@ -12,12 +12,10 @@
 
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
+use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use nmp_asset::Sha256Hash;
-use nmp_blossom::{
-    upload_authorization_draft, BlossomClient, BlossomClientConfig, BlossomServerUrl, BlossomVerb,
-    ExpectedAuthorization, SignedAuthorization,
-};
-use nostr::{Keys, Timestamp};
+use nostr::event::{EventBuilder, Kind, Tag};
+use nostr::key::Keys;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -26,6 +24,12 @@ use url::Url;
 use crate::nmp_host::NmpHost;
 
 const AUTH_LIFETIME_SECS: u64 = 5 * 60;
+
+#[derive(serde::Deserialize)]
+struct BlossomDescriptor {
+    url: String,
+    sha256: String,
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct Attachment {
@@ -132,28 +136,29 @@ pub(crate) async fn upload_all(
         return Ok(Vec::new());
     }
 
-    let server = BlossomServerUrl::parse(blossom_server(relays)?.as_str())
-        .map_err(|error| anyhow::anyhow!("invalid Blossom server URL: {error}"))?;
-    // A local relay is a local Blossom server. NMP refuses a loopback or
-    // private-network destination unless the operator opted that exact host
-    // in — the same allowlist the engine uses for relays.
-    let client = BlossomClient::new(BlossomClientConfig {
-        allowed_local_hosts: nmp.allowed_local_hosts(),
-        ..BlossomClientConfig::default()
-    })
-    .map_err(|error| anyhow::anyhow!("building Blossom client: {}", error.reason))?;
+    let server = blossom_server(relays)?;
+    // Guard local/private-network destinations the same way the relay engine
+    // does: only allowed if the operator opted that exact host in.
+    let allowed_local = nmp.allowed_local_hosts();
+    if is_local_url(&server) {
+        let host = server.host_str().unwrap_or_default().to_string();
+        if !allowed_local.contains(&host) {
+            anyhow::bail!(
+                "Blossom server {} is a local/private host not in allowed_local_hosts",
+                server
+            );
+        }
+    }
 
     let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
-        let verified = upload(&client, &server, attachment, nmp, keys).await?;
+        let descriptor = upload(&server, attachment, nmp, keys).await?;
         uploaded.push(ChatAttachment {
-            url: verified.descriptor().url.clone(),
+            url: descriptor.url,
             label: attachment.label.clone(),
             // The hash the sender actually computed over the bytes it sent,
-            // carried so the receiver can check what it downloaded. Before
-            // this it was computed, used for the upload header, and thrown
-            // away — which is why the download side could not verify anything.
-            sha256: verified.asset().sha256().to_hex(),
+            // carried so the receiver can check what it downloaded.
+            sha256: descriptor.sha256,
         });
     }
     crate::attachment_contract::validate_attachments(&uploaded)?;
@@ -195,12 +200,11 @@ fn blossom_server(relays: &[String]) -> Result<Url> {
 }
 
 async fn upload(
-    client: &BlossomClient,
-    server: &BlossomServerUrl,
+    server: &Url,
     attachment: &Attachment,
     nmp: &Arc<NmpHost>,
     keys: &Keys,
-) -> Result<nmp_blossom::VerifiedUpload> {
+) -> Result<BlossomDescriptor> {
     let bytes = tokio::fs::read(&attachment.path).await.with_context(|| {
         format!(
             "reading attachment [{}] from {}",
@@ -209,55 +213,108 @@ async fn upload(
         )
     })?;
     let hash = Sha256Hash::of(&bytes);
-    let auth = authorization(nmp, keys, hash).await?;
+    let auth_token = authorization(nmp, keys, &hash).await?;
     let content_type = mime_guess::from_path(&attachment.path).first_or_octet_stream();
-    client
-        .upload(server, &bytes, Some(content_type.as_ref()), &auth)
+    let upload_url = server.join("upload").context("building Blossom upload URL")?;
+    let response = reqwest::Client::new()
+        .put(upload_url.as_str())
+        .header("Authorization", format!("Nostr {auth_token}"))
+        .header("Content-Type", content_type.as_ref())
+        .header("X-SHA-256", hash.to_hex())
+        .body(bytes)
+        .send()
         .await
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "uploading attachment [{}] to {}: {error}",
+        .with_context(|| {
+            format!(
+                "uploading attachment [{}] to {}",
                 attachment.label,
                 server.as_str()
             )
-        })
+        })?;
+    let status = response.status();
+    if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED {
+        let reason = response
+            .headers()
+            .get("x-reason")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        anyhow::bail!(
+            "Blossom server rejected the authorization for [{}]: {} {}",
+            attachment.label,
+            status,
+            reason
+        );
+    }
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Blossom upload of [{}] failed with {}: {body}",
+            attachment.label,
+            status
+        );
+    }
+    let value: serde_json::Value = response
+        .json()
+        .await
+        .context("parsing Blossom upload response")?;
+    let url = value["url"]
+        .as_str()
+        .context("parsing Blossom upload response: missing the mandatory `url`")?
+        .to_string();
+    let returned_sha256 = value["sha256"]
+        .as_str()
+        .context("parsing Blossom upload response: missing the mandatory `sha256`")?
+        .to_string();
+    if returned_sha256 != hash.to_hex() {
+        anyhow::bail!(
+            "refusing the descriptor from [{}]: server returned sha256 {} but the bytes are hashing to {}",
+            attachment.label,
+            returned_sha256,
+            hash.to_hex()
+        );
+    }
+    Ok(BlossomDescriptor { url, sha256: returned_sha256 })
 }
 
-/// Compose the BUD-11 grant, sign it through NMP's signer registry, and prove
-/// it authorizes exactly these bytes for exactly this verb.
-///
-/// The signing hop is the point. This was the one production path in the repo
-/// that called `sign_with_keys` directly, so it needed raw `Keys` in hand and
-/// no non-local signer could ever produce an attachment. `nmp-blossom` emits an
-/// `UnsignedEvent` precisely so the caller signs it through the machinery it
-/// already has.
-async fn authorization(
-    nmp: &Arc<NmpHost>,
-    keys: &Keys,
-    hash: Sha256Hash,
-) -> Result<SignedAuthorization> {
-    let now = Timestamp::now();
-    let draft = upload_authorization_draft(
-        keys.public_key(),
-        hash,
-        now,
-        now + AUTH_LIFETIME_SECS,
-        "Upload Blob",
-    )
-    .map_err(|error| anyhow::anyhow!("composing Blossom upload authorization: {error}"))?;
+/// Compose a BUD-11 kind:24242 upload-authorization event, sign it through
+/// `NmpHost`, and return the base64url-encoded JSON for the Authorization header.
+async fn authorization(nmp: &Arc<NmpHost>, keys: &Keys, hash: &Sha256Hash) -> Result<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let expiration = now + AUTH_LIFETIME_SECS;
+    let t_tag =
+        Tag::parse(["t", "upload"]).map_err(|e| anyhow::anyhow!("BUD-11 t tag: {e}"))?;
+    let x_tag = Tag::parse(["x", &hash.to_hex()])
+        .map_err(|e| anyhow::anyhow!("BUD-11 x tag: {e}"))?;
+    let exp_tag = Tag::parse(["expiration", &expiration.to_string()])
+        .map_err(|e| anyhow::anyhow!("BUD-11 expiration tag: {e}"))?;
+    let builder = EventBuilder::new(Kind::from_u16(24242), "Upload Blob")
+        .tags([t_tag, x_tag, exp_tag]);
     let signed = nmp
-        .sign_unsigned(draft, keys)
+        .sign_event(builder, keys)
         .await
-        .context("signing Blossom upload authorization through NMP")?;
-    SignedAuthorization::validate(
-        signed,
-        &ExpectedAuthorization {
-            verb: BlossomVerb::Upload,
-            blob: Some(hash),
-        },
-        now,
-    )
-    .map_err(|error| anyhow::anyhow!("Blossom upload authorization is not usable: {error}"))
+        .context("signing BUD-11 upload authorization")?;
+    let json = signed.as_json();
+    Ok(URL_SAFE_NO_PAD.encode(json.as_bytes()))
+}
+
+/// Whether `url` targets a loopback or RFC-1918 private address.
+fn is_local_url(url: &Url) -> bool {
+    use std::net::IpAddr;
+    let host = url.host_str().unwrap_or_default();
+    if host == "localhost" {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+            IpAddr::V6(v6) => v6.is_loopback(),
+        };
+    }
+    false
 }
 
 #[cfg(test)]

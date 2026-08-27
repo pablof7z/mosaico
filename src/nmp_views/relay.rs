@@ -1,5 +1,5 @@
-use nmp::Row;
-use nostr::Event;
+use crate::row::Row;
+use nostr::event::Event;
 
 use crate::domain::{DomainEvent, Profile as DomainProfile, Status as DomainStatus};
 use crate::fabric::nip29::wire::{Nip29WireCodec, KIND_PROFILE, KIND_STATUS};
@@ -217,7 +217,7 @@ impl NmpViews {
                 .find(|event| event.id == id)
                 .map(|event| ProjectedEvent { event });
         }
-        let id = nostr::EventId::from_hex(id).ok()?;
+        let id = nostr::event::EventId::from_hex(id).ok()?;
         self.row(&id).map(|row| ProjectedEvent {
             event: relay_event(&row.event),
         })

@@ -2,7 +2,8 @@ use super::super::*;
 use super::recipient_notice;
 use super::self_target;
 use anyhow::{bail, Context, Result};
-use nostr::{PublicKey, ToBech32};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::ToBech32;
 
 #[derive(serde::Deserialize, Default)]
 struct ChannelReplyParams {

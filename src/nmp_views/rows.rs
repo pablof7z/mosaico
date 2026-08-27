@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use nmp::{AcquisitionEvidence, Row, RowDelta};
-use nostr::EventId;
+use nostr::event::EventId;
+
+use crate::row::{Row, RowDelta};
 
 #[derive(Default)]
 pub(super) struct RowViews {
@@ -16,7 +17,6 @@ pub(super) struct RowViews {
 struct ObservationRows {
     generation: u64,
     ids: BTreeSet<EventId>,
-    evidence: Vec<AcquisitionEvidence>,
 }
 
 struct OwnedRow {
@@ -35,7 +35,6 @@ impl RowViews {
         observation_id: &str,
         generation: u64,
         deltas: Vec<RowDelta>,
-        evidence: Vec<AcquisitionEvidence>,
     ) -> super::RowTransition {
         let expected = self
             .expected_generations
@@ -53,7 +52,7 @@ impl RowViews {
             return super::RowTransition::default();
         }
         if current_generation != Some(generation) {
-            return self.replace_generation(observation_id, generation, deltas, evidence);
+            return self.replace_generation(observation_id, generation, deltas);
         }
 
         let mut transition = super::RowTransition::default();
@@ -66,16 +65,8 @@ impl RowViews {
         for delta in deltas {
             match delta {
                 RowDelta::Added(row) => self.attach(observation_id, row, &mut transition),
-                RowDelta::SourcesGrew { id, sources } => {
-                    if let Some(owned) = self.rows.get_mut(&id) {
-                        owned.row.sources = sources;
-                    }
-                }
                 RowDelta::Removed(_) => {}
             }
-        }
-        if let Some(view) = self.observations.get_mut(observation_id) {
-            view.evidence = evidence;
         }
         transition
     }
@@ -139,11 +130,7 @@ impl RowViews {
     }
 
     /// Rows owned by one retained observation, irrespective of whether another
-    /// observation also owns the same canonical NMP row.
-    ///
-    /// Status is one multi-`h` event, so the global row union cannot answer
-    /// whether Mosaico is currently observing a particular channel. Callers
-    /// that project channel-scoped state must read through this ownership edge.
+    /// observation also owns the same canonical row.
     pub(super) fn rows_for_observation(&self, observation_id: &str) -> Vec<ViewRow> {
         self.rows_for_ids(
             self.observations
@@ -168,13 +155,12 @@ impl RowViews {
         observation_id: &str,
         generation: u64,
         deltas: Vec<RowDelta>,
-        evidence: Vec<AcquisitionEvidence>,
     ) -> super::RowTransition {
         let next_rows = deltas
             .into_iter()
             .filter_map(|delta| match delta {
                 RowDelta::Added(row) => Some((row.event.id, row)),
-                _ => None,
+                RowDelta::Removed(_) => None,
             })
             .collect::<BTreeMap<_, _>>();
         let old_ids = self
@@ -192,7 +178,6 @@ impl RowViews {
             ObservationRows {
                 generation,
                 ids: BTreeSet::new(),
-                evidence,
             },
         );
         for (_, row) in next_rows {
@@ -309,7 +294,7 @@ impl RowViews {
     }
 }
 
-fn channel_tags(event: &nostr::Event) -> impl Iterator<Item = &str> {
+fn channel_tags(event: &nostr::event::Event) -> impl Iterator<Item = &str> {
     event.tags.iter().filter_map(|tag| {
         let values = tag.as_slice();
         (values.first().map(String::as_str) == Some("h"))

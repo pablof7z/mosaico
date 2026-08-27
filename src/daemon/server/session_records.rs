@@ -1,4 +1,4 @@
-use nostr::Keys;
+use nostr::key::Keys;
 use std::sync::Arc;
 use tokio::sync::Notify;
 

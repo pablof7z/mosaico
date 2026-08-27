@@ -1,19 +1,30 @@
 //! NIP-25 reaction reads derived from the active NMP row view.
 
+use super::observed_decode::{decode_reaction, MessageProjection, ReactionProjection};
 use super::*;
+use crate::fabric::nip29::wire::KIND_REACTION;
 use std::collections::BTreeMap;
 
 impl Store {
+    /// All retained kind:7 reaction rows decoded from the bounded recent-rows
+    /// window.
+    fn reaction_projections(&self) -> Vec<ReactionProjection> {
+        self.nmp_views
+            .recent_rows()
+            .events_by_kind(KIND_REACTION, u32::MAX)
+            .into_iter()
+            .filter_map(decode_reaction)
+            .collect()
+    }
     pub fn reactions_on_authored_after(
         &self,
         author_pubkey: &str,
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.nmp_views.messages());
+        let messages = messages_by_id(&self.message_projections());
         let mut reactions = self
-            .nmp_views
-            .reactions()
+            .reaction_projections()
             .into_iter()
             .filter_map(|reaction| {
                 let message = messages.get(&reaction.target_message_id)?;
@@ -36,10 +47,9 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.nmp_views.messages());
+        let messages = messages_by_id(&self.message_projections());
         let mut reactions = self
-            .nmp_views
-            .reactions()
+            .reaction_projections()
             .into_iter()
             .filter(|reaction| reaction.channel_h == channel_h && reaction.created_at > since)
             .filter_map(|reaction| {
@@ -59,21 +69,21 @@ impl Store {
         target_message_id: &str,
         reactor_pubkey: &str,
     ) -> Result<bool> {
-        Ok(self.nmp_views.reactions().into_iter().any(|reaction| {
+        Ok(self.reaction_projections().into_iter().any(|reaction| {
             reaction.target_message_id == target_message_id
                 && reaction.reactor_pubkey == reactor_pubkey
         }))
     }
 }
 
-fn messages_by_id(messages: &[crate::nmp_views::MessageProjection]) -> BTreeMap<String, Message> {
+fn messages_by_id(messages: &[MessageProjection]) -> BTreeMap<String, Message> {
     messages
         .iter()
         .map(|row| (row.message.message_id.clone(), row.message.clone()))
         .collect()
 }
 
-fn row(reaction: crate::nmp_views::ReactionProjection, target_body: String) -> ReactionRow {
+fn row(reaction: ReactionProjection, target_body: String) -> ReactionRow {
     ReactionRow {
         reaction_id: reaction.reaction_id,
         target_message_id: reaction.target_message_id,
@@ -152,5 +162,29 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["new", "middle"]
         );
+    }
+    #[test]
+    fn has_reaction_from_pubkey_on_message_matches_target_and_reactor() {
+        let store = Store::open_memory().unwrap();
+        store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+            event("target", 9, "author", "msg", 1, "[]"),
+            event("r1", 7, "peer", "👍", 10, r#"[["e","target"]]"#),
+            event("r2", 7, "other", "🎉", 11, r#"[["e","target"]]"#),
+            event("r3", 7, "peer", "👀", 12, r#"[["e","unrelated"]]"#),
+        ]));
+        assert!(store
+            .has_reaction_from_pubkey_on_message("target", "peer")
+            .unwrap());
+        assert!(store
+            .has_reaction_from_pubkey_on_message("target", "other")
+            .unwrap());
+        // Wrong reactor for a known target.
+        assert!(!store
+            .has_reaction_from_pubkey_on_message("target", "nobody")
+            .unwrap());
+        // Known reactor, but on a message it did not react to.
+        assert!(!store
+            .has_reaction_from_pubkey_on_message("missing", "peer")
+            .unwrap());
     }
 }

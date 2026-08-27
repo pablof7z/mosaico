@@ -15,7 +15,7 @@ impl MosaicoWorld {
 
     pub fn add_relay_only_peer(&mut self, name: &str, workspace: &str) {
         let peer_secret = format!("{:064x}", 500);
-        let peer_pubkey = nostr::Keys::parse(&peer_secret)
+        let peer_pubkey = nostr::key::Keys::parse(&peer_secret)
             .expect("deterministic peer key")
             .public_key()
             .to_hex();

@@ -15,7 +15,7 @@ use crate::nmp_host::{store::StoreCondition, NmpHost};
 pub(in crate::daemon::server) fn open(
     cfg: &crate::config::Config,
     storage: &StoragePaths,
-    backend_keys: &nostr::Keys,
+    backend_keys: &nostr::key::Keys,
 ) -> Result<NmpHost> {
     let error = match NmpHost::open(
         &cfg.relays,

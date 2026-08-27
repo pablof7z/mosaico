@@ -6,7 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use nostr::{Event, EventId, Filter, PublicKey, RelayUrl};
+use nostr::event::{Event, EventId};
+use nostr::filter::Filter;
+use nostr::key::PublicKey;
+use nostr::types::RelayUrl;
 
 mod protocol;
 mod server;

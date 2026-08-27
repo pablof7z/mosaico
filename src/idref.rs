@@ -15,7 +15,8 @@
 //! Every renderer formats through this module; every input is classified via
 //! [`parse_ref`] or normalized through the session-handle helpers.
 
-use nostr::{PublicKey, ToBech32};
+use nostr::key::PublicKey;
+use nostr::nips::nip19::ToBech32;
 
 pub fn normalize_pubkey(value: &str) -> Option<String> {
     PublicKey::parse(value.trim()).ok().map(|pk| pk.to_hex())

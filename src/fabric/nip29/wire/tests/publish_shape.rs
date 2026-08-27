@@ -1,6 +1,8 @@
 //! Composing a group event the way the product actually composes one.
 
 use super::super::*;
+use nostr::event::FinalizeEvent;
+use nostr::key::Keys;
 
 /// Encode and sign exactly as the publish path does.
 ///
@@ -12,7 +14,7 @@ pub(in crate::fabric::nip29::wire) fn signed_as_published(ev: &DomainEvent, keys
     let builder = Nip29WireCodec.encode_event(ev).expect("encode");
     match ev {
         // A profile is not a group write at all.
-        DomainEvent::Profile(_) => builder.sign_with_keys(keys).expect("sign"),
+        DomainEvent::Profile(_) => builder.finalize(keys).expect("sign"),
         // The several-group write: NMP mints one `h` row per occupied channel.
         DomainEvent::Status(status) => {
             let groups: Vec<&str> = status.channels.iter().map(String::as_str).collect();

@@ -56,3 +56,79 @@ impl Store {
             .with_groups(|groups| groups.count_channel_members(channel_h)))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nmp_views::{TestGroup, TestGroupDelivery};
+
+    fn two_channel_store() -> Store {
+        let store = Store::open_memory().unwrap();
+        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            TestGroup::new("root")
+                .metadata("general", "", "", 1)
+                .admins(["A".to_string()])
+                .members(["A".to_string(), "B".to_string()]),
+            TestGroup::new("root/task")
+                .metadata("task", "", "root", 2)
+                .admins(["B".to_string()])
+                .members(["B".to_string(), "C".to_string()]),
+        ]));
+        store
+    }
+
+    #[test]
+    fn admin_and_member_predicates_route_through_group_projection() {
+        let store = two_channel_store();
+        assert!(store.is_channel_admin("root", "A").unwrap());
+        assert!(
+            !store.is_channel_admin("root", "B").unwrap(),
+            "B is a member, not an admin"
+        );
+        assert!(store.is_channel_member("root", "B").unwrap());
+        assert!(
+            store.is_channel_member("root/task", "B").unwrap(),
+            "an admin is a member"
+        );
+        assert!(!store.is_channel_member("root", "Z").unwrap());
+        assert!(!store.is_channel_member("missing", "A").unwrap());
+    }
+
+    #[test]
+    fn list_channel_members_emits_admins_then_plain_members() {
+        let store = two_channel_store();
+        let members = store.list_channel_members("root").unwrap();
+        let roles: Vec<_> = members
+            .iter()
+            .map(|m| (m.pubkey.as_str(), m.role.as_str()))
+            .collect();
+        assert_eq!(roles, vec![("A", "admin"), ("B", "member")]);
+        assert_eq!(store.count_channel_members("root").unwrap(), 2);
+        assert!(store.list_channel_members("missing").unwrap().is_empty());
+    }
+
+    #[test]
+    fn channel_membership_queries_cover_both_roles() {
+        let store = two_channel_store();
+        // B is an admin of root/task and a plain member of root.
+        let mut where_member = store.list_channels_where_member("B").unwrap();
+        where_member.sort();
+        assert_eq!(where_member, vec!["root", "root/task"]);
+        let mut where_admin = store.list_channels_where_admin("B").unwrap();
+        where_admin.sort();
+        assert_eq!(where_admin, vec!["root/task"]);
+        let mut a_admin = store.list_channels_where_admin("A").unwrap();
+        a_admin.sort();
+        assert_eq!(a_admin, vec!["root"]);
+        // A plain member with no admin role anywhere.
+        assert!(store.list_channels_where_admin("C").unwrap().is_empty());
+    }
+
+    #[test]
+    fn group_state_available_reflects_projection_presence() {
+        let store = two_channel_store();
+        assert!(store.group_state_available("root").unwrap());
+        assert!(store.group_state_available("root/task").unwrap());
+        assert!(!store.group_state_available("never-seen").unwrap());
+    }
+}

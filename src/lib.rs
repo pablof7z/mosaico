@@ -37,9 +37,13 @@ pub mod injection;
 pub mod instrument;
 pub(crate) mod liveness;
 pub mod logging;
+mod group_snapshot;
 mod nmp_host;
 mod nmp_views;
+mod row;
 pub mod profile;
+#[allow(dead_code)]
+mod recent_rows;
 mod secret_scrub;
 pub mod session;
 pub(crate) mod session_presence;

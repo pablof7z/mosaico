@@ -23,7 +23,7 @@ fn topology_with_records(
     if let Some(members) = acquiring_alpha_members {
         alpha = alpha
             .members(members)
-            .availability(nmp::nip29::GroupAvailability::Acquiring);
+            .availability(crate::group_snapshot::GroupAvailability::Acquiring);
     }
     store.install_test_nmp_group_delivery(TestGroupDelivery::new([
         own,

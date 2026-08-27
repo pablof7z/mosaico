@@ -2,10 +2,12 @@ use super::Nip29Provider;
 use anyhow::{Context, Result};
 use std::time::Duration;
 
+use crate::group_snapshot::{GroupAvailability, GroupSnapshot};
+
 impl Nip29Provider {
-    /// The current record-bearing value from the daemon's retained NMP group
+    /// The current record-bearing value from the daemon's retained group
     /// observation. An id-only Acquiring seed is not treated as group state.
-    pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<nmp::nip29::GroupSnapshot> {
+    pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<GroupSnapshot> {
         self.nmp
             .views()
             .group_snapshots()
@@ -14,8 +16,7 @@ impl Nip29Provider {
                 snapshot.id == group
                     && (snapshot.metadata.is_some()
                         || !snapshot.admins.is_empty()
-                        || !snapshot.members.is_empty()
-                        || !snapshot.per_host.is_empty())
+                        || !snapshot.members.is_empty())
             })
     }
 
@@ -36,57 +37,72 @@ impl Nip29Provider {
         }))
     }
 
-    /// Read one complete group value from NMP. Nothing is copied into SQLite.
-    pub(crate) async fn group_snapshot(&self, group: &str) -> Result<nmp::nip29::GroupSnapshot> {
-        use nmp::nip29::GroupAvailability;
-
+    /// Read one complete group value from fava. Nothing is copied into SQLite.
+    pub(crate) async fn group_snapshot(&self, group: &str) -> Result<GroupSnapshot> {
         #[cfg(test)]
         if let Some(scripted) = self.nmp.take_scripted_group_snapshot(group) {
-            return scripted.context("reading scripted NMP group snapshot");
+            return scripted.context("reading scripted group snapshot");
         }
 
-        // The daemon already owns one retained GroupObservation. A group with
-        // delivered records must be read from that NMP value directly rather
-        // than opening another query and waiting for the same rows to be
-        // projected again. An id-only Acquiring seed with no records is not an
-        // answer: the bounded group-scoped observation below is still needed
-        // to distinguish a genuinely absent group before creation.
+        // The daemon already owns one retained observation. A group with
+        // delivered records is read from that value directly rather than
+        // opening another query and waiting for the same rows to be projected
+        // again. An id-only Acquiring seed with no records is not an answer:
+        // the bounded group-scoped observation below is still needed to
+        // distinguish a genuinely absent group before creation.
         if let Some(snapshot) = self.current_group_snapshot(group) {
             return Ok(snapshot);
         }
 
-        let observation = self
+        let mut observation = self
             .nmp
-            .observe_one_group_records(group)
-            .with_context(|| format!("opening NMP group observation for {group}"))?;
+            .open_one_group_records_observation(group)
+            .await
+            .with_context(|| format!("opening group observation for {group}"))?;
         tokio::time::timeout(Duration::from_secs(5), async {
+            use crate::group_snapshot::decode_snapshots;
+            use fava::ObservationClosed;
+            use std::collections::BTreeSet;
+
             loop {
-                let delivered = observation
-                    .next()
-                    .await
-                    .map_err(|error| anyhow::anyhow!("reading NMP group snapshot: {error}"))?
-                    .context("NMP group observation ended before acquisition settled")?;
-                let snapshot = delivered
-                    .into_iter()
-                    .next()
-                    .context("NMP group observation delivered no group snapshot")?;
+                let fava_snapshot = match observation.changed().await {
+                    Ok(s) => s,
+                    Err(ObservationClosed) => {
+                        anyhow::bail!("group observation closed before acquisition settled")
+                    }
+                };
+                let av = crate::group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
+                let snapshots = decode_snapshots(&fava_snapshot, &BTreeSet::new(), av);
+                let Some(snapshot) = snapshots.into_iter().find(|s| s.id == group) else {
+                    // No records yet for this group.
+                    match av {
+                        GroupAvailability::Ready | GroupAvailability::CachedOnly => {
+                            // Relay settled with no records: group does not exist.
+                            return Ok(GroupSnapshot {
+                                id: group.to_string(),
+                                metadata: None,
+                                admins: Vec::new(),
+                                members: Vec::new(),
+                                availability: av,
+                            });
+                        }
+                        GroupAvailability::Acquiring | GroupAvailability::SourceUnavailable => {
+                            continue;
+                        }
+                    }
+                };
                 match snapshot.availability {
-                    // The daemon accepts local RPCs while its NMP transport is
-                    // still warming. Both states can therefore be the first
-                    // frame of a live observation and later become Ready. This
-                    // bounded accessor waits on that same observation; it does
-                    // not reopen or poll another read.
                     GroupAvailability::Acquiring | GroupAvailability::SourceUnavailable => {
                         continue;
                     }
                     GroupAvailability::CachedOnly | GroupAvailability::Ready => {
-                        return Ok(snapshot)
+                        return Ok(snapshot);
                     }
                 }
             }
         })
         .await
-        .with_context(|| format!("timed out reading NMP group snapshot for {group}"))?
+        .with_context(|| format!("timed out reading group snapshot for {group}"))?
     }
 
     /// Read the current relay-authored metadata as a product channel value.
@@ -122,14 +138,12 @@ pub(super) fn require_proven_projection(
     if matches!(
         read.termination,
         crate::nmp_host::read::BoundedReadTermination::RelaySettled
-            | crate::nmp_host::read::BoundedReadTermination::CoverageProven
     ) {
         return Ok(());
     }
     anyhow::bail!(
-        "{action} ended as {:?}; acquisition evidence: {:?}",
+        "{action} ended as {:?}; relay did not settle before the deadline",
         read.termination,
-        read.evidence
     )
 }
 
@@ -141,20 +155,14 @@ mod tests {
     fn read(termination: BoundedReadTermination) -> BoundedRead {
         BoundedRead {
             rows: Vec::new(),
-            evidence: Vec::new(),
             termination,
         }
     }
 
     #[test]
-    fn durable_coverage_is_projection_evidence_but_timeout_is_not() {
+    fn relay_settled_proves_projection_but_timeout_does_not() {
         assert!(require_proven_projection(
             &read(BoundedReadTermination::RelaySettled),
-            "projection"
-        )
-        .is_ok());
-        assert!(require_proven_projection(
-            &read(BoundedReadTermination::CoverageProven),
             "projection"
         )
         .is_ok());

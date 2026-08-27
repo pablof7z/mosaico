@@ -8,12 +8,10 @@ mod nmp_client;
 use common::TestRelay;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nmp::{
-    AccessContext, Binding, Demand, Engine, EngineConfig, Filter as NmpFilter, LiveQuery, RelayUrl,
-    SourceAuthority,
-};
 use nmp_client::NmpRelayClient;
-use nostr::{Alphabet, EventBuilder, Filter, Keys, Kind, SingleLetterTag, Tag, TagKind};
+use nostr::event::{EventBuilder, Kind, Tag};
+use nostr::filter::Filter;
+use nostr::key::Keys;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -91,48 +89,74 @@ async fn publishes_and_decodes_all_event_types() {
 
 #[tokio::test]
 async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
+    use fava::RelayUrl;
+    use fava_query::Query;
+
     let relay = TestRelay::start();
     let author = Keys::generate();
-    let author_hex = author.public_key().to_hex();
     let relay_url = RelayUrl::parse(&relay.url).expect("valid relay URL");
-    let engine = Engine::new(EngineConfig {
-        app_relays: vec![relay.url.clone()],
-        allowed_local_relay_hosts: vec!["127.0.0.1".into()],
-        ..EngineConfig::default()
-    })
-    .expect("NMP engine starts");
-    let query = LiveQuery::single(
-        Demand::new(
-            NmpFilter {
-                kinds: Some(BTreeSet::from([1])),
-                authors: Some(Binding::Literal(BTreeSet::from([author_hex]))),
-                ..NmpFilter::default()
-            },
-            SourceAuthority::Pinned(BTreeSet::from([relay_url])),
-            AccessContext::Public,
-        )
-        .expect("valid pinned demand"),
-    );
-    let subscription = engine.observe(query, None).expect("NMP observes");
+
+    // Build a fava instance pinned to the local relay.
+    let fava = {
+        use std::sync::Arc;
+        use fava::FavaBuilder;
+        use fava_delivery_standard::StandardDeliveryPolicy;
+        use fava_event_cache_memory::MemoryEventCache;
+        use fava_publisher_nip01::Nip01Publisher;
+        use fava_query_standard::StandardQueryEvaluator;
+        use fava_router_app_relays::AppRelayRouter;
+        use fava_signer_local::LocalSigner;
+        use fava_subscriptions_no_grouping::planner;
+        use fava_transport_websocket::WebSocketTransport;
+        use fava_write_store_memory::MemoryWriteStore;
+        FavaBuilder::default()
+            .event_cache(Arc::new(MemoryEventCache::default()))
+            .query_evaluator(Arc::new(StandardQueryEvaluator))
+            .subscription_planner(Arc::new(planner()))
+            .transport(Arc::new(WebSocketTransport::new()))
+            .router(Arc::new(AppRelayRouter::new("app", [relay_url.clone()])))
+            .signer(Arc::new(LocalSigner::new(author.clone())))
+            .publisher(Arc::new(Nip01Publisher))
+            .delivery_policy(Arc::new(StandardDeliveryPolicy::default()))
+            .write_store(Arc::new(MemoryWriteStore::default()))
+            .build()
+            .expect("fava build")
+    };
+
+    let query = Query::events()
+        .authors([author.public_key()])
+        .expect("bounded author set")
+        .kinds([Kind::TextNote])
+        .expect("bounded kind set")
+        .only_from_relays([relay_url])
+        .expect("relay set");
+    let mut observation = fava.observe(query).await.expect("fava observes");
+
     let writer = relay_client(&relay.url, author).await;
     writer
-        .send_event_builder(EventBuilder::text_note("hello from NMP"))
+        .send_event_builder(EventBuilder::new(Kind::TextNote, "hello from NMP"))
         .await
         .expect("publish");
 
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut found = false;
     while !found && std::time::Instant::now() < deadline {
-        if let Ok(frame) = subscription.recv_timeout(Duration::from_millis(500)) {
-            found = frame
-                .deltas
-                .iter()
-                .filter_map(|delta| delta.event())
-                .any(|event| event.content == "hello from NMP");
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        match tokio::time::timeout(remaining, observation.changed()).await {
+            Ok(Ok(snapshot)) => {
+                found = snapshot.events.iter().any(|rec| {
+                    if let fava::EventValue::Signed(e) = rec.event() {
+                        e.content == "hello from NMP"
+                    } else {
+                        false
+                    }
+                });
+            }
+            _ => break,
         }
     }
-    assert!(found, "NMP did not acquire the published event");
-    engine.shutdown();
+    observation.close();
+    assert!(found, "fava did not acquire the published event");
 }
 
 #[tokio::test]
@@ -168,30 +192,28 @@ async fn croissant_admits_chat_by_sender_membership_not_p_tag_target_route() {
     let member = relay_client(&relay.url, member_keys.clone()).await;
     let outsider = relay_client(&relay.url, outsider_keys.clone()).await;
 
+    use nostr::event::FinalizeEvent as _;
     let create = EventBuilder::new(Kind::from(9007u16), "")
         .tags([h_tag(&group)])
-        .sign_with_keys(&admin_keys)
+        .finalize(&admin_keys)
         .unwrap();
     assert!(!admin.send_event(&create).await.unwrap().success.is_empty());
     let lock = EventBuilder::new(Kind::from(9002u16), "")
         .tags([
             h_tag(&group),
-            Tag::custom(TagKind::Custom("name".into()), [group.clone()]),
-            Tag::custom(TagKind::Custom("closed".into()), Vec::<String>::new()),
-            Tag::custom(TagKind::Custom("public".into()), Vec::<String>::new()),
+            Tag::custom("name", [group.clone()]),
+            Tag::custom("closed", Vec::<String>::new()),
+            Tag::custom("public", Vec::<String>::new()),
         ])
-        .sign_with_keys(&admin_keys)
+        .finalize(&admin_keys)
         .unwrap();
     assert!(!admin.send_event(&lock).await.unwrap().success.is_empty());
     let put_member = EventBuilder::new(Kind::from(9000u16), "")
         .tags([
             h_tag(&group),
-            Tag::custom(
-                TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
-                [member_keys.public_key().to_hex(), "member".into()],
-            ),
+            Tag::custom("p", [member_keys.public_key().to_hex(), "member".into()]),
         ])
-        .sign_with_keys(&admin_keys)
+        .finalize(&admin_keys)
         .unwrap();
     assert!(!admin
         .send_event(&put_member)
@@ -223,11 +245,11 @@ async fn croissant_admits_chat_by_sender_membership_not_p_tag_target_route() {
     let direct_tags = || [h_tag(&group), p_tag(&unrouted_target)];
     let member_chat = EventBuilder::new(Kind::from(9u16), "member accepted")
         .tags(direct_tags())
-        .sign_with_keys(&member_keys)
+        .finalize(&member_keys)
         .unwrap();
     let outsider_chat = EventBuilder::new(Kind::from(9u16), "outsider rejected")
         .tags(direct_tags())
-        .sign_with_keys(&outsider_keys)
+        .finalize(&outsider_keys)
         .unwrap();
     let member_outcome = member.send_event(&member_chat).await.unwrap();
     let outsider_outcome = outsider.send_event(&outsider_chat).await.unwrap();
@@ -250,17 +272,11 @@ async fn croissant_admits_chat_by_sender_membership_not_p_tag_target_route() {
 }
 
 fn h_tag(group: &str) -> Tag {
-    Tag::custom(
-        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::H)),
-        [group],
-    )
+    Tag::custom("h", [group])
 }
 
 fn p_tag(pubkey: &str) -> Tag {
-    Tag::custom(
-        TagKind::SingleLetter(SingleLetterTag::lowercase(Alphabet::P)),
-        [pubkey],
-    )
+    Tag::custom("p", [pubkey])
 }
 
 async fn relay_client(relay: &str, keys: Keys) -> NmpRelayClient {

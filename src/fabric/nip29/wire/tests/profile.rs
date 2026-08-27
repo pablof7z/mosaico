@@ -1,4 +1,5 @@
 use super::*;
+use nostr::nips::nip19::ToBech32;
 
 #[test]
 fn profile_roundtrip() {
@@ -18,7 +19,7 @@ fn profile_roundtrip() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert_eq!(signed.content, r#"{"name":"willow-echo-042-developer"}"#);
     assert!(has_tag(&signed, "agent-slug", "developer"));
@@ -48,7 +49,7 @@ fn backend_profile_advertises_managed_agents_as_tags() {
     let signed = Nip29WireCodec
         .encode_event(&ev)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     let agent_tags: Vec<Vec<String>> = signed
         .tags
@@ -95,7 +96,7 @@ fn non_backend_profile_omits_agent_tags() {
     let signed = Nip29WireCodec
         .encode_event(&DomainEvent::Profile(profile))
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert!(
         !signed
@@ -130,7 +131,7 @@ fn retired_profile_roundtrip_keeps_npub_as_the_name() {
     let signed = Nip29WireCodec
         .encode_event(&profile)
         .unwrap()
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     assert_eq!(
         signed.content,
@@ -147,7 +148,7 @@ fn profile_decode_builds_handle_from_session_code_and_canonical_tag() {
             tag(&["host", "remoteBackend"]).unwrap(),
             tag(&["agent-slug", "developer"]).unwrap(),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     match Nip29WireCodec.decode_event(&event) {
@@ -169,7 +170,7 @@ fn profile_decode_prefers_nonempty_display_name() {
         Kind::from(KIND_PROFILE),
         r#"{"name":"fallback","display_name":" Display Name "}"#,
     )
-    .sign_with_keys(&keys)
+    .finalize(&keys)
     .unwrap();
 
     match Nip29WireCodec.decode_event(&event) {

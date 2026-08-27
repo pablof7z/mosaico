@@ -1,13 +1,17 @@
-//! Lifecycle-owned presentation state accumulated from NMP deliveries.
+//! Lifecycle-owned presentation state accumulated from fava deliveries.
 //!
 //! This is deliberately process-local. It owns no replacement, relay-union,
-//! freshness, or persistence rule: NMP supplies those answers. Mosaico only
+//! freshness, or persistence rule: fava supplies those answers. Mosaico only
 //! retains the latest delivered values while their observations are alive.
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use nmp::{AcquisitionEvidence, Row, RowDelta};
-use nostr::EventId;
+use nostr::event::EventId;
+
+use crate::group_snapshot::GroupSnapshot;
+use crate::recent_rows::RecentRows;
+use crate::row::Row;
+use crate::row::RowDelta;
 
 mod groups;
 pub(crate) use groups::GroupProjection;
@@ -15,12 +19,7 @@ pub(crate) use groups::GroupProjection;
 pub(crate) use groups::{TestGroup, TestGroupDelivery};
 mod rows;
 use rows::RowViews;
-mod events;
-mod messages;
-pub(crate) use messages::MessageProjection;
 mod profile_status;
-mod reactions;
-pub(crate) use reactions::ReactionProjection;
 mod relay;
 pub(crate) use relay::observed_profile_from_row;
 #[cfg(test)]
@@ -30,12 +29,13 @@ pub(crate) use test_delivery::TestRelayDelivery;
 
 #[derive(Default)]
 pub(crate) struct NmpViews {
-    group_observation: RwLock<Option<Arc<nmp::nip29::GroupObservation>>>,
+    group_snapshots: RwLock<Vec<GroupSnapshot>>,
     #[cfg(test)]
     test_group_delivery: RwLock<Option<TestGroupDelivery>>,
     #[cfg(test)]
     test_relay_delivery: RwLock<Option<TestRelayDelivery>>,
     rows: Mutex<RowViews>,
+    recent_rows: Arc<RecentRows>,
 }
 
 #[derive(Default)]
@@ -72,25 +72,19 @@ impl RowTransition {
 }
 
 impl NmpViews {
-    /// Register the retained NMP observation handle. This stores no group
-    /// value: every read below calls `GroupObservation::latest()`.
-    pub(crate) fn set_group_observation(
-        &self,
-        observation: Option<Arc<nmp::nip29::GroupObservation>>,
-    ) {
+    /// Replace the retained group snapshot set from the group-records drain.
+    pub(crate) fn set_group_snapshots(&self, snapshots: Vec<GroupSnapshot>) {
         *self
-            .group_observation
+            .group_snapshots
             .write()
-            .expect("NMP group observation slot poisoned") = observation;
+            .expect("NMP group snapshots poisoned") = snapshots;
     }
 
-    pub(crate) fn group_snapshots(&self) -> Vec<nmp::nip29::GroupSnapshot> {
-        self.group_observation
+    pub(crate) fn group_snapshots(&self) -> Vec<GroupSnapshot> {
+        self.group_snapshots
             .read()
-            .expect("NMP group observation slot poisoned")
-            .as_ref()
-            .map(|observation| observation.latest())
-            .unwrap_or_default()
+            .expect("NMP group snapshots poisoned")
+            .clone()
     }
 
     pub(crate) fn with_groups<R>(&self, read: impl FnOnce(GroupProjection) -> R) -> R {
@@ -117,6 +111,10 @@ impl NmpViews {
 
     #[cfg(test)]
     pub(crate) fn install_test_relay_delivery(&self, next: TestRelayDelivery) {
+        self.recent_rows.clear();
+        for event in &next.events {
+            self.recent_rows.add("test", event.clone());
+        }
         *self
             .test_relay_delivery
             .write()
@@ -131,17 +129,30 @@ impl NmpViews {
             .clone()
     }
 
+    /// The bounded recent-rows store, populated from observation frames.
+    pub(crate) fn recent_rows(&self) -> Arc<RecentRows> {
+        Arc::clone(&self.recent_rows)
+    }
+
     pub(crate) fn apply_frame(
         &self,
         observation_id: &str,
         generation: u64,
         deltas: Vec<RowDelta>,
-        evidence: Vec<AcquisitionEvidence>,
     ) -> RowTransition {
-        self.rows
+        let transition = self.rows
             .lock()
             .expect("NMP row views poisoned")
-            .apply_frame(observation_id, generation, deltas, evidence)
+            .apply_frame(observation_id, generation, deltas);
+        for entered in &transition.entered {
+            self.recent_rows
+                .add(&entered.observation_id, relay::relay_event(&entered.row.event));
+        }
+        for departed in &transition.removed {
+            self.recent_rows
+                .remove(&departed.observation_id, &departed.row.event.id.to_hex());
+        }
+        transition
     }
 
     pub(crate) fn begin_observation(&self, observation_id: &str, generation: u64) {
@@ -152,10 +163,12 @@ impl NmpViews {
     }
 
     pub(crate) fn close_observation(&self, observation_id: &str, generation: u64) -> RowTransition {
-        self.rows
+        let transition = self.rows
             .lock()
             .expect("NMP row views poisoned")
-            .close(observation_id, generation)
+            .close(observation_id, generation);
+        self.recent_rows.close_observation(observation_id);
+        transition
     }
 
     pub(crate) fn row(&self, id: &EventId) -> Option<Row> {

@@ -10,7 +10,7 @@
 
 use crate::fabric::nip29::wire::{kind, KIND_CHAT};
 use anyhow::Result;
-use nostr::*;
+use nostr::event::{Event, EventBuilder, Tag};
 
 /// Marker `mosaico-op` value identifying the add-agents orchestration event.
 pub const MOSAICO_OP_ADD_AGENTS: &str = "subgroup.add-agents.v2";
@@ -102,8 +102,7 @@ fn build_event(
     }
 
     Ok(EventBuilder::new(kind(KIND_CHAT), prose)
-        .tags(tags)
-        .allow_self_tagging())
+        .tags(tags))
 }
 
 /// A parsed add-agents orchestration event.

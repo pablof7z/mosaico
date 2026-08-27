@@ -7,7 +7,7 @@ pub(in crate::daemon::server) async fn resolve_backend_pubkey(
     state: &Arc<DaemonState>,
     label: &str,
 ) -> Result<String> {
-    if let Ok(pk) = nostr::PublicKey::parse(label) {
+    if let Ok(pk) = nostr::key::PublicKey::parse(label) {
         return Ok(pk.to_hex());
     }
 
@@ -37,7 +37,7 @@ pub(in crate::daemon::server) async fn resolve_channel_member_pubkey_hex(
 }
 
 pub(in crate::daemon::server) async fn resolve_pubkey_hex(input: &str) -> Result<String> {
-    use nostr::PublicKey;
+    use nostr::key::PublicKey;
 
     // hex / npub / nostr: URI
     if let Ok(pk) = PublicKey::parse(input) {

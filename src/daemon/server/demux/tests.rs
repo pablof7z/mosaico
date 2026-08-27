@@ -24,9 +24,10 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
 
 #[tokio::test]
 async fn observed_local_authored_chat_emits_tail_exactly_once() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let local = Keys::generate();
@@ -43,9 +44,8 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
     let row = Row {
         event: EventBuilder::new(Kind::from(9_u16), "observed once")
             .tags([Tag::parse(["h", "room"]).unwrap()])
-            .sign_with_keys(&local)
+            .finalize(&local)
             .unwrap(),
-        sources: BTreeSet::new(),
     };
     let views = state.nmp().views_handle();
 
@@ -53,10 +53,9 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
         "mosaico-h-room",
         1,
         vec![RowDelta::Added(row.clone())],
-        vec![],
     );
     apply_transition(&state, first).await;
-    let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)], vec![]);
+    let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)]);
     apply_transition(&state, repeated).await;
 
     let event = tail
@@ -75,9 +74,10 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
 
 #[tokio::test]
 async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
@@ -94,18 +94,17 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
                 Tag::parse(["workspace", "room"]).unwrap(),
                 Tag::parse(["slug", "remote-codex"]).unwrap(),
             ])
-            .sign_with_keys(&remote)
+            .finalize(&remote)
             .unwrap(),
-        sources: BTreeSet::new(),
     };
     let id = row.event.id;
     let views = state.nmp().views_handle();
 
-    let added = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row)], vec![]);
+    let added = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Added(row)]);
     apply_transition(&state, added).await;
     while tail.try_recv().is_ok() {}
 
-    let removed = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Removed(id)], vec![]);
+    let removed = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Removed(id)]);
     apply_transition(&state, removed).await;
 
     let leave = tail.try_recv().expect("status departure emits immediately");
@@ -126,9 +125,10 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
 
 #[tokio::test]
 async fn status_tail_events_follow_exact_observation_edges() {
-    use nmp::{Row, RowDelta};
-    use nostr::{EventBuilder, Keys, Kind, Tag};
-    use std::collections::BTreeSet;
+    use crate::row::{Row, RowDelta};
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
     let mut tail = state.tail_subscribe();
@@ -146,60 +146,63 @@ async fn status_tail_events_follow_exact_observation_edges() {
                 Tag::parse(["workspace", "room-a"]).unwrap(),
                 Tag::parse(["slug", "remote-codex"]).unwrap(),
             ])
-            .sign_with_keys(&remote)
+            .finalize(&remote)
             .unwrap(),
-        sources: BTreeSet::new(),
     };
     let id = row.event.id;
     let views = state.nmp().views_handle();
 
-    let entered_a = views.apply_frame(
-        "mosaico-h-room-a",
+    // Under the single broad observation, one entry fans out to all channels
+    // named in the status event's #h tags simultaneously.
+    let entered = views.apply_frame(
+        "mosaico-broad-h",
         1,
         vec![RowDelta::Added(row.clone())],
-        vec![],
     );
-    apply_transition(&state, entered_a).await;
-    let a_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
-    assert!(a_events.iter().all(|event| matches!(
-        event,
-        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
-            if channel == "room-a"
-    )));
-    assert!(tail.try_recv().is_err(), "room-b is not observed yet");
-
-    let entered_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Added(row)], vec![]);
-    assert!(
-        entered_b.added.is_empty(),
-        "the canonical Row already exists"
-    );
-    assert_eq!(entered_b.entered.len(), 1, "the observation edge is new");
-    apply_transition(&state, entered_b).await;
-    let b_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
-    assert!(b_events.iter().all(|event| matches!(
-        event,
-        TailEvent::Join { channel, .. } | TailEvent::Status { channel, .. }
-            if channel == "room-b"
-    )));
-    assert!(tail.try_recv().is_err());
-
-    let departed_b = views.apply_frame("mosaico-h-room-b", 1, vec![RowDelta::Removed(id)], vec![]);
-    apply_transition(&state, departed_b).await;
-    assert!(matches!(
+    assert_eq!(entered.added.len(), 1, "first entry adds to the canonical union");
+    assert_eq!(entered.entered.len(), 1, "single broad observation edge");
+    apply_transition(&state, entered).await;
+    let ab_events = [
         tail.try_recv().unwrap(),
-        TailEvent::Leave { channel, .. } if channel == "room-b"
-    ));
-    assert!(tail.try_recv().is_err(), "room-a remains observed");
-    state.with_store(|store| {
-        assert!(store
-            .get_status(&remote.public_key().to_hex(), "room-a")
-            .unwrap()
-            .is_some());
-        assert!(store
-            .get_status(&remote.public_key().to_hex(), "room-b")
-            .unwrap()
-            .is_none());
-    });
+        tail.try_recv().unwrap(),
+        tail.try_recv().unwrap(),
+        tail.try_recv().unwrap(),
+    ];
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-a")),
+        "broad entry emits Join for room-a"
+    );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-a")),
+        "broad entry emits Status for room-a"
+    );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-b")),
+        "broad entry emits Join for room-b"
+    );
+    assert!(
+        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-b")),
+        "broad entry emits Status for room-b"
+    );
+    assert!(tail.try_recv().is_err(), "exactly four status events");
+
+    // One broad departure fans out Leaves to all channels the status named.
+    let departed = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Removed(id)]);
+    apply_transition(&state, departed).await;
+    let leave_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
+    assert!(
+        leave_events.iter().all(|e| matches!(e, TailEvent::Leave { .. })),
+        "both channel departures emit Leave"
+    );
+    assert!(
+        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-a")),
+        "broad departure emits Leave for room-a"
+    );
+    assert!(
+        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-b")),
+        "broad departure emits Leave for room-b"
+    );
+    assert!(tail.try_recv().is_err());
 }
 
 // ── has_alive gate ────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use nostr::{Event, JsonUtil};
+use nostr::event::Event;
 
 pub(super) fn spawn(state_db: &Path, state: std::sync::Arc<crate::daemon::server::DaemonState>) {
     let state_db = state_db.to_path_buf();

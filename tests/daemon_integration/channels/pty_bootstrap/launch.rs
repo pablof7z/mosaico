@@ -172,7 +172,7 @@ fn launch_command_bootstraps_session_without_child_session_start_hook() {
 
 #[test]
 fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
-    use nostr::Keys;
+    use nostr::key::Keys;
 
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let home = Home::new();

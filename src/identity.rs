@@ -8,7 +8,7 @@
 //! defaults to `~/.mosaico/agents/`. `mosaico_home()` defaults to `~/.mosaico`.
 
 use anyhow::{bail, Context, Result};
-use nostr::*;
+use nostr::key::Keys;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 

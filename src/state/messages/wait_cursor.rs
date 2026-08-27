@@ -15,7 +15,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<(u64, Message)>> {
         let mut rows = Vec::new();
-        for row in self.nmp_views.messages() {
+        for row in self.message_projections() {
             let Some(sequence) = self.nmp_arrival_sequence(&row.message.message_id)? else {
                 continue;
             };
@@ -31,8 +31,7 @@ impl Store {
 
     pub(crate) fn message_reply_target(&self, message: &Message) -> Result<Option<String>> {
         Ok(self
-            .nmp_views
-            .message(&message.message_id)
+            .message_projection_by_id(&message.message_id)
             .and_then(|row| row.reply_target))
     }
 }

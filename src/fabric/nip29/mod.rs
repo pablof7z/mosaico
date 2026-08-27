@@ -16,25 +16,17 @@ pub mod wire;
 #[cfg(test)]
 pub(crate) fn signed_into_groups(
     groups: &[&str],
-    builder: nostr::EventBuilder,
-    keys: &nostr::Keys,
-) -> nostr::Event {
-    let unsigned = builder.build(keys.public_key());
-    let contextualized = nmp_nip29::contextualize(
-        &groups.iter().map(|g| (*g).to_string()).collect(),
-        nmp::EventBuilder {
-            kind: unsigned.kind,
-            tags: unsigned.tags.into_iter().collect(),
-            content: unsigned.content,
-            created_at: Some(unsigned.created_at),
-        },
-    )
-    .expect("a fixture draft carries no context row of its own");
-    nostr::EventBuilder::new(contextualized.kind, contextualized.content)
-        .tags(contextualized.tags)
-        .custom_created_at(contextualized.created_at.expect("stated above"))
-        .allow_self_tagging()
-        .sign_with_keys(keys)
+    builder: nostr::event::EventBuilder,
+    keys: &nostr::key::Keys,
+) -> nostr::event::Event {
+    use nostr::event::FinalizeEvent;
+    let h_tags: Vec<nostr::event::Tag> = groups
+        .iter()
+        .map(|g| nostr::event::Tag::parse(["h", g]).expect("h tag"))
+        .collect();
+    builder
+        .tags(h_tags)
+        .finalize(keys)
         .expect("signing a fixture")
 }
 
@@ -42,9 +34,9 @@ pub(crate) fn signed_into_groups(
 #[cfg(test)]
 pub(crate) fn signed_into_group(
     group: &str,
-    builder: nostr::EventBuilder,
-    keys: &nostr::Keys,
-) -> nostr::Event {
+    builder: nostr::event::EventBuilder,
+    keys: &nostr::key::Keys,
+) -> nostr::event::Event {
     signed_into_groups(&[group], builder, keys)
 }
 
@@ -52,7 +44,7 @@ pub(crate) fn signed_into_group(
 ///
 /// This is a small helper local to the fabric crate; it does NOT disturb the
 /// `event_tag` helper in `daemon/server.rs`.
-pub(crate) fn nostr_tag<'a>(event: &'a nostr::Event, name: &str) -> Option<&'a str> {
+pub(crate) fn nostr_tag<'a>(event: &'a nostr::event::Event, name: &str) -> Option<&'a str> {
     event.tags.iter().find_map(|t| {
         let s = t.as_slice();
         if s.first().map(String::as_str) == Some(name) {

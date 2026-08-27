@@ -192,7 +192,7 @@ impl Store {
         &self,
         pubkey: &str,
         channel_h: &str,
-        event_id: &str,
+        event: &crate::state::RelayEvent,
     ) -> Result<bool> {
         let membership = self
             .conn
@@ -206,10 +206,7 @@ impl Store {
         let Some((joined_at, joined_event_seq)) = membership else {
             return Ok(false);
         };
-        let Some(event) = self.nmp_views.event(event_id) else {
-            return Ok(false);
-        };
-        let Some(arrival_sequence) = self.nmp_arrival_sequence(event_id)? else {
+        let Some(arrival_sequence) = self.nmp_arrival_sequence(&event.id)? else {
             return Ok(false);
         };
         Ok(event.channel_h == channel_h

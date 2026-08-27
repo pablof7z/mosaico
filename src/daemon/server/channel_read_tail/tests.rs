@@ -140,7 +140,8 @@ const HUMAN_PK: &str = "b1c712cbb3c77ec346d9f091982a50b461379e863e8357163b5bce5d
 
 #[tokio::test]
 async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
-    use nostr::{PublicKey, ToBech32};
+    use nostr::key::PublicKey;
+    use nostr::nips::nip19::ToBech32;
 
     let state = DaemonState::new_for_test().await;
     state.with_store(|s| {

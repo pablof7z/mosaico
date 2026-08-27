@@ -10,40 +10,39 @@ keywords = ["agents", "coding-agents", "nostr", "nip29", "cli"]
 name = "mosaico"
 path = "src/main.rs"
 
-[[bin]]
-name = "nmp-subscription-stress"
-path = "tools/nmp_subscription_stress/main.rs"
-required-features = ["stress-harness"]
-
 [lib]
 name = "mosaico"
 path = "src/lib.rs"
-
-[features]
-# Opt-in only: the stress binary reaches NMP's explicitly benchmark-gated
-# reducer/store counters and pure router seam. Production never enables it.
-stress-harness = [
-    "dep:nmp-router",
-    "dep:nmp-resolver",
-    "dep:nmp-store",
-    "dep:nmp-transport",
-    "dep:tempfile",
-    "nmp/bench-instrumentation",
-    "nmp-store/bench-instrumentation",
-]
 
 [[test]]
 name = "bdd"
 path = "bdd/main.rs"
 harness = false
 
-[[test]]
-name = "nmp_daemon_stress"
-path = "tests/nmp_daemon_stress.rs"
-required-features = ["stress-harness"]
-
 [dependencies]
-nostr = "0.44.4"
+# Nostr (must match fava's exact pin)
+nostr = { version = "=0.45.3", default-features = false, features = ["std"] }
+
+# Fava engine — NMP replacement
+fava = { path = "/Users/pablofernandez/Work/fava/crates/fava" }
+fava-simple-groups = { path = "/Users/pablofernandez/Work/fava/crates/fava-simple-groups" }
+fava-event-cache-memory = { path = "/Users/pablofernandez/Work/fava/crates/fava-event-cache-memory" }
+fava-write-store = { path = "/Users/pablofernandez/Work/fava/crates/fava-write-store" }
+fava-write-store-redb = { path = "/Users/pablofernandez/Work/fava/crates/fava-write-store-redb" }
+fava-write-store-memory = { path = "/Users/pablofernandez/Work/fava/crates/fava-write-store-memory" }
+fava-query-standard = { path = "/Users/pablofernandez/Work/fava/crates/fava-query-standard" }
+fava-subscriptions-no-grouping = { path = "/Users/pablofernandez/Work/fava/crates/fava-subscriptions-no-grouping" }
+fava-transport-websocket = { path = "/Users/pablofernandez/Work/fava/crates/fava-transport-websocket" }
+fava-publisher-nip01 = { path = "/Users/pablofernandez/Work/fava/crates/fava-publisher-nip01" }
+fava-delivery-standard = { path = "/Users/pablofernandez/Work/fava/crates/fava-delivery-standard" }
+fava-router-app-relays = { path = "/Users/pablofernandez/Work/fava/crates/fava-router-app-relays" }
+fava-signer = { path = "/Users/pablofernandez/Work/fava/crates/fava-signer" }
+fava-signer-local = { path = "/Users/pablofernandez/Work/fava/crates/fava-signer-local" }
+fava-query = { path = "/Users/pablofernandez/Work/fava/crates/fava-query" }
+
+# Blossom file-upload layer (no nostr types cross the boundary)
+nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
+
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "process", "io-util", "io-std", "net", "fs"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -66,16 +65,6 @@ owo-colors = { version = "4", features = ["supports-colors"] }
 rustls = { version = "0.23", features = ["ring"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 mime_guess = "2"
-nmp = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
-nmp-grammar = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
-nmp-resolver = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09", optional = true }
-nmp-router = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09", optional = true }
-nmp-store = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09", optional = true }
-nmp-transport = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09", optional = true }
-nmp-network-policy = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
-nmp-nip29 = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
-nmp-blossom = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
 regex = "1"
 ratatui = { version = "0.30.1", default-features = false, features = ["crossterm_0_28", "macros"] }
 hmac = "0.12"
@@ -87,13 +76,10 @@ portable-pty = "0.9"
 toml = "0.9"
 unicode-width = "0.2"
 url = "2"
-tempfile = { version = "3", optional = true }
+tempfile = "3"
 
 [dev-dependencies]
 cucumber = "0.21"
-# Writes the superseded-epoch store fixture the #920 falsifiers need. A store
-# NMP refuses cannot be produced through NMP, and a byte blob only reproduces
-# the damaged-bytes half — the half that must NOT be discarded.
 redb = "4"
 tempfile = "3"
 tungstenite = "0.29"

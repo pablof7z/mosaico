@@ -1,6 +1,6 @@
 use super::channel_membership_rpc::{resolve_caller, resolve_target_channel};
 use super::*;
-use crate::fabric::nip29::lifecycle::as_nostr;
+use fava_simple_groups::MetadataEdit;
 
 const CHANNEL_CREATE_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
@@ -164,13 +164,10 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // result is the command boundary; the retained group observation will
     // project the resulting kind:39000 independently when it arrives.
     if !p.about.trim().is_empty() {
-        let builder = as_nostr(nmp_nip29::edit_metadata(nmp_nip29::GroupMetadataEdit {
-            about: Some(p.about.clone()),
-            ..nmp_nip29::GroupMetadataEdit::default()
-        }));
+        let edit = MetadataEdit { about: Some(p.about.clone()), ..Default::default() };
         state
             .nmp()
-            .publish_group_and_wait(&child_h, builder, &mgmt_keys)
+            .publish_metadata_edit_and_wait(&child_h, &edit, &mgmt_keys)
             .await
             .context("publishing the new channel description")?;
     }

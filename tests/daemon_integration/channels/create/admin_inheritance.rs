@@ -1,5 +1,5 @@
 use super::*;
-use nostr::Keys;
+use nostr::key::Keys;
 use std::collections::BTreeSet;
 use std::time::Duration;
 

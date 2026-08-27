@@ -13,7 +13,7 @@ fn decode_attachment_tags(tags: &[(&str, &str)]) -> ChatMessage {
     );
     let signed = EventBuilder::new(kind(KIND_CHAT), "still ordinary chat")
         .tags(wire_tags)
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     match Nip29WireCodec.decode_event(&signed) {
         Some(DomainEvent::ChatMessage(chat)) => chat,
@@ -149,7 +149,7 @@ fn decode_ignores_incomplete_and_overlong_attachment_tags() {
             ])
             .unwrap(),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     match Nip29WireCodec.decode_event(&signed) {

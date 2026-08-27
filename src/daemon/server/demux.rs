@@ -70,35 +70,43 @@ async fn apply_transition(state: &Arc<DaemonState>, transition: crate::nmp_views
         apply_observation_entry(state, entered, &mut hosted);
     }
     for row in transition.added {
-        let event_id = row.event.id.to_hex();
+        let event = row.event;
+        let event_id = event.id.to_hex();
         arrival::record_before_dispatch(state, &event_id).await;
-        inbound_dispatch::dispatch(state, &row.event);
+        inbound_dispatch::dispatch(state, &event);
     }
 }
 
-/// Turn one exact channel-observation status entry into peer tail state.
-///
-/// The status event may name several channels, but only the observation edge
-/// proves that this process currently observes the Row in this channel.
+/// Turn one broad-`#h` status entry into peer tail state, once per channel the
+/// status names. Under the single broad `#h` observation a kind:30315 event
+/// enters exactly once (not once per channel-observation), so the channels it
+/// applies to are read from the event's own `#h` tags (`status.channels`)
+/// rather than from the observation id.
 fn apply_observation_entry(
     state: &Arc<DaemonState>,
     entered: crate::nmp_views::EnteredRow,
     hosted: &mut Option<Vec<String>>,
 ) {
-    let Some(channel) = entered.observation_id.strip_prefix("mosaico-h-") else {
+    if entered.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
-    };
+    }
+    let event = entered.row.event;
     let Some(DomainEvent::Status(status)) = state
         .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(entered.row.event))
+        .decode(&crate::fabric::RawEnvelope::Nostr(event))
     else {
         return;
     };
-    if !status.channels.iter().any(|candidate| candidate == channel) {
-        return;
-    }
     let hosted = hosted.get_or_insert_with(|| locally_hosted_pubkeys(state));
-    tail_projection::derive_and_emit_status_tail_event(state, &status, channel, hosted, now_secs());
+    for channel in &status.channels {
+        tail_projection::derive_and_emit_status_tail_event(
+            state,
+            &status,
+            channel,
+            hosted,
+            now_secs(),
+        );
+    }
 }
 
 fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
@@ -112,48 +120,47 @@ fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
     hosted
 }
 
-/// Turn an exact channel-observation status departure into an immediate peer
-/// leave. A replacement delivered in the same frame is already installed in
-/// the NMP view, so consulting that view suppresses a transient Leave without
-/// introducing a Mosaico freshness or expiry clock.
+/// Turn a broad-`#h` status departure into an immediate peer leave, once per
+/// channel the departed status named that is no longer current. A replacement
+/// delivered in the same frame is already installed in the NMP view, so
+/// `get_status` suppresses a transient Leave for channels the agent still
+/// occupies without introducing a Mosaico freshness or expiry clock.
 fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::DepartedRow) {
-    let Some(channel) = departed.observation_id.strip_prefix("mosaico-h-") else {
+    if departed.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
-    };
+    }
+    let event = departed.row.event;
     let Some(DomainEvent::Status(status)) = state
         .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(departed.row.event))
+        .decode(&crate::fabric::RawEnvelope::Nostr(event))
     else {
         return;
     };
-    if !status.channels.iter().any(|candidate| candidate == channel) {
-        return;
-    }
-
-    let key = (status.agent.pubkey.clone(), channel.to_string());
-    let still_current = state.with_store(|store| {
-        store
-            .get_status(&key.0, &key.1)
-            .is_ok_and(|status| status.is_some())
-    });
-    if still_current {
-        return;
-    }
-
-    let tracked = state.dedup.peer_sessions.lock().unwrap().remove(&key);
-    state.dedup.last_status.lock().unwrap().remove(&key);
-    let Some(tracked) = tracked else {
-        return;
-    };
     let now = now_secs();
-    state.emit_tail(TailEvent::Leave {
-        ts: now,
-        channel: tracked.channel,
-        agent: tracked.slug,
-        host: tracked.host,
-        session: key.0,
-        online_s: now.saturating_sub(tracked.first_seen),
-    });
+    for channel in &status.channels {
+        let key = (status.agent.pubkey.clone(), channel.clone());
+        let still_current = state.with_store(|store| {
+            store
+                .get_status(&key.0, &key.1)
+                .is_ok_and(|status| status.is_some())
+        });
+        if still_current {
+            continue;
+        }
+        let tracked = state.dedup.peer_sessions.lock().unwrap().remove(&key);
+        state.dedup.last_status.lock().unwrap().remove(&key);
+        let Some(tracked) = tracked else {
+            continue;
+        };
+        state.emit_tail(TailEvent::Leave {
+            ts: now,
+            channel: tracked.channel,
+            agent: tracked.slug,
+            host: tracked.host,
+            session: key.0,
+            online_s: now.saturating_sub(tracked.first_seen),
+        });
+    }
 }
 
 fn finish_incoming(
@@ -161,62 +168,51 @@ fn finish_incoming(
     event: &Event,
     decoded: crate::fabric::ProductDecode,
     now: u64,
-    first_sight: bool,
 ) {
-    super::subscriptions::reconcile_after_group_state_event(state, event, first_sight);
-
-    // NMP can deliver once per matching observation (scope filters × live
-    // sessions), so the same event reaches here many times. The tail
-    // broadcast is NOT idempotent — emit only on first sight of the event id.
-    // first_sight avoids redundant claims within one process; the durable
-    // event+recipient claim covers daemon-restart idempotency.
+    // Each event reaches here exactly once. The NmpViews `transition.added`
+    // set only carries rows newly added to the views, and under the single
+    // broad `#h` observation (mosaico#837) there is no overlapping delivery to
+    // re-add a row, so the per-process `first_sight` LRU that guarded this
+    // broadcast is retired. Durable idempotency across daemon restarts lives
+    // in `event_claims` + the `inbox` ledger.
     if let Some(de) = decoded.tail {
         let kind = event.kind.as_u16();
-        if first_sight {
-            // Presence-lease renewals (kind:30315) are too noisy for info.
-            let is_lease_renewal = kind == 30315;
-            if is_lease_renewal {
-                tracing::debug!(kind, id = %&event.id.to_hex()[..8], "first-sight");
-            } else {
-                tracing::info!(kind, id = %&event.id.to_hex()[..8], "first-sight");
-            }
-            tail_projection::derive_and_emit_tail_events(state, &de, now);
-            if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
-                if let DomainEvent::ChatMessage(ref chat) = de {
-                    match super::direct_mentions::route(
-                        state,
-                        super::direct_mentions::DirectMention {
-                            event_id: &event.id.to_hex(),
-                            from_pubkey: &event.pubkey.to_hex(),
-                            channel_h: &chat.channel,
-                            body: &chat.body,
-                            created_at: event.created_at.as_secs(),
-                            target_pubkeys: &chat.mentioned_pubkeys,
-                            attachments: &chat.attachments,
-                        },
-                    ) {
-                        Ok(report) if !report.owned_targets.is_empty() => {
-                            let st = state.clone();
-                            let ev = event.clone();
-                            tokio::spawn(async move {
-                                route_reaction::publish_eye_reaction(&st, &ev).await;
-                            });
-                        }
-                        Ok(_) => {}
-                        Err(error) => tracing::error!(
-                            event_id = %event.id,
-                            %error,
-                            "direct mention routing failed; NMP row remains observed"
-                        ),
+        // Presence-lease renewals (kind:30315) are too noisy for info.
+        if kind == 30315 {
+            tracing::debug!(kind, id = %&event.id.to_hex()[..8], "incoming");
+        } else {
+            tracing::info!(kind, id = %&event.id.to_hex()[..8], "incoming");
+        }
+        tail_projection::derive_and_emit_tail_events(state, &de, now);
+        if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
+            if let DomainEvent::ChatMessage(ref chat) = de {
+                match super::direct_mentions::route(
+                    state,
+                    super::direct_mentions::DirectMention {
+                        event_id: &event.id.to_hex(),
+                        from_pubkey: &event.pubkey.to_hex(),
+                        channel_h: &chat.channel,
+                        body: &chat.body,
+                        created_at: event.created_at.as_secs(),
+                        target_pubkeys: &chat.mentioned_pubkeys,
+                        attachments: &chat.attachments,
+                    },
+                ) {
+                    Ok(report) if !report.owned_targets.is_empty() => {
+                        let st = state.clone();
+                        let ev = event.clone();
+                        tokio::spawn(async move {
+                            route_reaction::publish_eye_reaction(&st, &ev).await;
+                        });
                     }
+                    Ok(_) => {}
+                    Err(error) => tracing::error!(
+                        event_id = %event.id,
+                        %error,
+                        "direct mention routing failed; NMP row remains observed"
+                    ),
                 }
             }
-        } else {
-            tracing::debug!(
-                kind = event.kind.as_u16(),
-                id = %&event.id.to_hex()[..8],
-                "duplicate delivery — skipped"
-            );
         }
     }
     chat_ops::dispatch(state, event);

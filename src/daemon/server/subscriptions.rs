@@ -76,7 +76,7 @@ pub(in crate::daemon::server) async fn reconcile_subs_logged(
 
 pub(in crate::daemon::server) fn reconcile_after_group_state_event(
     state: &Arc<DaemonState>,
-    event: &nostr::Event,
+    event: &nostr::event::Event,
     first_sight: bool,
 ) {
     use crate::fabric::nip29::wire::{KIND_GROUP_ADMINS, KIND_GROUP_MEMBERS, KIND_GROUP_METADATA};
@@ -116,27 +116,18 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     state.nmp().apply(effect)
 }
 
-/// Reopen the channel observation so NMP re-emits its canonical current rows to
-/// a session that became running after a mention was first observed.
-pub(in crate::daemon::server) async fn replay_channel_chat(state: &Arc<DaemonState>, h: &str) {
+/// Reopen the channel observation so the session sees canonical current rows
+/// for a channel it joined after the mention was first observed.
+///
+/// Under the broad `#h` observation this is a no-op: `RecentRows` already
+/// holds the recent window and a newly-running session reads state directly.
+/// The call site in `session_start` keeps the hook for a future per-channel
+/// `request_rows` backfill if a channel's depth needs topping up.
+pub(in crate::daemon::server) async fn replay_channel_chat(_state: &Arc<DaemonState>, h: &str) {
     tracing::debug!(
         channel = h,
-        "replaying channel chat (spawn-on-mention catch-up)"
+        "replay channel chat is a no-op under the broad #h observation"
     );
-    let effect = SubEffect::Replace {
-        id: format!("mosaico-h-{h}"),
-        query: crate::reconcile::SubscriptionQuery::GroupContents {
-            group: h.to_string(),
-            kinds: BTreeSet::from([
-                crate::fabric::nip29::wire::KIND_CHAT,
-                crate::fabric::nip29::wire::KIND_REACTION,
-                crate::fabric::nip29::wire::KIND_STATUS,
-            ]),
-        },
-    };
-    if let Err(error) = apply_effects(state, vec![effect]).await {
-        tracing::warn!(channel = h, error = %error, "channel chat replay failed");
-    }
 }
 
 /// Compute the daemon's current subscription coverage from durable sources,

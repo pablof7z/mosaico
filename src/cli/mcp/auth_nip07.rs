@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use nostr::{Event, JsonUtil, Kind, TagKind};
+use nostr::event::{Event, Kind};
 
 use super::auth_types::AuthorizeForm;
 
@@ -49,14 +49,9 @@ fn verify_login_event(
     );
     anyhow::ensure!(event.content == NIP07_CONTENT, "unexpected NIP-07 content");
     verify_timestamp(event.created_at.as_secs())?;
-    verify_tag(
-        &event,
-        TagKind::u(),
-        &format!("{public_url}/oauth/authorize"),
-        "u",
-    )?;
-    verify_tag(&event, TagKind::Method, "POST", "method")?;
-    verify_tag(&event, TagKind::Challenge, challenge, "challenge")?;
+    verify_tag(&event, "u", &format!("{public_url}/oauth/authorize"), "u")?;
+    verify_tag(&event, "method", "POST", "method")?;
+    verify_tag(&event, "challenge", challenge, "challenge")?;
     Ok(pubkey)
 }
 
@@ -73,10 +68,11 @@ fn verify_timestamp(created_at: u64) -> Result<()> {
     Ok(())
 }
 
-fn verify_tag(event: &Event, kind: TagKind<'_>, expected: &str, name: &str) -> Result<()> {
+fn verify_tag(event: &Event, kind: &str, expected: &str, name: &str) -> Result<()> {
     let actual = event
         .tags
-        .find(kind)
+        .iter()
+        .find(|t| t.kind() == kind)
         .and_then(|tag| tag.content())
         .with_context(|| format!("missing NIP-07 {name} tag"))?;
     anyhow::ensure!(actual == expected, "invalid NIP-07 {name} tag");
@@ -85,7 +81,9 @@ fn verify_tag(event: &Event, kind: TagKind<'_>, expected: &str, name: &str) -> R
 
 #[cfg(test)]
 mod tests {
-    use nostr::{EventBuilder, Keys, Tag, TagKind};
+    use nostr::event::{EventBuilder, FinalizeEvent};
+    use nostr::event::Tag;
+    use nostr::key::Keys;
 
     use super::*;
 
@@ -123,11 +121,11 @@ mod tests {
     fn login_event(keys: &Keys, public_url: &str, challenge: &str) -> Event {
         EventBuilder::new(Kind::HttpAuth, NIP07_CONTENT)
             .tags([
-                Tag::custom(TagKind::u(), [format!("{public_url}/oauth/authorize")]),
-                Tag::custom(TagKind::Method, ["POST"]),
-                Tag::custom(TagKind::Challenge, [challenge.to_string()]),
+                Tag::parse(["u", &format!("{public_url}/oauth/authorize")]).unwrap(),
+                Tag::parse(["method", "POST"]).unwrap(),
+                Tag::parse(["challenge", challenge]).unwrap(),
             ])
-            .sign_with_keys(keys)
+            .finalize(keys)
             .expect("sign event")
     }
 }

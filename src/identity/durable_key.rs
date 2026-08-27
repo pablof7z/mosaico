@@ -1,6 +1,6 @@
 use super::{atomic_write, key_path, read_stored_key_unvalidated, validate_slug};
 use anyhow::{bail, Context, Result};
-use nostr::Keys;
+use nostr::key::Keys;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

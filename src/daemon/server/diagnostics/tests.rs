@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::daemon::protocol::Request;
-use nostr::Keys;
+use nostr::key::Keys;
 
 #[path = "tests/readiness.rs"]
 mod readiness;
