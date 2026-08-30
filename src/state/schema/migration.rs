@@ -7,7 +7,6 @@ use rusqlite::Connection;
 
 use super::version;
 
-mod journal;
 mod steps;
 #[path = "migration/steps/v18_v19.rs"]
 mod v18_v19;
@@ -21,8 +20,6 @@ mod v21_v22;
 mod v22_v23;
 #[path = "migration/steps/v23_v24.rs"]
 mod v23_v24;
-
-pub(crate) use journal::{load_pending_writes, replace_pending_writes};
 
 const OLDEST_SUPPORTED_VERSION: u32 = 4;
 

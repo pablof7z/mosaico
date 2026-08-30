@@ -117,10 +117,6 @@ fn deployed_schema_four_migrates_to_current_without_losing_local_state() {
     ] {
         assert!(!fixture::table_exists(&conn, removed), "{removed} removed");
     }
-    assert_eq!(
-        crate::state::load_pending_writes(&path).unwrap(),
-        vec![r#"{"id":"pending"}"#]
-    );
 }
 
 #[test]
@@ -139,7 +135,6 @@ fn malformed_schema_seven_fails_before_mutating_the_database() {
     let conn = Connection::open(&path).unwrap();
     assert_eq!(version(&conn), 7);
     assert!(fixture::table_exists(&conn, "outbox"));
-    assert!(crate::state::load_pending_writes(&path).unwrap().is_empty());
 }
 
 #[test]

@@ -13,8 +13,6 @@ mod migration;
 mod validate;
 mod version;
 
-pub(crate) use migration::{load_pending_writes, replace_pending_writes};
-
 pub(super) fn initialize_file(conn: &mut Connection, path: &Path) -> Result<()> {
     let initial_version = version::read(conn)?;
     migration::upgrade(conn, path)?;

@@ -1,4 +1,3 @@
-use super::journal;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use std::collections::BTreeSet;
@@ -173,7 +172,7 @@ pub(super) fn v6_to_v7(conn: &mut Connection, _path: &Path) -> Result<()> {
     )?;
     tx.commit().context("committing schema-6 migration")
 }
-pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
+pub(super) fn v7_to_v8(conn: &mut Connection, _path: &Path) -> Result<()> {
     require_shape(
         conn,
         7,
@@ -190,8 +189,6 @@ pub(super) fn v7_to_v8(conn: &mut Connection, path: &Path) -> Result<()> {
     )?;
     require_shape(conn, 7, "trellis_commits", &["transaction_id"], &[])?;
     require_shape(conn, 7, "trellis_replay_capsules", &["script_json"], &[])?;
-    let pending = pending_outbox(conn)?;
-    journal::merge_pending_writes(path, pending)?;
     let tx = conn.transaction().context("starting schema-7 migration")?;
     tx.execute_batch(
         r#"
@@ -264,13 +261,6 @@ pub(super) fn v8_to_v9(conn: &mut Connection, _path: &Path) -> Result<()> {
         "#,
     )?;
     tx.commit().context("committing schema-8 migration")
-}
-fn pending_outbox(conn: &Connection) -> Result<Vec<String>> {
-    let mut statement =
-        conn.prepare("SELECT event_json FROM outbox WHERE state='pending' ORDER BY local_id")?;
-    let rows = statement.query_map([], |row| row.get(0))?;
-    rows.collect::<rusqlite::Result<Vec<_>>>()
-        .context("collecting schema-7 pending writes")
 }
 pub(super) fn require_shape(
     conn: &Connection,

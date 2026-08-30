@@ -3,7 +3,6 @@ use crate::reconcile::StatusReconciler;
 pub(super) mod auth_restore;
 mod host_profile_bootstrap;
 pub(super) mod nmp_open;
-mod pending_writes;
 mod reconcile;
 mod shutdown;
 
@@ -69,7 +68,6 @@ pub async fn run() -> Result<()> {
         mcp_actor_sync: tokio::sync::Mutex::new(()),
     });
     auth_restore::restore(&state).context("restoring NIP-42 identities")?;
-    pending_writes::spawn(&storage.state_db_path, state.clone());
     // These tolerate a not-yet-connected relay, so they start now.
     spawn_demux(state.clone());
     spawn_pruner(state.clone());
