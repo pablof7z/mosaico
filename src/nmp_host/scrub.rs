@@ -23,8 +23,9 @@ pub(crate) fn scrub_unsigned(unsigned: &mut UnsignedEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::event::{EventBuilder, FinalizeUnsignedEvent, Kind, SignEvent};
     use nostr::key::Keys;
+
+    use crate::nmp_host::NmpHost;
 
     #[test]
     fn redacts_aws_key() {
@@ -99,16 +100,20 @@ mod tests {
         let token = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
         let raw_content = format!("leak {token} in prompt");
 
-        let builder = EventBuilder::new(Kind::from(1u16), raw_content);
-        let mut unsigned = builder.finalize_unsigned(keys.public_key());
+        let host = NmpHost::open(&[], None, None, &keys).expect("open Fava host");
+        let mut unsigned = fava::EventBuilder::new(fava::Kind::from_u16(1))
+            .content(raw_content)
+            .by(keys.public_key())
+            .build()
+            .expect("build unsigned event");
         scrub_unsigned(&mut unsigned);
 
         assert!(unsigned.content.contains("[REDACTED]"), "content scrubbed");
         assert!(!unsigned.content.contains(token), "token absent");
 
-        // Sign and verify: nostr recomputes the id from scrubbed content
-        // on sign, so verify() must succeed (proves id reset was applied).
-        let signed = keys.sign_event(unsigned).expect("signing");
+        // Fava recomputes the id through its registered signer, so verify()
+        // proves the scrubbed unsigned event was signed correctly.
+        let signed = host.fava.sign(unsigned).await.expect("Fava signing");
         assert!(
             signed.verify().is_ok(),
             "signature valid over scrubbed content"
@@ -117,14 +122,17 @@ mod tests {
             !signed.content.contains(token),
             "token absent from signed event"
         );
+        host.shutdown();
     }
 
     #[tokio::test]
     async fn scrub_unsigned_noop_on_empty_content() {
         let keys = Keys::generate();
         // Kind 9000 put-user events have empty content; it must be untouched.
-        let builder = EventBuilder::new(Kind::from(9000u16), "");
-        let mut unsigned = builder.finalize_unsigned(keys.public_key());
+        let mut unsigned = fava::EventBuilder::new(fava::Kind::from_u16(9000))
+            .by(keys.public_key())
+            .build()
+            .expect("build unsigned event");
         let original_id = unsigned.id;
         scrub_unsigned(&mut unsigned);
         assert_eq!(

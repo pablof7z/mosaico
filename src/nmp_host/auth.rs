@@ -1,28 +1,48 @@
-//! NIP-42 auth is handled automatically by fava's LocalSigner.
-//!
-//! With NMP, each pubkey needed explicit signer and AUTH-policy registration.
-//! With fava, signers are registered at build time and the transport layer
-//! handles NIP-42 challenges for all registered pubkeys automatically.
-//!
-//! This module is retained as a thin compatibility shim for call sites that
-//! called `ensure_identity` to register a dynamic keypair. With fava there is
-//! nothing to do — the backend signer is registered once at `NmpHost::open`.
+//! Dynamic Fava signer registration for Mosaico-managed identities.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use fava_signer_local::LocalSigner;
 use nostr::key::Keys;
+use std::sync::Arc;
 
 use super::NmpHost;
 
 impl NmpHost {
-    /// Compatibility shim. With fava, identity registration happens at build
-    /// time via `Fava::builder().signer(...)`. This is a no-op.
-    pub(crate) fn ensure_identity(&self, _keys: &Keys) -> Result<()> {
-        Ok(())
+    /// Attach this exact local identity to Fava's signer session.
+    ///
+    /// Re-registering the same public key is harmless: the existing Fava
+    /// attachment remains authoritative until a deliberate replacement.
+    pub(crate) fn register_signer(&self, keys: &Keys) -> Result<()> {
+        let public_key = keys.public_key();
+        let signer = Arc::new(LocalSigner::new(keys.clone()));
+        match self.fava.add_signer(signer) {
+            Ok(()) => Ok(()),
+            Err(fava::SessionError::DuplicateSigner(existing)) if existing == public_key => Ok(()),
+            Err(error) => Err(error).with_context(|| format!("attaching signer {public_key}")),
+        }
     }
+}
 
-    /// Test-facing: with fava the backend signer is always registered.
-    #[cfg(test)]
-    pub(crate) fn has_registered_identity(&self, _pubkey: &nostr::key::PublicKey) -> bool {
-        true
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn dynamically_registered_signer_is_used_by_fava() {
+        let backend = Keys::generate();
+        let agent = Keys::generate();
+        let host = NmpHost::open(&[], None, None, &backend).expect("open Fava host");
+        host.register_signer(&agent).expect("attach agent signer");
+
+        let unsigned = fava::EventBuilder::new(fava::Kind::from_u16(1))
+            .content("unsigned from Mosaico")
+            .by(agent.public_key())
+            .build()
+            .expect("build unsigned event");
+        let signed = host.fava.sign(unsigned).await.expect("Fava signs event");
+
+        assert_eq!(signed.pubkey, agent.public_key());
+        assert!(signed.verify().is_ok(), "Fava-produced signature verifies");
+        host.shutdown();
     }
 }

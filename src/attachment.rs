@@ -14,8 +14,8 @@ use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
 use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use nmp_asset::Sha256Hash;
-use nostr::event::{EventBuilder, Kind, Tag};
-use nostr::key::Keys;
+use nostr::event::Tag;
+use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -129,7 +129,7 @@ pub(crate) async fn upload_all(
     attachments: &[Attachment],
     relays: &[String],
     nmp: &Arc<NmpHost>,
-    keys: &Keys,
+    author: PublicKey,
 ) -> Result<Vec<ChatAttachment>> {
     validate(attachments)?;
     if attachments.is_empty() {
@@ -152,7 +152,7 @@ pub(crate) async fn upload_all(
 
     let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
-        let descriptor = upload(&server, attachment, nmp, keys).await?;
+        let descriptor = upload(&server, attachment, nmp, author).await?;
         uploaded.push(ChatAttachment {
             url: descriptor.url,
             label: attachment.label.clone(),
@@ -203,7 +203,7 @@ async fn upload(
     server: &Url,
     attachment: &Attachment,
     nmp: &Arc<NmpHost>,
-    keys: &Keys,
+    author: PublicKey,
 ) -> Result<BlossomDescriptor> {
     let bytes = tokio::fs::read(&attachment.path).await.with_context(|| {
         format!(
@@ -213,9 +213,11 @@ async fn upload(
         )
     })?;
     let hash = Sha256Hash::of(&bytes);
-    let auth_token = authorization(nmp, keys, &hash).await?;
+    let auth_token = authorization(nmp, author, &hash).await?;
     let content_type = mime_guess::from_path(&attachment.path).first_or_octet_stream();
-    let upload_url = server.join("upload").context("building Blossom upload URL")?;
+    let upload_url = server
+        .join("upload")
+        .context("building Blossom upload URL")?;
     let response = reqwest::Client::new()
         .put(upload_url.as_str())
         .header("Authorization", format!("Nostr {auth_token}"))
@@ -274,29 +276,37 @@ async fn upload(
             hash.to_hex()
         );
     }
-    Ok(BlossomDescriptor { url, sha256: returned_sha256 })
+    Ok(BlossomDescriptor {
+        url,
+        sha256: returned_sha256,
+    })
 }
 
-/// Compose a BUD-11 kind:24242 upload-authorization event, sign it through
-/// `NmpHost`, and return the base64url-encoded JSON for the Authorization header.
-async fn authorization(nmp: &Arc<NmpHost>, keys: &Keys, hash: &Sha256Hash) -> Result<String> {
+/// Compose a BUD-11 kind:24242 authorization and have Fava sign it with the
+/// registered author signer before returning the base64url-encoded JSON.
+async fn authorization(nmp: &Arc<NmpHost>, author: PublicKey, hash: &Sha256Hash) -> Result<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
     let expiration = now + AUTH_LIFETIME_SECS;
-    let t_tag =
-        Tag::parse(["t", "upload"]).map_err(|e| anyhow::anyhow!("BUD-11 t tag: {e}"))?;
-    let x_tag = Tag::parse(["x", &hash.to_hex()])
-        .map_err(|e| anyhow::anyhow!("BUD-11 x tag: {e}"))?;
+    let t_tag = Tag::parse(["t", "upload"]).map_err(|e| anyhow::anyhow!("BUD-11 t tag: {e}"))?;
+    let x_tag =
+        Tag::parse(["x", &hash.to_hex()]).map_err(|e| anyhow::anyhow!("BUD-11 x tag: {e}"))?;
     let exp_tag = Tag::parse(["expiration", &expiration.to_string()])
         .map_err(|e| anyhow::anyhow!("BUD-11 expiration tag: {e}"))?;
-    let builder = EventBuilder::new(Kind::from_u16(24242), "Upload Blob")
-        .tags([t_tag, x_tag, exp_tag]);
+    let unsigned = fava::EventBuilder::new(fava::Kind::from_u16(24242))
+        .content("Upload Blob")
+        .tags([t_tag, x_tag, exp_tag])
+        .by(author)
+        .build()
+        .map_err(anyhow::Error::from)?;
     let signed = nmp
-        .sign_event(builder, keys)
+        .fava
+        .sign(unsigned)
         .await
-        .context("signing BUD-11 upload authorization")?;
+        .map_err(anyhow::Error::from)
+        .context("Fava signing BUD-11 upload authorization")?;
     let json = signed.as_json();
     Ok(URL_SAFE_NO_PAD.encode(json.as_bytes()))
 }

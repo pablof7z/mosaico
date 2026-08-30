@@ -8,7 +8,6 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use nostr::event::FinalizeEvent;
 use nostr::key::Keys;
 
 use crate::domain::{AgentRef, DomainEvent, Profile as DomainProfile};
@@ -17,7 +16,7 @@ use crate::nmp_host::{NmpHost, PlainRelay, ProfileFeed};
 
 /// One non-backend kind:0 profile event signed by `keys`, carrying `name` as
 /// its metadata name and `agent_slug` as its `["agent-slug"]` tag.
-fn kind0_event(
+async fn kind0_event(
     keys: &Keys,
     name: &str,
     agent_slug: &str,
@@ -34,12 +33,23 @@ fn kind0_event(
         agents: Vec::new(),
         workspaces: Vec::new(),
     };
-    Nip29WireCodec
+    let builder = Nip29WireCodec
         .encode_event(&DomainEvent::Profile(profile))
         .expect("encode kind:0")
-        .custom_created_at(nostr::types::Timestamp::from(created_at))
-        .finalize(keys)
-        .expect("sign kind:0")
+        .custom_created_at(nostr::types::Timestamp::from(created_at));
+    let unsigned = fava::AuthoredEventBuilder::from_parts(
+        keys.public_key(),
+        builder.kind,
+        builder.created_at.expect("kind:0 timestamp"),
+        builder.tags.to_vec(),
+        builder.content,
+    )
+    .build()
+    .expect("build unsigned kind:0");
+    let host = NmpHost::open(&[], None, None, keys).expect("open Fava signer");
+    let signed = host.fava.sign(unsigned).await.expect("Fava signs kind:0");
+    host.shutdown();
+    signed
 }
 
 /// Poll the feed's synchronous read until it returns `want` or `deadline`.
@@ -69,9 +79,9 @@ async fn feed_drains_real_kind0_and_resolves_latest_then_live_updates() {
     // Seed an older and a newer kind:0 for A (feed keeps the newer per author)
     // plus one for B.
     let relay = PlainRelay::spawn([
-        kind0_event(&a, "a-older", "", "laptop", 100),
-        kind0_event(&a, "a-newer", "", "laptop", 200),
-        kind0_event(&b, "b-handle", "", "tower", 150),
+        kind0_event(&a, "a-older", "", "laptop", 100).await,
+        kind0_event(&a, "a-newer", "", "laptop", 200).await,
+        kind0_event(&b, "b-handle", "", "tower", 150).await,
     ]);
     let host = Arc::new(
         NmpHost::open(&[relay.url()], None, None, &Keys::generate())
@@ -91,7 +101,7 @@ async fn feed_drains_real_kind0_and_resolves_latest_then_live_updates() {
     );
 
     // Live injection of an even newer kind:0 for A reaches the open drain.
-    relay.inject(kind0_event(&a, "a-live", "", "laptop", 300));
+    relay.inject(kind0_event(&a, "a-live", "", "laptop", 300).await);
     assert!(
         wait_profile(
             &feed,
@@ -115,8 +125,8 @@ async fn set_members_replaces_the_observed_author_set() {
     let pk_b = b.public_key().to_hex();
 
     let relay = PlainRelay::spawn([
-        kind0_event(&a, "a-handle", "", "laptop", 100),
-        kind0_event(&b, "b-handle", "", "tower", 150),
+        kind0_event(&a, "a-handle", "", "laptop", 100).await,
+        kind0_event(&b, "b-handle", "", "tower", 150).await,
     ]);
     let host = Arc::new(
         NmpHost::open(&[relay.url()], None, None, &Keys::generate())

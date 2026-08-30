@@ -64,6 +64,55 @@ impl NmpRelayClient {
         self.send_event(&event).await
     }
 
+    /// Publish an unsigned Fava builder through the client's registered signer.
+    pub async fn send_fava_builder(&self, builder: fava::EventBuilder) -> Result<WriteAck> {
+        let relay_url = self.relay.clone();
+        let relay_str = relay_url.to_string();
+        let write = self
+            .fava
+            .by(self.keys.public_key())
+            .publish(builder)
+            .context("submit Fava test write")?;
+        let event_id = write
+            .receipt()
+            .context("read Fava test write receipt")?
+            .current
+            .id();
+        match write.settled(fava::all_terminal()).await {
+            Ok(_) => Ok(WriteAck {
+                val: event_id,
+                success: BTreeSet::from([relay_str]),
+                failed: BTreeMap::new(),
+            }),
+            Err(fava::PublishError::NotReached { receipt }) => {
+                // Route settled but not every destination accepted — report per-relay.
+                let mut success = BTreeSet::new();
+                let mut failed = BTreeMap::new();
+                for (session, outcome) in receipt.destinations() {
+                    let dest = session.relay.to_string();
+                    use fava::RelayDeliveryOutcome;
+                    match outcome {
+                        RelayDeliveryOutcome::Acknowledged { .. } => {
+                            success.insert(dest);
+                        }
+                        RelayDeliveryOutcome::Rejected { message } => {
+                            failed.insert(dest, message.clone());
+                        }
+                        _ => {
+                            failed.insert(dest, format!("{outcome:?}"));
+                        }
+                    }
+                }
+                Ok(WriteAck {
+                    val: event_id,
+                    success,
+                    failed,
+                })
+            }
+            Err(error) => Err(anyhow::anyhow!("Fava test write failed: {error:#}")),
+        }
+    }
+
     pub async fn send_event(&self, event: &Event) -> Result<WriteAck> {
         let relay_url = self.relay.clone();
         let event_id = event.id;
