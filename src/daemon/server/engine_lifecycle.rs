@@ -49,6 +49,10 @@ pub(in crate::daemon::server) async fn spawn_session(
             },
         );
     }
+    state
+        .nmp()
+        .register_signer(&params.keys)
+        .context("registering the session signer with Fava")?;
     state.runtime.hosted.lock().unwrap().insert(
         pubkey.clone(),
         HostedAgent {

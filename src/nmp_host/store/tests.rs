@@ -107,8 +107,9 @@ async fn nmp_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() {
 
     reset(&path).expect("a closed superseded store must be resettable");
     assert!(!path.exists(), "NMP's reset must remove the complete store");
-    let reopened = super::super::NmpHost::open(&[], None, Some(&path), &nostr::key::Keys::generate())
-        .expect("the path an operator was told to clear must open afterwards");
+    let reopened =
+        super::super::NmpHost::open(&[], None, Some(&path), &nostr::key::Keys::generate())
+            .expect("the path an operator was told to clear must open afterwards");
     drop(reopened);
     reset(&path).expect("a missing store is already reset");
 }

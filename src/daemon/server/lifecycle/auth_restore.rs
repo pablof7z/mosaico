@@ -1,4 +1,4 @@
-//! Restore NIP-42 capabilities before durable relay work resumes.
+//! Restore Fava signers before durable relay work resumes.
 
 use std::sync::Arc;
 
@@ -53,9 +53,9 @@ pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()>
 }
 
 fn register(state: &Arc<DaemonState>, keys: &Keys, identity_kind: &'static str) -> Result<()> {
-    state.nmp().ensure_identity(keys).with_context(|| {
+    state.nmp().register_signer(keys).with_context(|| {
         format!(
-            "registering {identity_kind} NIP-42 identity {}",
+            "registering {identity_kind} Fava signer {}",
             keys.public_key()
         )
     })

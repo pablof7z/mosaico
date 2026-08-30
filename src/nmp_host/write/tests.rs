@@ -1,5 +1,6 @@
 use super::*;
 use nostr::event::{EventBuilder, Kind};
+use nostr::key::Keys;
 use std::time::Duration;
 
 mod group_door;
@@ -23,7 +24,7 @@ async fn an_offline_relay_does_not_delay_acceptance() {
     let builder = EventBuilder::new(Kind::TextNote, "no spinner");
 
     let started = std::time::Instant::now();
-    host.publish_group("room-a", builder, &keys)
+    host.publish_group("room-a", builder, keys.public_key())
         .expect("acceptance never depends on a relay");
     assert!(
         started.elapsed() < Duration::from_secs(1),
@@ -41,7 +42,7 @@ async fn a_group_write_with_no_configured_host_is_refused_at_the_door() {
         .publish_group(
             "room-a",
             EventBuilder::new(Kind::TextNote, "nowhere"),
-            &Keys::generate(),
+            Keys::generate().public_key(),
         )
         .expect_err("a group needs a host");
     let full = format!("{error:#}");
