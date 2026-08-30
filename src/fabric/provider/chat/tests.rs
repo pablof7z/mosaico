@@ -152,7 +152,6 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
             .metadata("chan", "", "", 1)
             .members(vec![author])
             .availability(crate::group_snapshot::GroupAvailability::SourceUnavailable)]));
-
     });
 
     provider
@@ -160,4 +159,3 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
         .await
         .expect("the current positive member row authorizes publishing");
 }
-

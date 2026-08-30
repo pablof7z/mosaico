@@ -72,7 +72,7 @@ pub(super) async fn rpc_dispatch(
     // the same group subscription (NMP #1182), so nothing is driven inline.
     let dispatch_event_id = state
         .nmp()
-        .publish_group(&route_channel, builder, &keys)?
+        .publish_group(&route_channel, builder, keys.public_key())?
         .to_hex();
     let ack_observation = state
         .nmp()
@@ -197,19 +197,14 @@ async fn wait_dispatch_ack(
     dispatch_event_id: String,
 ) -> Result<DispatchAck> {
     let result = tokio::time::timeout(Duration::from_secs(30), async {
+        if let Some(ack) = dispatch_ack_from_snapshot(&observation.current(), &dispatch_event_id) {
+            return Ok(ack);
+        }
         loop {
             match observation.changed().await {
                 Ok(snapshot) => {
-                    for record in snapshot.events.iter() {
-                        if let fava::EventValue::Signed(event) = record.event() {
-                            if crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
-                                == Some(&dispatch_event_id)
-                            {
-                                return Ok(DispatchAck {
-                                    pubkey: event.pubkey.to_hex(),
-                                });
-                            }
-                        }
+                    if let Some(ack) = dispatch_ack_from_snapshot(&snapshot, &dispatch_event_id) {
+                        return Ok(ack);
                     }
                 }
                 Err(fava::ObservationClosed) => {
@@ -223,6 +218,22 @@ async fn wait_dispatch_ack(
         Ok(r) => r,
         Err(_elapsed) => anyhow::bail!("dispatched agent did not ACK after 30 seconds"),
     }
+}
+
+fn dispatch_ack_from_snapshot(
+    snapshot: &fava::QuerySnapshot,
+    dispatch_event_id: &str,
+) -> Option<DispatchAck> {
+    snapshot.events.iter().find_map(|record| {
+        let fava::EventValue::Signed(event) = record.event() else {
+            return None;
+        };
+        (crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
+            == Some(dispatch_event_id))
+        .then(|| DispatchAck {
+            pubkey: event.pubkey.to_hex(),
+        })
+    })
 }
 
 async fn send_dispatch_message(

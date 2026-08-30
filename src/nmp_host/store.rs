@@ -66,7 +66,11 @@ impl StoreCondition {
     /// The fact, in one line.
     pub(crate) fn summary(&self) -> String {
         match self {
-            Self::SupersededEpoch { path, expected, found } => {
+            Self::SupersededEpoch {
+                path,
+                expected,
+                found,
+            } => {
                 let marker = match found {
                     Some(found) => format!("is schema epoch {found}"),
                     None => "carries no schema marker this build can read".to_string(),
@@ -120,7 +124,9 @@ fn classify(error: &WriteStoreError, path: &str) -> StoreCondition {
             found: None,
         }
     } else if reason.contains("already open") || reason.contains("exclusive lock") {
-        StoreCondition::HeldByAnotherOwner { path: path.to_string() }
+        StoreCondition::HeldByAnotherOwner {
+            path: path.to_string(),
+        }
     } else {
         StoreCondition::Unusable { reason }
     }
@@ -145,8 +151,9 @@ pub(crate) fn reset(path: &Path) -> anyhow::Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    std::fs::remove_file(path)
-        .map_err(|error| anyhow::anyhow!("resetting the write store at {}: {error}", path.display()))
+    std::fs::remove_file(path).map_err(|error| {
+        anyhow::anyhow!("resetting the write store at {}: {error}", path.display())
+    })
 }
 
 #[cfg(test)]

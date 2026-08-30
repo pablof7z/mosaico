@@ -12,7 +12,7 @@ impl Nip29Provider {
             ..Default::default()
         };
         self.nmp
-            .publish_metadata_edit_and_wait(group, &edit, &mgmt_keys)
+            .publish_metadata_edit_and_wait(group, &edit, mgmt_keys.public_key())
             .await
             .is_ok()
     }
@@ -24,7 +24,11 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return configuration_failure("9007 create-group");
         };
-        if let Err(e) = self.nmp.publish_create_group_and_wait(group, &keys).await {
+        if let Err(e) = self
+            .nmp
+            .publish_create_group_and_wait(group, keys.public_key())
+            .await
+        {
             return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 "9007 create-group",
                 GroupOperationStage::Publish,
@@ -32,7 +36,11 @@ impl Nip29Provider {
             ));
         }
         let edit = lifecycle::group_lock_closed(group, group);
-        match self.nmp.publish_metadata_edit_and_wait(group, &edit, &keys).await {
+        match self
+            .nmp
+            .publish_metadata_edit_and_wait(group, &edit, keys.public_key())
+            .await
+        {
             Ok(_) => GroupPublishOutcome::Published,
             Err(e) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 "9002 lock-closed",
@@ -60,7 +68,11 @@ impl Nip29Provider {
         let Some(keys) = self.management_keys() else {
             return configuration_failure("9007 create-subgroup");
         };
-        if let Err(e) = self.nmp.publish_create_subgroup_and_wait(child, parent, &keys).await {
+        if let Err(e) = self
+            .nmp
+            .publish_create_subgroup_and_wait(child, parent, keys.public_key())
+            .await
+        {
             return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 "9007 create-subgroup",
                 GroupOperationStage::Publish,
@@ -68,7 +80,11 @@ impl Nip29Provider {
             ));
         }
         let edit = lifecycle::group_lock_closed(child, name);
-        match self.nmp.publish_metadata_edit_and_wait(child, &edit, &keys).await {
+        match self
+            .nmp
+            .publish_metadata_edit_and_wait(child, &edit, keys.public_key())
+            .await
+        {
             Ok(_) => GroupPublishOutcome::Published,
             Err(e) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 "9002 lock-closed",

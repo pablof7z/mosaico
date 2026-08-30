@@ -60,10 +60,11 @@ impl Nip29Provider {
             .await
             .with_context(|| format!("opening group observation for {group}"))?;
         tokio::time::timeout(Duration::from_secs(5), async {
-            use crate::group_snapshot::decode_snapshots;
             use fava::ObservationClosed;
-            use std::collections::BTreeSet;
 
+            if let Some(snapshot) = settled_group_snapshot(&observation.current(), group) {
+                return snapshot;
+            }
             loop {
                 let fava_snapshot = match observation.changed().await {
                     Ok(s) => s,
@@ -71,33 +72,8 @@ impl Nip29Provider {
                         anyhow::bail!("group observation closed before acquisition settled")
                     }
                 };
-                let av = crate::group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
-                let snapshots = decode_snapshots(&fava_snapshot, &BTreeSet::new(), av);
-                let Some(snapshot) = snapshots.into_iter().find(|s| s.id == group) else {
-                    // No records yet for this group.
-                    match av {
-                        GroupAvailability::Ready | GroupAvailability::CachedOnly => {
-                            // Relay settled with no records: group does not exist.
-                            return Ok(GroupSnapshot {
-                                id: group.to_string(),
-                                metadata: None,
-                                admins: Vec::new(),
-                                members: Vec::new(),
-                                availability: av,
-                            });
-                        }
-                        GroupAvailability::Acquiring | GroupAvailability::SourceUnavailable => {
-                            continue;
-                        }
-                    }
-                };
-                match snapshot.availability {
-                    GroupAvailability::Acquiring | GroupAvailability::SourceUnavailable => {
-                        continue;
-                    }
-                    GroupAvailability::CachedOnly | GroupAvailability::Ready => {
-                        return Ok(snapshot);
-                    }
+                if let Some(snapshot) = settled_group_snapshot(&fava_snapshot, group) {
+                    return snapshot;
                 }
             }
         })
@@ -128,6 +104,43 @@ impl Nip29Provider {
             created_at: as_of,
             updated_at: as_of,
         }))
+    }
+}
+
+fn settled_group_snapshot(
+    fava_snapshot: &fava::QuerySnapshot,
+    group: &str,
+) -> Option<Result<GroupSnapshot>> {
+    use crate::group_snapshot::decode_snapshots;
+    use std::collections::BTreeSet;
+
+    let availability = crate::group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
+    let snapshot = decode_snapshots(fava_snapshot, &BTreeSet::new(), availability)
+        .into_iter()
+        .find(|snapshot| snapshot.id == group);
+    match snapshot {
+        Some(snapshot)
+            if matches!(
+                snapshot.availability,
+                GroupAvailability::Ready | GroupAvailability::CachedOnly
+            ) =>
+        {
+            Some(Ok(snapshot))
+        }
+        None if matches!(
+            availability,
+            GroupAvailability::Ready | GroupAvailability::CachedOnly
+        ) =>
+        {
+            Some(Ok(GroupSnapshot {
+                id: group.to_string(),
+                metadata: None,
+                admins: Vec::new(),
+                members: Vec::new(),
+                availability,
+            }))
+        }
+        _ => None,
     }
 }
 

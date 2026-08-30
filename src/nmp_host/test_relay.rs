@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -158,7 +158,7 @@ fn serve(stream: std::net::TcpStream, state: &Arc<Mutex<State>>, shutdown: &Arc<
             Err(WebSocketError::Io(error))
                 if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) =>
             {
-                continue
+                continue;
             }
             Err(_) if shutdown.load(Ordering::Acquire) => break,
             Err(error) => panic!("read plain relay frame: {error}"),

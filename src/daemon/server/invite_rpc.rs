@@ -259,6 +259,6 @@ async fn publish_invite_orchestration(
     // same path a peer's directive takes.
     Ok(state
         .nmp()
-        .publish_group(channel_h, builder, &keys)?
+        .publish_group(channel_h, builder, keys.public_key())?
         .to_hex())
 }

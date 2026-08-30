@@ -119,34 +119,59 @@ async fn drain(
 ) {
     let mut renamed: BTreeSet<String> = BTreeSet::new();
     let mut advertised = managed_roots(&state, &state.nmp().views().group_snapshots());
+    apply_snapshot(
+        &state,
+        &observation.current(),
+        &coverage,
+        &mut known_ids,
+        &mut renamed,
+        &mut advertised,
+    );
     loop {
         let fava_snapshot = match observation.changed().await {
             Ok(snapshot) => snapshot,
             Err(ObservationClosed) => return,
         };
-        let av = group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
-        let all_snapshots =
-            group_snapshot::decode_snapshots(&fava_snapshot, &BTreeSet::new(), av);
-        let relevant = filter_for_coverage(&all_snapshots, &coverage);
-        state.nmp().views().set_group_snapshots(relevant.clone());
-
-        let discovered = record_discoveries(&mut known_ids, &relevant);
-        root_names::repair_delivered(&state, &relevant, &mut renamed);
-        let managed = managed_roots(&state, &relevant);
-        if managed != advertised {
-            advertised = managed;
-            state.schedule_backend_profile_refresh();
-        }
-        let state = state.clone();
-        tokio::spawn(async move {
-            let cause = if discovered {
-                "group records discovery"
-            } else {
-                "group records delivery"
-            };
-            super::subscriptions::reconcile_subs_logged(&state, cause).await;
-        });
+        apply_snapshot(
+            &state,
+            &fava_snapshot,
+            &coverage,
+            &mut known_ids,
+            &mut renamed,
+            &mut advertised,
+        );
     }
+}
+
+fn apply_snapshot(
+    state: &Arc<DaemonState>,
+    fava_snapshot: &fava::QuerySnapshot,
+    coverage: &GroupRecordsCoverage,
+    known_ids: &mut BTreeSet<String>,
+    renamed: &mut BTreeSet<String>,
+    advertised: &mut Vec<String>,
+) {
+    let av = group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
+    let all_snapshots = group_snapshot::decode_snapshots(fava_snapshot, &BTreeSet::new(), av);
+    let relevant = filter_for_coverage(&all_snapshots, coverage);
+    state.nmp().views().set_group_snapshots(relevant.clone());
+
+    let discovered = record_discoveries(known_ids, &relevant);
+    root_names::repair_delivered(state, &relevant, renamed);
+    let managed = managed_roots(state, &relevant);
+    if managed != *advertised {
+        *advertised = managed;
+        state.schedule_backend_profile_refresh();
+    }
+    let state = state.clone();
+    tokio::spawn(async move {
+        let cause = if discovered {
+            "group records discovery"
+        } else {
+            "group records delivery"
+        };
+        super::subscriptions::reconcile_subs_logged(&state, cause).await;
+    });
 }
 
 /// Keep only the snapshots this coverage predicate cares about.
@@ -175,10 +200,7 @@ fn filter_for_coverage(
 }
 
 /// Extend the pinned-id set with every group this delivery discovered.
-fn record_discoveries(
-    known_ids: &mut BTreeSet<String>,
-    snapshots: &[GroupSnapshot],
-) -> bool {
+fn record_discoveries(known_ids: &mut BTreeSet<String>, snapshots: &[GroupSnapshot]) -> bool {
     let mut discovered = false;
     for snapshot in snapshots {
         discovered |= known_ids.insert(snapshot.id.clone());

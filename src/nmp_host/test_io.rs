@@ -7,8 +7,8 @@ use nostr::event::Event;
 use crate::group_snapshot::GroupSnapshot;
 use crate::row::Row;
 
-use super::read::{BoundedRead, BoundedReadTermination};
 use super::NmpHost;
+use super::read::{BoundedRead, BoundedReadTermination};
 
 struct ScriptedError {
     context: String,
@@ -56,10 +56,7 @@ impl NmpHost {
     }
 
     pub(crate) fn script_read_settled_events(&self, events: Vec<Event>) {
-        let rows = events
-            .into_iter()
-            .map(|event| Row { event })
-            .collect();
+        let rows = events.into_iter().map(|event| Row { event }).collect();
         self.test_io
             .reads
             .lock()

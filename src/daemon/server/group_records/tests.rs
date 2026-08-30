@@ -46,9 +46,10 @@ fn coverage_carries_both_the_known_ids_and_the_local_identities() {
             daemon_channels: set(["root"]),
             group_state_channels: set(["cached"]),
             addressed_pubkeys: set(["backend-pk", "session-pk"]),
-            sessions: std::collections::BTreeMap::from([
-                ("session-pk".to_string(), set(["joined"])),
-            ]),
+            sessions: std::collections::BTreeMap::from([(
+                "session-pk".to_string(),
+                set(["joined"]),
+            )]),
             ..coverage_snapshot()
         },
         &[],

@@ -157,10 +157,7 @@ pub(crate) struct FetchFilter {
 }
 
 impl FetchFilter {
-    pub(crate) fn into_query(
-        self,
-        relays: impl IntoIterator<Item = RelayUrl>,
-    ) -> Result<Query> {
+    pub(crate) fn into_query(self, relays: impl IntoIterator<Item = RelayUrl>) -> Result<Query> {
         let mut q = Query::events();
         if !self.kinds.is_empty() {
             q = q
@@ -173,7 +170,9 @@ impl FetchFilter {
         for (name, value) in &self.tags {
             let key = SingleLetterTag::from_char(*name)
                 .with_context(|| format!("invalid tag name {name:?} in fetch filter"))?;
-            q = q.tag_values(key, [value.as_str()]).context("fetch filter tag")?;
+            q = q
+                .tag_values(key, [value.as_str()])
+                .context("fetch filter tag")?;
         }
         q.from_relays(relays).context("fetch filter relay scope")
     }

@@ -167,7 +167,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         let edit = MetadataEdit { about: Some(p.about.clone()), ..Default::default() };
         state
             .nmp()
-            .publish_metadata_edit_and_wait(&child_h, &edit, &mgmt_keys)
+            .publish_metadata_edit_and_wait(&child_h, &edit, mgmt_keys.public_key())
             .await
             .context("publishing the new channel description")?;
     }
@@ -192,7 +192,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         // local fast-path, because there is no longer anything for it to fix.
         state
             .nmp()
-            .publish_group(&parent, builder, &mgmt_keys)?
+            .publish_group(&parent, builder, mgmt_keys.public_key())?
             .to_hex()
     };
 

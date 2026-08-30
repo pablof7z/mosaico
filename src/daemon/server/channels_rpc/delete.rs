@@ -47,7 +47,7 @@ pub(in crate::daemon::server) async fn delete_channel(
     let mgmt_keys = state.management_keys()?;
     let event_id = state
         .nmp()
-        .publish_delete_group_and_wait(channel, &mgmt_keys)
+        .publish_delete_group_and_wait(channel, mgmt_keys.public_key())
         .await?
         .to_hex();
 

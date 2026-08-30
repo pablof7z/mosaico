@@ -156,12 +156,14 @@ mod tests {
     #[test]
     fn an_attempted_root_is_not_republished() {
         let backend = Keys::generate().public_key();
-        assert!(roots_needing_workspace_name(
-            &[snapshot("one", "wrong", None, Some(backend))],
-            &backend.to_hex(),
-            &BTreeSet::new(),
-            &BTreeSet::from(["one".to_string()]),
-        )
-        .is_empty());
+        assert!(
+            roots_needing_workspace_name(
+                &[snapshot("one", "wrong", None, Some(backend))],
+                &backend.to_hex(),
+                &BTreeSet::new(),
+                &BTreeSet::from(["one".to_string()]),
+            )
+            .is_empty()
+        );
     }
 }

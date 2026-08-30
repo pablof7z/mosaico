@@ -180,7 +180,12 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
     let relays = &state.config().relays;
     let uploaded_attachments =
-        crate::attachment::upload_all(&p.attachments, relays, &state.nmp(), &chat_signing_keys)
+        crate::attachment::upload_all(
+            &p.attachments,
+            relays,
+            &state.nmp(),
+            chat_signing_keys.public_key(),
+        )
             .await?;
     let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
     let body_to_send = formatted.wire;

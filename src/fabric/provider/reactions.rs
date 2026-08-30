@@ -26,6 +26,9 @@ impl Nip29Provider {
         }
         self.verify_publish_scope(channel, &keys.public_key().to_hex(), true)
             .await?;
-        Ok(self.nmp.publish_group(channel, builder, keys)?.to_hex())
+        Ok(self
+            .nmp
+            .publish_group(channel, builder, keys.public_key())?
+            .to_hex())
     }
 }

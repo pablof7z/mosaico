@@ -44,7 +44,12 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
     let uploaded_attachments =
-        crate::attachment::upload_all(&p.attachments, &state.config().relays, &state.nmp(), &keys)
+        crate::attachment::upload_all(
+            &p.attachments,
+            &state.config().relays,
+            &state.nmp(),
+            keys.public_key(),
+        )
             .await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
     let recipient_reminders =

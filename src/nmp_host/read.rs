@@ -68,9 +68,7 @@ impl NmpHost {
             .observe(query)
             .await
             .context("opening bounded fava observation")?;
-        let result =
-            tokio::time::timeout(timeout, wait_settled(&mut observation))
-                .await;
+        let result = tokio::time::timeout(timeout, wait_settled(&mut observation)).await;
         observation.close();
         match result {
             Ok(Ok(rows)) => Ok(BoundedRead {
@@ -95,9 +93,7 @@ impl NmpHost {
 }
 
 /// Drive the observation until all relays have sent EOSE.
-async fn wait_settled(
-    observation: &mut Observation,
-) -> Result<Vec<Row>, ObservationClosed> {
+async fn wait_settled(observation: &mut Observation) -> Result<Vec<Row>, ObservationClosed> {
     loop {
         let snapshot = observation.changed().await?;
         if snapshot.evidence.all_relays_stored_events_complete() {

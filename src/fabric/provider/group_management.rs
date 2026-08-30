@@ -2,7 +2,7 @@ use super::Nip29Provider;
 use crate::fabric::group_management::{
     GroupMutationOutcome, GroupOperationError, GroupOperationStage, GroupPublishOutcome,
 };
-use nostr::{prelude::Keys, event::EventBuilder};
+use nostr::{event::EventBuilder, prelude::Keys};
 
 mod roles;
 mod topology;
@@ -50,7 +50,7 @@ impl Nip29Provider {
 
         match self
             .nmp
-            .add_group_users_and_wait(group, users, &user_keys)
+            .add_group_users_and_wait(group, users, user_keys.public_key())
             .await
         {
             Ok(_) => GroupMutationOutcome::Published,
@@ -80,7 +80,11 @@ impl Nip29Provider {
         keys: &nostr::key::Keys,
         label: &str,
     ) -> GroupPublishOutcome {
-        match self.nmp.publish_group_and_wait(group, builder, keys).await {
+        match self
+            .nmp
+            .publish_group_and_wait(group, builder, keys.public_key())
+            .await
+        {
             Ok(_) => GroupPublishOutcome::Published,
             Err(e) => {
                 let outcome = GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(

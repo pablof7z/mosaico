@@ -72,8 +72,8 @@ fn children_from_metadata(event: &Event) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::key::Keys;
 
     #[test]

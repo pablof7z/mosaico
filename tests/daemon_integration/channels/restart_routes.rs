@@ -189,6 +189,14 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     let log_boundary = daemon_log_boundary(&home);
     stop_daemon_for_restart(&home);
     cleanup.assert_exact_processes_live();
+    // A version-skew exit deliberately leaves daemon creation to the next
+    // compatible thin client. Reconnect before asserting the new daemon's
+    // asynchronous adoption work.
+    rt().block_on(async {
+        Client::connect_or_spawn()
+            .await
+            .expect("restart exact Cargo-built daemon");
+    });
     wait_for_reconciled_session_engine(
         &home,
         &session.pubkey,

@@ -39,7 +39,7 @@ pub(in crate::daemon::server) async fn archive_channel(
         };
         let event_id = state
             .nmp()
-            .publish_metadata_edit_and_wait(channel, &edit, &mgmt_keys)
+            .publish_metadata_edit_and_wait(channel, &edit, mgmt_keys.public_key())
             .await
             .context("publishing archived channel metadata")?;
         (event_id.to_hex(), true)

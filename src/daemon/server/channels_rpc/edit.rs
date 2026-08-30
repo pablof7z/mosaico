@@ -29,7 +29,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     };
     let event_id = state
         .nmp()
-        .publish_metadata_edit_and_wait(&channel_h, &edit, &mgmt_keys)
+        .publish_metadata_edit_and_wait(&channel_h, &edit, mgmt_keys.public_key())
         .await
         .context("publishing channel description")?;
     let channel = state

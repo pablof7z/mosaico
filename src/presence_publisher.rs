@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use nostr::key::Keys;
 use tokio::sync::mpsc;
 
-use crate::domain::{DomainEvent, Status};
+use crate::domain::Status;
 use crate::fabric::provider::{ConfirmedGroupScope, Nip29Provider};
 use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
 use crate::state::Store;
@@ -177,15 +177,23 @@ async fn apply_status_effects(
 ) -> Vec<String> {
     let mut ids = Vec::new();
     for effect in &outcome.effects {
-        let status = match effect {
-            StatusEffect::Publish { status, .. } | StatusEffect::Expire { status } => status,
+        let (status, require_member) = match effect {
+            StatusEffect::Publish { status, .. } => (status, true),
+            StatusEffect::Expire { status } => (status, false),
         };
         let source_ref = format!(
             "status/{}#rev:{}:{trigger}",
             status.agent.pubkey, outcome.revision
         );
-        if let Some(id) =
-            enqueue_status(provider, keys, status.clone(), source_ref, confirmed_scope).await
+        if let Some(id) = enqueue_status(
+            provider,
+            keys,
+            status.clone(),
+            require_member,
+            source_ref,
+            confirmed_scope,
+        )
+        .await
         {
             ids.push(id);
         }
@@ -226,16 +234,21 @@ async fn enqueue_status(
     provider: &Nip29Provider,
     keys: &Keys,
     status: Status,
+    require_member: bool,
     source_ref: String,
     confirmed_scope: Option<&ConfirmedGroupScope>,
 ) -> Option<String> {
     let result = match confirmed_scope {
         Some(scope) => {
             provider
-                .enqueue_status_after_confirmed_scope(&status, keys, scope)
+                .enqueue_status_after_confirmed_scope(&status, keys, scope, require_member)
                 .await
         }
-        None => provider.enqueue(&DomainEvent::Status(status), keys).await,
+        None => {
+            provider
+                .enqueue_status(&status, keys, require_member, None)
+                .await
+        }
     };
     match result {
         Ok(event_id) => {

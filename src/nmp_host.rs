@@ -279,31 +279,28 @@ async fn drain_subscription(
     generation: u64,
 ) {
     let mut prev_ids: BTreeSet<nostr::event::EventId> = BTreeSet::new();
+    if let Some(transition) = subscription_transition(
+        &observation.current(),
+        &views,
+        &observation_id,
+        generation,
+        &mut prev_ids,
+    ) {
+        if transitions.send(transition).await.is_err() {
+            return;
+        }
+    }
     loop {
         match observation.changed().await {
             Ok(snapshot) => {
-                let curr_events: BTreeMap<nostr::event::EventId, Row> = snapshot
-                    .events
-                    .iter()
-                    .filter_map(|record| match record.event() {
-                        EventValue::Signed(e) => Some((e.id, Row { event: e.clone() })),
-                        EventValue::Unsigned(_) => None,
-                    })
-                    .collect();
-                let curr_ids: BTreeSet<nostr::event::EventId> = curr_events.keys().copied().collect();
-                let mut deltas = Vec::new();
-                for removed_id in prev_ids.difference(&curr_ids) {
-                    deltas.push(RowDelta::Removed(*removed_id));
-                }
-                for added_id in curr_ids.difference(&prev_ids) {
-                    if let Some(row) = curr_events.get(added_id).cloned() {
-                        deltas.push(RowDelta::Added(row));
-                    }
-                }
-                prev_ids = curr_ids;
-                if !deltas.is_empty() {
-                    let transition = views.apply_frame(&observation_id, generation, deltas);
-                    if !transition.is_empty() && transitions.send(transition).await.is_err() {
+                if let Some(transition) = subscription_transition(
+                    &snapshot,
+                    &views,
+                    &observation_id,
+                    generation,
+                    &mut prev_ids,
+                ) {
+                    if transitions.send(transition).await.is_err() {
                         return;
                     }
                 }
@@ -315,6 +312,42 @@ async fn drain_subscription(
     if !transition.is_empty() {
         let _ = transitions.send(transition).await;
     }
+}
+
+/// Project one complete Fava snapshot. `Observation::current` is a real
+/// delivery boundary, not merely a convenience peek, so retained consumers
+/// invoke this once before awaiting later changes.
+fn subscription_transition(
+    snapshot: &fava::QuerySnapshot,
+    views: &NmpViews,
+    observation_id: &str,
+    generation: u64,
+    prev_ids: &mut BTreeSet<nostr::event::EventId>,
+) -> Option<RowTransition> {
+    let curr_events: BTreeMap<nostr::event::EventId, Row> = snapshot
+        .events
+        .iter()
+        .filter_map(|record| match record.event() {
+            EventValue::Signed(event) => Some((
+                event.id,
+                Row {
+                    event: event.clone(),
+                },
+            )),
+            EventValue::Unsigned(_) => None,
+        })
+        .collect();
+    let curr_ids = curr_events.keys().copied().collect::<BTreeSet<_>>();
+    let mut deltas = Vec::new();
+    for removed_id in prev_ids.difference(&curr_ids) {
+        deltas.push(RowDelta::Removed(*removed_id));
+    }
+    for added_id in curr_ids.difference(prev_ids) {
+        deltas.push(RowDelta::Added(curr_events[added_id].clone()));
+    }
+    *prev_ids = curr_ids;
+    let transition = views.apply_frame(observation_id, generation, deltas);
+    (!transition.is_empty()).then_some(transition)
 }
 
 /// Bridge a sync caller into an async `fava.observe()` via the current runtime.
@@ -353,8 +386,7 @@ fn build_fava(relays: &BTreeSet<RelayUrl>, store_path: Option<&Path>, keys: &Key
         .delivery_policy(delivery);
 
     if let Some(path) = store_path {
-        let store = RedbWriteStore::open(path)
-            .map_err(|e| store::opening_refused(e, path))?;
+        let store = RedbWriteStore::open(path).map_err(|e| store::opening_refused(e, path))?;
         base.write_store(Arc::new(store))
     } else {
         base.write_store(Arc::new(MemoryWriteStore::default()))

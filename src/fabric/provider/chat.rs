@@ -75,7 +75,9 @@ impl Nip29Provider {
         let builder = self
             .chat_draft(chat, reply_to)?
             .custom_created_at(nostr::types::Timestamp::from(created_at));
-        let event_id: EventId = self.nmp.publish_group(channel, builder, keys)?;
+        let event_id: EventId = self
+            .nmp
+            .publish_group(channel, builder, keys.public_key())?;
         Ok(PublishedChat {
             event_id: event_id.to_hex(),
         })

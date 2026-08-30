@@ -239,36 +239,42 @@ fn spawn_drain(
     tokio::spawn(async move {
         // Track the previous event set to compute deltas.
         let mut prev_ids: BTreeSet<EventId> = BTreeSet::new();
+        apply_snapshot(&feed, &observation.current(), &mut prev_ids);
         loop {
             match observation.changed().await {
-                Ok(snapshot) => {
-                    let curr_events: BTreeMap<EventId, Row> = snapshot
-                        .events
-                        .iter()
-                        .filter_map(|record| match record.event() {
-                            EventValue::Signed(e) if e.kind.as_u16() == 0 => {
-                                Some((e.id, Row { event: e.clone() }))
-                            }
-                            _ => None,
-                        })
-                        .collect();
-                    let curr_ids: BTreeSet<EventId> = curr_events.keys().copied().collect();
-                    // Removed = in prev but not in curr
-                    for removed_id in prev_ids.difference(&curr_ids) {
-                        feed.apply_delta(None, Some(*removed_id));
-                    }
-                    // Added = in curr but not in prev
-                    for added_id in curr_ids.difference(&prev_ids) {
-                        if let Some(row) = curr_events.get(added_id).cloned() {
-                            feed.apply_delta(Some(row), None);
-                        }
-                    }
-                    prev_ids = curr_ids;
-                }
+                Ok(snapshot) => apply_snapshot(&feed, &snapshot, &mut prev_ids),
                 Err(ObservationClosed) => break,
             }
         }
     })
+}
+
+fn apply_snapshot(
+    feed: &ProfileFeed,
+    snapshot: &fava::QuerySnapshot,
+    prev_ids: &mut BTreeSet<EventId>,
+) {
+    let curr_events: BTreeMap<EventId, Row> = snapshot
+        .events
+        .iter()
+        .filter_map(|record| match record.event() {
+            EventValue::Signed(event) if event.kind.as_u16() == 0 => Some((
+                event.id,
+                Row {
+                    event: event.clone(),
+                },
+            )),
+            _ => None,
+        })
+        .collect();
+    let curr_ids = curr_events.keys().copied().collect::<BTreeSet<_>>();
+    for removed_id in prev_ids.difference(&curr_ids) {
+        feed.apply_delta(None, Some(*removed_id));
+    }
+    for added_id in curr_ids.difference(prev_ids) {
+        feed.apply_delta(Some(curr_events[added_id].clone()), None);
+    }
+    *prev_ids = curr_ids;
 }
 
 #[cfg(test)]

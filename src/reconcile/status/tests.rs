@@ -62,6 +62,7 @@ fn higher_generation_reopens_closed_presence() {
         SessionState::Offline
     );
     assert_eq!(published(&closed.effects).unwrap().0.state_since, 20);
+    assert_eq!(published(&closed.effects).unwrap().0.expires_at, Some(110));
 
     let opened = policy.open("pk1", 2, snapshot(SessionState::Idle, "Resumed"), 21);
     let (status, reason) = published(&opened.effects).unwrap();
@@ -135,7 +136,7 @@ fn revoke_expires_only_the_owned_generation() {
     let StatusEffect::Expire { status } = &revoked.effects[0] else {
         panic!("expected explicit expiration")
     };
-    assert_eq!(status.expires_at, Some(123));
+    assert_eq!(status.expires_at, Some(213));
     assert_eq!(status.state, SessionState::Offline);
 }
 
@@ -157,7 +158,7 @@ fn an_unscoped_owner_publishes_only_after_its_first_join() {
         panic!("last leave must expire the prior channel presence");
     };
     assert_eq!(status.channels, vec!["room"]);
-    assert_eq!(status.expires_at, Some(32));
+    assert_eq!(status.expires_at, Some(122));
 }
 
 #[test]

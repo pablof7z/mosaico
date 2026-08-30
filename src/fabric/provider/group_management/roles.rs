@@ -73,7 +73,7 @@ impl Nip29Provider {
         }
         match self
             .nmp
-            .add_group_users_and_wait(channel, users, &mgmt_keys)
+            .add_group_users_and_wait(channel, users, mgmt_keys.public_key())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
@@ -113,7 +113,7 @@ impl Nip29Provider {
         }
         match self
             .nmp
-            .remove_group_users_and_wait(channel, subjects, &mgmt_keys)
+            .remove_group_users_and_wait(channel, subjects, mgmt_keys.public_key())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,

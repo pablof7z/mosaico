@@ -88,8 +88,18 @@ impl Nip29Provider {
 
     /// Encode, sign, and durably enqueue one domain event. Relay delivery is
     /// always owned by NMP after this local acceptance boundary.
-    pub async fn enqueue(&self, ev: &DomainEvent, keys: &nostr::key::Keys) -> Result<nostr::event::EventId> {
-        self.enqueue_with_confirmed_scope(ev, keys, None).await
+    pub async fn enqueue(
+        &self,
+        ev: &DomainEvent,
+        keys: &nostr::key::Keys,
+    ) -> Result<nostr::event::EventId> {
+        match ev {
+            DomainEvent::Status(status) => self.enqueue_status(status, keys, true, None).await,
+            _ => {
+                self.enqueue_with_confirmed_scope(ev, keys, None, None)
+                    .await
+            }
+        }
     }
 
     /// Enqueue one status immediately after NMP returned a terminal group
@@ -100,9 +110,33 @@ impl Nip29Provider {
         status: &crate::domain::Status,
         keys: &nostr::key::Keys,
         scope: &ConfirmedGroupScope,
+        require_member: bool,
     ) -> Result<nostr::event::EventId> {
-        self.enqueue_with_confirmed_scope(&DomainEvent::Status(status.clone()), keys, Some(scope))
+        self.enqueue_status(status, keys, require_member, Some(scope))
             .await
+    }
+
+    /// Publish a status with its lifecycle admission semantics made explicit.
+    ///
+    /// An offline status is a still-valid NIP-40 lease: its expiration says
+    /// when observers may discard it, not whether its publisher was still a
+    /// group member when it was emitted. Inferring membership from that
+    /// timestamp breaks the post-leave expiry path under Fava, which correctly
+    /// refuses already-expired events before they reach a relay.
+    pub(crate) async fn enqueue_status(
+        &self,
+        status: &crate::domain::Status,
+        keys: &nostr::key::Keys,
+        require_member: bool,
+        confirmed_scope: Option<&ConfirmedGroupScope>,
+    ) -> Result<nostr::event::EventId> {
+        self.enqueue_with_confirmed_scope(
+            &DomainEvent::Status(status.clone()),
+            keys,
+            confirmed_scope,
+            Some(require_member),
+        )
+        .await
     }
 
     async fn enqueue_with_confirmed_scope(
@@ -110,6 +144,7 @@ impl Nip29Provider {
         ev: &DomainEvent,
         keys: &nostr::key::Keys,
         confirmed_scope: Option<&ConfirmedGroupScope>,
+        status_requires_membership: Option<bool>,
     ) -> Result<nostr::event::EventId> {
         // kind:0 profiles route to BOTH the indexer relay (purplepag.es) AND
         // the main NIP-29 relay(s) — the group relay accepts kind:0 fine, so
@@ -119,17 +154,12 @@ impl Nip29Provider {
         // profiles land, never where other kinds are published.
         if matches!(ev, DomainEvent::Profile(_)) {
             let builder = self.wire.encode(ev)?;
-            let signed = self.nmp.sign_event(builder, keys).await?;
-            return self.nmp.enqueue_profile_event(&signed);
+            return self.nmp.enqueue_profile(builder, keys.public_key());
         }
         let signer = keys.public_key().to_hex();
         match ev {
             DomainEvent::Status(status) => {
-                let expired = matches!(
-                    status.expires_at,
-                    Some(expires_at) if expires_at <= crate::util::now_secs()
-                );
-                let require_member = !expired;
+                let require_member = status_requires_membership.unwrap_or(true);
                 for channel in &status.channels {
                     if !confirmed_scope
                         .is_some_and(|scope| scope.permits(channel, &signer, require_member))
@@ -157,13 +187,15 @@ impl Nip29Provider {
             // have each copy replace the last.
             DomainEvent::Status(status) => {
                 self.nmp
-                    .publish_groups(status.channels.iter().cloned(), builder, keys)
+                    .publish_groups(status.channels.iter().cloned(), builder, keys.public_key())
             }
             DomainEvent::ChatMessage(message) => {
-                self.nmp.publish_group(&message.channel, builder, keys)
+                self.nmp
+                    .publish_group(&message.channel, builder, keys.public_key())
             }
             DomainEvent::Reaction(reaction) => {
-                self.nmp.publish_group(&reaction.channel, builder, keys)
+                self.nmp
+                    .publish_group(&reaction.channel, builder, keys.public_key())
             }
             DomainEvent::Profile(_) => unreachable!("profiles return above"),
         }

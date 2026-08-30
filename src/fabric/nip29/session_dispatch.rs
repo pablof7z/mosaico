@@ -8,6 +8,7 @@
 use crate::fabric::nip29::wire::{kind, KIND_CHAT, KIND_STATUS};
 use anyhow::Result;
 use nostr::event::{Event, EventBuilder, Tag};
+#[cfg(test)]
 use nostr::key::Keys;
 
 pub const MOSAICO_OP_SESSION_DISPATCH: &str = "session.dispatch.v1";
@@ -45,8 +46,7 @@ pub fn build_session_dispatch_event(
     for channel in &target.channels {
         tags.push(tag(&["channel", channel])?);
     }
-    Ok(EventBuilder::new(kind(KIND_CHAT), prose)
-        .tags(tags))
+    Ok(EventBuilder::new(kind(KIND_CHAT), prose).tags(tags))
 }
 
 pub fn parse_session_dispatch(event: &Event) -> Option<SessionDispatchOp> {
