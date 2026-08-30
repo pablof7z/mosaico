@@ -13,7 +13,12 @@ pub(super) struct FreshLaunchRequest {
 
 pub(super) async fn launch(request: FreshLaunchRequest) -> Result<()> {
     let agent = request.agent.clone();
-    let params = pty_spawn_params(&request, &std::env::current_dir().unwrap_or_default());
+    let managed = !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal());
+    let params = pty_spawn_params(
+        &request,
+        &std::env::current_dir().unwrap_or_default(),
+        managed,
+    );
     let spawned = super::super::daemon_call_async("pty_spawn", params)
         .await
         .with_context(|| format!("launch of agent {agent:?} failed"))?;
@@ -56,7 +61,11 @@ fn report_headless(spawned: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-fn pty_spawn_params(request: &FreshLaunchRequest, cwd: &std::path::Path) -> serde_json::Value {
+fn pty_spawn_params(
+    request: &FreshLaunchRequest,
+    cwd: &std::path::Path,
+    managed: bool,
+) -> serde_json::Value {
     serde_json::json!({
         "agent": request.agent,
         "root": request.root,
@@ -65,6 +74,7 @@ fn pty_spawn_params(request: &FreshLaunchRequest, cwd: &std::path::Path) -> serd
         "session_name": request.session_name,
         "prompt": request.prompt,
         "extra_args": request.extra_args,
+        "managed": managed,
     })
 }
 
@@ -84,6 +94,7 @@ mod tests {
                 extra_args: vec!["--yolo".into()],
             },
             std::path::Path::new("/tmp/project"),
+            false,
         );
         assert_eq!(
             params,
@@ -95,6 +106,7 @@ mod tests {
                 "session_name": "forensic",
                 "prompt": "start here",
                 "extra_args": ["--yolo"],
+                "managed": false,
             })
         );
     }
@@ -111,11 +123,13 @@ mod tests {
                 extra_args: Vec::new(),
             },
             std::path::Path::new("/tmp/work"),
+            true,
         );
 
         assert_eq!(params["root"], "");
         assert_eq!(params["cwd"], "/tmp/work");
         assert!(params["channel"].is_null());
+        assert_eq!(params["managed"], true);
     }
 
     #[test]

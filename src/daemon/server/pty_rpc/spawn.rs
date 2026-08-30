@@ -21,6 +21,10 @@ struct PtySpawnParams {
     /// Raw arguments explicitly supplied after `--` for this launch.
     #[serde(default)]
     extra_args: Vec<String>,
+    /// A non-interactive CLI caller cannot attach a PTY, so choose the
+    /// harness's daemon-managed transport instead.
+    #[serde(default)]
+    managed: bool,
 }
 
 pub(in crate::daemon::server) async fn rpc_pty_spawn(
@@ -44,7 +48,11 @@ pub(in crate::daemon::server) async fn rpc_pty_spawn(
             client_cwd,
             session_name: p.session_name.as_deref(),
             extra_args: &p.extra_args,
-            intent: crate::session_host::LaunchIntent::Interactive,
+            intent: if p.managed {
+                crate::session_host::LaunchIntent::Managed
+            } else {
+                crate::session_host::LaunchIntent::Interactive
+            },
         },
     )
     .await?;
