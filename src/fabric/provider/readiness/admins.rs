@@ -50,7 +50,7 @@ pub(super) async fn apply(
         ChannelReadinessError::reason(format!("reading administrators failed: {error:#}"))
     })?;
     let snapshots = [snapshot];
-    let current = crate::fava_views::GroupProjection::new(&snapshots)
+    let current = crate::observed_views::GroupProjection::new(&snapshots)
         .list_channel_members(channel)
         .into_iter()
         .filter(|member| member.role == "admin")
@@ -118,9 +118,7 @@ impl Nip29Provider {
         })? {
             return Ok(false);
         }
-        let management = self
-            .management_pubkey()
-            .ok_or_else(|| ChannelReadinessError::reason("management signing key unavailable"))?;
+        let management = self.management_pubkey();
         let parent_admins = match inherited_admins {
             Some(admins) => admins.to_vec(),
             None => self.observed_parent_admins(channel).await?,
@@ -131,9 +129,8 @@ impl Nip29Provider {
             .map(|applied| applied.changed)
     }
 
-    pub(crate) fn desired_admins(&self, inherited_admins: &[String]) -> Option<Vec<String>> {
-        self.management_pubkey()
-            .map(|management| verify::required_admins(self, &management, inherited_admins))
+    pub(crate) fn desired_admins(&self, inherited_admins: &[String]) -> Vec<String> {
+        verify::required_admins(self, &self.management_pubkey(), inherited_admins)
     }
 
     async fn observed_parent_admins(
@@ -144,7 +141,8 @@ impl Nip29Provider {
             ChannelReadinessError::reason(format!("reading channel parent failed: {error:#}"))
         })?;
         let snapshots = [snapshot];
-        let parent = crate::fava_views::GroupProjection::new(&snapshots).channel_parent(channel);
+        let parent =
+            crate::observed_views::GroupProjection::new(&snapshots).channel_parent(channel);
         let Some(parent) = parent.filter(|parent| !parent.is_empty()) else {
             return Ok(Vec::new());
         };
@@ -154,7 +152,7 @@ impl Nip29Provider {
             ))
         })?;
         let snapshots = [parent_snapshot];
-        Ok(crate::fava_views::GroupProjection::new(&snapshots)
+        Ok(crate::observed_views::GroupProjection::new(&snapshots)
             .list_channel_members(&parent)
             .into_iter()
             .filter(|member| member.role == "admin")

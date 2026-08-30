@@ -163,7 +163,10 @@ fn attachment_directory_inside_a_sibling_instance_refuses_without_touching_eithe
         std::fs::read(home.join("state.db")).unwrap(),
         selected_state
     );
-    assert_eq!(std::fs::read(home.join("fava.redb")).unwrap(), selected_fava);
+    assert_eq!(
+        std::fs::read(home.join("fava.redb")).unwrap(),
+        selected_fava
+    );
     assert_eq!(
         std::fs::read(sibling.join("state.db")).unwrap(),
         b"sibling state"
@@ -224,7 +227,10 @@ fn fava_store_symlink_into_configuration_refuses_before_mutation() {
     let before_state = std::fs::read(home.join("state.db")).unwrap();
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
-    assert!(!reset.status.success(), "Fava path escape must refuse reset");
+    assert!(
+        !reset.status.success(),
+        "Fava path escape must refuse reset"
+    );
     assert_eq!(std::fs::read(home.join("state.db")).unwrap(), before_state);
     assert!(!home.join("daemon.inhibit").exists());
     for (path, bytes) in kept {

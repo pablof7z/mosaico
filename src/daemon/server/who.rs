@@ -64,7 +64,7 @@ pub(in crate::daemon::server) fn rpc_who(
     // This daemon's own management pubkey, excluded from every rendered roster so
     // the backend key never appears as a channel member (its kind:0 may be absent,
     // so identity — not profile-row availability — is the reliable signal).
-    let backend_pk = state.backend_pubkey().unwrap_or_default();
+    let backend_pk = state.backend_pubkey();
     let mut snapshot = state.with_store(|s| {
         crate::who_snapshot::load_who_snapshot(s, current_root.as_deref(), now, &host)
     })?;

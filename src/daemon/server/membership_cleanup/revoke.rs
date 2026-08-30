@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn cleanup_failure_labels_never_expose_internal_channel_ids() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("general", "", "", 1),
             crate::state::TestGroup::new("opaque-child").metadata("review", "", "root", 2),
         ]));

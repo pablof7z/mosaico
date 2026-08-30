@@ -14,10 +14,20 @@ path = "src/main.rs"
 name = "mosaico"
 path = "src/lib.rs"
 
+[features]
+# Opt-in standalone-daemon CPU attribution surface. Production never enables
+# its measurement RPC.
+stress-harness = []
+
 [[test]]
 name = "bdd"
 path = "bdd/main.rs"
 harness = false
+
+[[test]]
+name = "fava_daemon_stress"
+path = "tests/fava_daemon_stress.rs"
+required-features = ["stress-harness"]
 
 [dependencies]
 # Nostr (must match fava's exact pin)

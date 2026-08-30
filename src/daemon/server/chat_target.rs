@@ -129,7 +129,7 @@ mod tests {
     #[test]
     fn explicit_chat_target_resolves_absolute_path_when_joined() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("general", "", "", 1),
             crate::state::TestGroup::new("abcd1234").metadata("planning", "", "root", 1),
         ]));
@@ -158,7 +158,7 @@ mod tests {
         let state = DaemonState::new_for_test().await;
         let rec = session("root");
         state.with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("root").metadata("root", "", "", 1),
                 crate::state::TestGroup::new("other").metadata("other", "", "", 1),
             ]));
@@ -177,7 +177,7 @@ mod tests {
         let state = DaemonState::new_for_test().await;
         let rec = session("root");
         state.with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("workspace").metadata("general", "", "", 1),
                 crate::state::TestGroup::new("h-alpha").metadata("alpha", "", "workspace", 1),
             ]));
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn multi_join_without_explicit_channel_errors_with_reruns() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
             crate::state::TestGroup::new("other").metadata("other", "", "", 1),
         ]));
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn multi_join_rerun_refs_use_relative_channel_paths() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
             crate::state::TestGroup::new("h-epic").metadata("epic", "", "root", 1),
             crate::state::TestGroup::new("h-plan").metadata("planning", "", "h-epic", 1),

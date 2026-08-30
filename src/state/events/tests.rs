@@ -19,9 +19,9 @@ fn retracting_an_event_removes_exactly_that_row() {
     let store = Store::open_memory().unwrap();
     let a = event("a", 10);
     let b = event("b", 11);
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([a, b.clone()]));
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([a, b.clone()]));
 
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([b]));
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([b]));
     assert!(store.get_event("a").unwrap().is_none());
     assert!(store.get_event("b").unwrap().is_some());
 }
@@ -39,7 +39,7 @@ fn latest_message_at_by_pubkey_groups_by_author_max() {
     let mut other_kind = event("k", 99);
     other_kind.pubkey = "pk-a".into();
     other_kind.kind = 7;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new().events([pk_a1, pk_a2, pk_b1, other_kind]),
     );
 
@@ -69,7 +69,7 @@ fn chat(id: &str, created_at: u64, channel: &str) -> RelayEvent {
 #[test]
 fn get_event_by_prefix_returns_unique_and_rejects_ambiguous() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new().events([chat("abc", 1, "h1"), chat("abe", 2, "h1")]),
     );
     // Unique prefix resolves to the one match.
@@ -88,7 +88,7 @@ fn get_event_by_prefix_returns_unique_and_rejects_ambiguous() {
 #[test]
 fn chat_for_channel_filters_by_channel_since_and_limit() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([
         chat("c1", 10, "h1"),
         chat("c2", 20, "h1"),
         chat("c3", 15, "h2"),
@@ -118,7 +118,7 @@ fn events_by_kind_returns_recent_first_and_filters_kind() {
     let store = Store::open_memory().unwrap();
     let mut reaction = chat("r1", 30, "h1");
     reaction.kind = 7;
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([
         chat("a", 10, "h1"),
         chat("b", 20, "h1"),
         reaction,
@@ -145,13 +145,13 @@ fn prejoin_chat_for_session_returns_chat_up_to_join_sequence_newest_first() {
             [],
         )
         .unwrap();
-    assert_eq!(store.record_fava_arrival("m1").unwrap(), 1);
-    assert_eq!(store.record_fava_arrival("m2").unwrap(), 2);
-    assert_eq!(store.record_fava_arrival("m3").unwrap(), 3);
+    assert_eq!(store.record_event_arrival("m1").unwrap(), 1);
+    assert_eq!(store.record_event_arrival("m2").unwrap(), 2);
+    assert_eq!(store.record_event_arrival("m3").unwrap(), 3);
 
     let mut non_chat = chat("x1", 25, "h1");
     non_chat.kind = 7;
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([
         chat("m1", 10, "h1"),
         chat("m2", 20, "h1"),
         chat("m3", 30, "h1"),

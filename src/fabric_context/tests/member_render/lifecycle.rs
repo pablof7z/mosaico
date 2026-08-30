@@ -15,24 +15,22 @@ fn local_lifecycle_overrides_an_offline_relay_row() {
             now: 95,
         })
         .unwrap();
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: "root".into(),
-                slug: "reviewer".into(),
-                title: "Recovered session".into(),
-                activity: String::new(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Offline,
-                state_since: 100,
-                last_seen: 100,
-                updated_at: 100,
-                expiration: 100,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Recovered session".into(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Offline,
+            state_since: 100,
+            last_seen: 100,
+            updated_at: 100,
+            expiration: 100,
+        }],
+    ));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 101, true))
         .expect("context should render");
@@ -62,7 +60,7 @@ fn suspended_and_working_deltas_follow_the_current_row() {
         updated_at: 90,
         expiration: 120,
     };
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer.clone()]),
@@ -87,7 +85,7 @@ fn suspended_and_working_deltas_follow_the_current_row() {
     peer.activity = "stale live activity".into();
     peer.last_seen = 110;
     peer.updated_at = 110;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),

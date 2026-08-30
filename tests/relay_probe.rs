@@ -75,10 +75,7 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     let query = fava_query::Query::events()
         .kinds([nostr::event::Kind::from(1u16)])
         .expect("bounded kinds")
-        .tag_values(
-            fava_query::SingleLetterTag::LOWERCASE_P,
-            [pk_b.to_hex()],
-        )
+        .tag_values(fava_query::SingleLetterTag::LOWERCASE_P, [pk_b.to_hex()])
         .expect("p-tag filter")
         .only_from_relays([relay_url])
         .expect("relay set");

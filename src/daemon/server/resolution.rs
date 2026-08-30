@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn work_root_for_walks_to_top_level_root() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
             crate::state::TestGroup::new("task").metadata("Task", "", "root", 1),
             crate::state::TestGroup::new("deep").metadata("Deep", "", "task", 1),

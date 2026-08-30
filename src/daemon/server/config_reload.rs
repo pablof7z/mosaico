@@ -112,12 +112,18 @@ fn reload_relay_runtime(
     // replacement so the new build can acquire the lock.
     release_store_lock(state, next_backend_keys)?;
     match build_runtime(next, storage, next_backend_keys, &state.store) {
-        Ok((fava, provider)) => install_runtime(state, fava, provider, next.clone()),
+        Ok((fava, provider)) => install_runtime(
+            state,
+            fava,
+            provider,
+            next_backend_keys.clone(),
+            next.clone(),
+        ),
         Err(reload_error) => {
             let prior_keys = backend_keys(previous)?;
             let (fava, provider) = build_runtime(previous, storage, &prior_keys, &state.store)
                 .context("restoring the prior relay runtime")?;
-            install_runtime(state, fava, provider, previous.clone());
+            install_runtime(state, fava, provider, prior_keys, previous.clone());
             super::lifecycle::auth_restore::restore(state)
                 .context("restoring identities after failed config reload")?;
             super::spawn_demux(state.clone());
@@ -163,7 +169,6 @@ fn provider_for(
     Arc::new(Nip29Provider::new(
         fava,
         store.clone(),
-        config.management_nsec().cloned(),
         config.user_nsec().cloned(),
         config.whitelisted_pubkeys.clone(),
     ))
@@ -180,13 +185,14 @@ fn install_runtime(
     state: &DaemonState,
     fava: Arc<crate::fava_host::FavaHost>,
     provider: Arc<Nip29Provider>,
+    backend_keys: Keys,
     config: Config,
 ) {
     state
         .store
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
-        .bind_fava_views_and_feed(fava.views_handle(), fava.clone());
+        .bind_observed_state(fava.views_handle(), fava.clone());
     *state
         .fava
         .write()
@@ -195,6 +201,10 @@ fn install_runtime(
         .provider
         .write()
         .unwrap_or_else(|poison| poison.into_inner()) = provider;
+    *state
+        .backend_keys
+        .write()
+        .unwrap_or_else(|poison| poison.into_inner()) = backend_keys;
     *state
         .cfg
         .write()

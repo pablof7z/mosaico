@@ -9,24 +9,10 @@ install:
 lint:
     cargo clippy --all-targets -- -D warnings
 
-# Hermetic CPU-attribution harness. It uses a disposable redb store and only
-# `.invalid` relay names; no live daemon, Mosaico home, or public relay.
-stress-fava *ARGS:
-    env -u MOSAICO cargo run --release --features stress-harness --bin fava-subscription-stress -- {{ARGS}}
-
-# Seeded lifecycle matrix for independent app observations. The 10k cases are
-# reducer/facade loads, never 10k consumer OS threads.
-stress-fava-matrix *ARGS:
-    env -u MOSAICO cargo run --release --features stress-harness --bin fava-subscription-stress -- --scenario matrix {{ARGS}}
-
+# Real product boundary: standalone daemon, disposable home, counted local
+# relay, 207 retained profile observations, and a measured idle CPU window.
 stress-fava-check:
-    env -u MOSAICO cargo test --features stress-harness --bin fava-subscription-stress
-    env -u MOSAICO cargo clippy --features stress-harness --bin fava-subscription-stress -- -D warnings
-    env -u MOSAICO cargo run --features stress-harness --bin fava-subscription-stress -- --scenario router --topology sharded --retained 4 --mailboxes 3 --profile-burst 1 --corpus-rows 4 --iterations 1 --format csv
-    env -u MOSAICO cargo run --features stress-harness --bin fava-subscription-stress -- --scenario matrix --matrix-counts 1,32,207 --format csv
-
-# Real product boundary: standalone daemon, disposable home, counted local relay.
-stress-fava-daemon:
+    env -u MOSAICO cargo clippy --features stress-harness --test fava_daemon_stress -- -D warnings
     env -u MOSAICO cargo test --features stress-harness --test fava_daemon_stress -- --nocapture --test-threads=1
 
 # Install the repo's git hooks (currently: a pre-commit `cargo fmt --check`,
@@ -103,3 +89,6 @@ loc-check:
     bash scripts/check_loc.sh
     bash scripts/check_integration_helpers.sh
     bash scripts/check_hosted_open_seam.sh
+
+vocabulary-check:
+    bash scripts/check_fava_only_vocabulary.sh

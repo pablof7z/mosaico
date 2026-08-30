@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn normalized_store_matrix_is_shared_by_both_projection_surfaces() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([
+        store.install_test_relay_delivery(TestRelayDelivery::new().profiles([
             profile("agent", "Agent", "agent", "codex"),
             profile("human", "Human", "human", ""),
             profile("empty-human", "Human", "", ""),

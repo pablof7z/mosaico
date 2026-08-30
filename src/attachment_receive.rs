@@ -10,9 +10,9 @@
 //! that nothing checked the bytes. `crate::asset_hash::Sha256Hash` — the same exact-byte
 //! identity sent in the upload descriptor — does that here.
 
+use crate::asset_hash::Sha256Hash;
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
-use crate::asset_hash::Sha256Hash;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};

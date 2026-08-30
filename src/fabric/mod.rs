@@ -24,7 +24,8 @@ pub enum RawEnvelope {
 /// The return type is `nostr::event::EventBuilder`, so this boundary is explicitly
 /// Nostr-specific even when a concrete codec maps NIP-29 group semantics.
 pub trait NostrEventCodec {
-    fn encode(&self, ev: &crate::domain::DomainEvent) -> anyhow::Result<nostr::event::EventBuilder>;
+    fn encode(&self, ev: &crate::domain::DomainEvent)
+        -> anyhow::Result<nostr::event::EventBuilder>;
     fn decode(&self, env: &RawEnvelope) -> Option<crate::domain::DomainEvent>;
 }
 
@@ -101,8 +102,8 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
 mod tests {
     use super::*;
     use crate::state::{RegisterSession, Store, TestGroup, TestGroupDelivery};
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::key::Keys;
 
     fn make_tag(parts: &[&str]) -> Tag {
@@ -164,11 +165,9 @@ mod tests {
 
         register(&store, &sender_pk, "mychannel", "sender-ext");
         register(&store, &receiver_pk, "mychannel", "receiver-ext");
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new(
-            "mychannel",
-        )
-        .admins(Vec::new())
-        .members(vec![sender_pk.clone(), receiver_pk.clone()])]));
+        store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("mychannel")
+            .admins(Vec::new())
+            .members(vec![sender_pk.clone(), receiver_pk.clone()])]));
 
         // Ambient message (no p-tag): observed by Fava, inbox stays empty.
         let ambient = build_event(
@@ -177,7 +176,7 @@ mod tests {
             "heads up: I pushed the parser fix",
             vec![make_tag(&["h", "mychannel"])],
         );
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             crate::state::TestRelayDelivery::new().events([relay_event(&ambient)]),
         );
         decode_product_event(&RawEnvelope::Nostr(ambient.clone()), &store);
@@ -199,7 +198,7 @@ mod tests {
                 make_tag(&["p", &receiver_pk]),
             ],
         );
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             crate::state::TestRelayDelivery::new()
                 .events([relay_event(&ambient), relay_event(&mention)]),
         );
@@ -240,7 +239,7 @@ mod tests {
             "👍",
             vec![make_tag(&["e", &target_id]), make_tag(&["h", "c"])],
         );
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             crate::state::TestRelayDelivery::new()
                 .events([relay_event(&chat), relay_event(&reaction)]),
         );

@@ -82,10 +82,7 @@ fn ensure_channel_ready_inner<'a>(
             );
         }
 
-        let Some(mgmt_keys) = provider.management_keys() else {
-            return attempt::degraded(provider, &ctx, "management signing key unavailable");
-        };
-        let mgmt_pubkey = mgmt_keys.public_key().to_hex();
+        let mgmt_pubkey = provider.management_pubkey();
 
         let parent_admins: Vec<String> = if let Some(parent) = parent_hint {
             match ancestry::ensure_parent(provider, parent, &mgmt_pubkey).await {

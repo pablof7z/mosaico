@@ -42,12 +42,11 @@ impl DaemonState {
                 .expect("in-memory Fava engine"),
         );
         let mut store = Store::open_memory().expect("in-memory store");
-        store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
+        store.bind_observed_state(fava.views_handle(), fava.clone());
         let store = Arc::new(Mutex::new(store));
         let provider = Arc::new(Nip29Provider::new(
             fava.clone(),
             store.clone(),
-            Some(backend_key),
             None,
             whitelisted_pubkeys,
         ));
@@ -61,6 +60,7 @@ impl DaemonState {
             store,
             provider,
             fava,
+            backend_keys: std::sync::RwLock::new(backend_keys),
             cfg: std::sync::RwLock::new(cfg),
             config_reload: Mutex::new(()),
             agent_config: AgentConfigState::new(),

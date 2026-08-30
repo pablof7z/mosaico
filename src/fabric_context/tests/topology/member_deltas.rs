@@ -5,29 +5,27 @@ use crate::reconcile::HookContextState;
 fn membership_delta_uses_the_same_members_block_with_plain_departure_prose() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([crate::state::Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: "root".into(),
-                slug: "amber-reviewer".into(),
-                title: "Reviewing".into(),
-                activity: String::new(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: 90,
-                last_seen: 90,
-                updated_at: 90,
-                expiration: 500,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "amber-reviewer".into(),
+            title: "Reviewing".into(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            state_since: 90,
+            last_seen: 90,
+            updated_at: 90,
+            expiration: 500,
+        }],
+    ));
     let before = capture_inputs(&store, &input(Some(&rec), "root", 0, 100, true)).unwrap();
     let mut hook = HookContextState::default();
     hook.render_context(&rec.pubkey, "turn_start", 0, 100, before);
 
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK], &[]),
         task_group(),
     ]));
@@ -52,24 +50,22 @@ fn a_late_status_behind_the_cursor_still_emits_a_member_delta() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([crate::state::Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: "root".into(),
-                slug: "reviewer".into(),
-                title: "Reviewing the late event".into(),
-                activity: "Checking deltas".into(),
-                workspace: "root".into(),
-                branch: "feat/context".into(),
-                state: crate::session_state::SessionState::Working,
-                state_since: 150,
-                last_seen: 150,
-                updated_at: 150,
-                expiration: 500,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Reviewing the late event".into(),
+            activity: "Checking deltas".into(),
+            workspace: "root".into(),
+            branch: "feat/context".into(),
+            state: crate::session_state::SessionState::Working,
+            state_since: 150,
+            last_seen: 150,
+            updated_at: 150,
+            expiration: 500,
+        }],
+    ));
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert!(
         assemble::assemble_view(&after, 200, 300).is_empty(),
@@ -100,7 +96,7 @@ fn a_late_status_behind_the_cursor_still_emits_a_member_delta() {
 #[test]
 fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
     let store = seed_store();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK], &[]),
         task_group(),
     ]));
@@ -109,7 +105,7 @@ fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
+    store.install_test_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     let delta = hook
         .render_context(&rec.pubkey, "turn_start", 200, 300, after)
@@ -131,24 +127,22 @@ fn an_unjoined_descendant_never_emits_typed_member_detail() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([crate::state::Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: TASK_H.into(),
-                slug: "reviewer".into(),
-                title: "Private child work".into(),
-                activity: "Should not leak".into(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Working,
-                state_since: 150,
-                last_seen: 150,
-                updated_at: 150,
-                expiration: 500,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: TASK_H.into(),
+            slug: "reviewer".into(),
+            title: "Private child work".into(),
+            activity: "Should not leak".into(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Working,
+            state_since: 150,
+            last_seen: 150,
+            updated_at: 150,
+            expiration: 500,
+        }],
+    ));
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert!(
         hook.render_context(&rec.pubkey, "turn_start", 200, 300, after)
@@ -175,24 +169,22 @@ fn a_status_without_confirmed_roster_membership_cannot_manufacture_a_member() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([crate::state::Status {
-                pubkey: "not-a-member".into(),
-                channel_h: "root".into(),
-                slug: "impostor".into(),
-                title: "Claimed work".into(),
-                activity: "Unconfirmed".into(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Working,
-                state_since: 150,
-                last_seen: 150,
-                updated_at: 150,
-                expiration: 500,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            pubkey: "not-a-member".into(),
+            channel_h: "root".into(),
+            slug: "impostor".into(),
+            title: "Claimed work".into(),
+            activity: "Unconfirmed".into(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Working,
+            state_since: 150,
+            last_seen: 150,
+            updated_at: 150,
+            expiration: 500,
+        }],
+    ));
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert!(
         hook.render_context(&rec.pubkey, "turn_start", 200, 300, after)

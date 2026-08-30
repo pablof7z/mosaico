@@ -259,7 +259,7 @@ async fn publish_running_only_moves(
     child_path: &str,
     targets: &[AddTarget],
 ) -> Result<String> {
-    let keys = state.management_keys()?;
+    let keys = state.backend_keys();
     let prose = format!(
         "Join {child_path} to continue this conversation; existing channel memberships are unchanged"
     );

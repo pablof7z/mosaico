@@ -35,11 +35,11 @@ fn canonical_context_and_human_view_keep_host_capabilities() {
     assert!(human.contains("@helper@laptop  For testing"));
 
     let empty = Store::open_memory().unwrap();
-    empty.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("solo")
+    empty.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("solo")
         .metadata("solo", "", "", 1)
         .admins(Vec::new())
         .members(Vec::new())]));
-    empty.install_test_fava_relay_delivery(
+    empty.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles([profile(SELF_PK, "coder", "coder", "", "laptop", false)]),
     );

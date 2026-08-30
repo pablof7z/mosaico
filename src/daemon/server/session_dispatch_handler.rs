@@ -7,9 +7,7 @@ pub(super) async fn handle_session_dispatch(
     op: crate::fabric::nip29::session_dispatch::SessionDispatchOp,
 ) {
     let event_id = event.id.to_hex();
-    let Some(backend_pk) = state.backend_pubkey() else {
-        return;
-    };
+    let backend_pk = state.backend_pubkey();
     if op.target.backend_pubkey != backend_pk {
         return;
     }

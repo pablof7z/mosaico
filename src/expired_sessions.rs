@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn only_stopped_sessions_are_listed_by_permanent_pubkey() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("proj").metadata("main", "", "", 1)
         ]));
         let running_id = register(&store, "running", "proj");

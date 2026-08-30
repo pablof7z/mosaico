@@ -16,14 +16,7 @@ pub(super) async fn publish_start_failure_notice(
         target_label
     };
     let body = format!("mosaico: agent {target} failed to start for your mention ({detail}).");
-    let keys = match state.management_keys() {
-        Ok(keys) => keys,
-        Err(error) => {
-            state.emit_delivery_failure(channel, agent_slug, "spawn", body);
-            tracing::warn!(agent = agent_slug, channel, %error, "start-failure notice skipped");
-            return;
-        }
-    };
+    let keys = state.backend_keys();
     let from = format!("{} (mosaico)", state.host());
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), from.clone()),

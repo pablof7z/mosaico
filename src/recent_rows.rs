@@ -1,13 +1,11 @@
 //! Bounded sync-readable recent-rows store — the replacement for the
-//! `FavaViews` row mirror's `OwnedRow`/index layer.
+//! `ObservedViews` row mirror's `OwnedRow`/index layer.
 //!
 //! The daemon retains the recent activity per channel (chat, reactions,
 //! status — every `#h`-bearing row the live observations deliver) and exposes
 //! it synchronously to the `state/` read layer. Rows beyond the per-channel cap
-//! are evicted oldest-first; a miss here means "older than the retained
-//! window," and a caller that needs it fetches from Fava on demand. This is not
-//! the O(history) mirror: there is no boot replay of the whole store — only
-//! the bounded recent set the live drain maintains.
+//! are evicted oldest-first; a miss here means "outside the retained current
+//! view." There is no SQLite or second-relay backfill path.
 //!
 //! Observations overlap: one kind:9 chat in channel C that mentions pubkey P is
 //! owned by both `mosaico-h-C` and `mosaico-p-P`. A row only leaves the retained
@@ -26,7 +24,7 @@ use crate::state::RelayEvent;
 
 /// Recent rows retained per channel. Covers the hot read paths (channel tail,
 /// ambient chat, reply-nudge, capture activity) without holding unbounded
-/// history. Older rows are an on-demand Fava fetch, not a mirror.
+/// history. Older rows are outside the product's current observed view.
 const CAP_PER_CHANNEL: usize = 10_000;
 
 pub(crate) struct RecentRows {

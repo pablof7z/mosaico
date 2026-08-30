@@ -139,7 +139,7 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
     let state = DaemonState::new_for_test().await;
     let now = now_secs();
     state.with_store(|store| {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root").metadata("root", "", "", now),
             TestGroup::new("child")
                 .metadata("focused", "", "root", now)
@@ -173,7 +173,7 @@ async fn accepting_reuses_child_focuses_caller_and_passively_adds_idle_peer() {
                 .into(),
             now,
         ));
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             TestRelayDelivery::new()
                 .profiles([
                     profile(A1, "a1", now.saturating_sub(60)),

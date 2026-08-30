@@ -7,10 +7,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, RwLock};
 
-use fava::{EventValue, Observation, ObservationClosed};
+use fava::{EventValue, Observation};
 use nostr::event::EventId;
 
-use crate::fava_views::observed_profile_from_row;
+use crate::observed_views::observed_profile_from_row;
 use crate::row::Row;
 use crate::state::Profile;
 
@@ -141,6 +141,22 @@ impl ProfileFeed {
             .replace(ActiveFeed { _task: task });
     }
 
+    #[cfg(feature = "stress-harness")]
+    pub(crate) fn stress_member_count(&self) -> usize {
+        self.members
+            .read()
+            .expect("profile feed members poisoned")
+            .len()
+    }
+
+    #[cfg(feature = "stress-harness")]
+    pub(crate) fn stress_is_active(&self) -> bool {
+        self.active
+            .lock()
+            .expect("profile feed active slot poisoned")
+            .is_some()
+    }
+
     /// Install synthetic profiles for Store-logic tests.
     #[cfg(test)]
     pub(crate) fn install_test_profiles(&self, profiles: Vec<Profile>) {
@@ -240,11 +256,8 @@ fn spawn_drain(
         // Track the previous event set to compute deltas.
         let mut prev_ids: BTreeSet<EventId> = BTreeSet::new();
         apply_snapshot(&feed, &observation.current(), &mut prev_ids);
-        loop {
-            match observation.changed().await {
-                Ok(snapshot) => apply_snapshot(&feed, &snapshot, &mut prev_ids),
-                Err(ObservationClosed) => break,
-            }
+        while let Ok(snapshot) = observation.changed().await {
+            apply_snapshot(&feed, &snapshot, &mut prev_ids);
         }
     })
 }

@@ -78,12 +78,6 @@ pub(crate) enum GroupMutationOutcome {
     Failed(GroupOperationError),
 }
 
-impl GroupPublishOutcome {
-    pub(crate) fn is_published(&self) -> bool {
-        matches!(self, Self::Published)
-    }
-}
-
 impl GroupMutationOutcome {
     pub(crate) fn is_published(&self) -> bool {
         matches!(self, Self::Published)

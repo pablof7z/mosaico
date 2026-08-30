@@ -20,7 +20,7 @@ impl Nip29Provider {
             .map(|row| &row.event)
             .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
             .max_by_key(|event| event.created_at.as_secs())
-            .map(|event| children_from_metadata(&event))
+            .map(children_from_metadata)
             .unwrap_or_default())
     }
 

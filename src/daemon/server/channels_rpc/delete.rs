@@ -44,7 +44,7 @@ pub(in crate::daemon::server) async fn delete_channel(
         publish_deletion_notice(state, channel, &online).await?
     };
 
-    let mgmt_keys = state.management_keys()?;
+    let mgmt_keys = state.backend_keys();
     let event_id = state
         .fava()
         .publish_delete_group_and_wait(channel, mgmt_keys.public_key())
@@ -75,7 +75,7 @@ struct OnlineAgent {
 }
 
 fn online_agents_in_channel(state: &Arc<DaemonState>, channel: &str) -> Result<Vec<OnlineAgent>> {
-    let backend = state.backend_pubkey().unwrap_or_default();
+    let backend = state.backend_pubkey();
     state.with_store(|store| {
         let members = store
             .list_channel_members(channel)?
@@ -130,7 +130,7 @@ async fn publish_deletion_notice(
     channel: &str,
     agents: &[OnlineAgent],
 ) -> Result<String> {
-    let keys = state.management_keys()?;
+    let keys = state.backend_keys();
     let pubkey = keys.public_key().to_hex();
     let labels = agents
         .iter()
@@ -182,7 +182,7 @@ mod tests {
     fn live_status_projection_excludes_offline_state() {
         let store = Store::open_memory().expect("store");
         let now = 1_700_000_000u64;
-        store.install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().statuses([
+        store.install_test_relay_delivery(crate::state::TestRelayDelivery::new().statuses([
             status("agent-pk", "coder", SessionState::Idle, now),
             status("offline-pk", "gone", SessionState::Offline, now),
         ]));

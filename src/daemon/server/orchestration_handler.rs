@@ -14,9 +14,7 @@ pub(super) async fn handle_orchestration(
     op: crate::fabric::nip29::orchestration::AddAgentsOp,
 ) {
     let event_id = event.id.to_hex();
-    let Some(backend_pk) = state.backend_pubkey() else {
-        return;
-    };
+    let backend_pk = state.backend_pubkey();
     let mine: Vec<_> = op
         .adds
         .iter()

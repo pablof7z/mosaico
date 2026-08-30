@@ -5,7 +5,7 @@
 //! effects. Fava owns relay work behind the host seam.
 //!
 //! (mosaico#837) The N per-channel content observations collapsed into ONE broad
-//! windowed `GroupContentsMulti` `#h` over all known channels. The global
+//! bounded `GroupContentsMulti` `#h` over all known channels. The global
 //! kind:39000 group-metadata observation moved to the retained `group_records`
 //! observation, and per-author kind:0 profiles moved to the retained
 //! [`ProfileFeed`](crate::fava_host::ProfileFeed). What remains here is the broad
@@ -79,7 +79,7 @@ pub struct CoverageSnapshot {
     pub sessions: BTreeMap<String, BTreeSet<String>>,
 }
 
-/// The single broad `#h` observation id (mosaico#837). One windowed
+/// The single broad `#h` observation id (mosaico#837). One bounded
 /// `GroupContentsMulti` over all known channels replaces the former N
 /// per-channel `ChannelH` observations plus the global kind:9000 observation
 /// (kind 9000 carries `#h`, so it rides the same demand).

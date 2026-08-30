@@ -67,7 +67,7 @@ pub(in crate::daemon::server) fn rpc_channel_list(
         }
     };
 
-    let backend = state.backend_pubkey().unwrap_or_default();
+    let backend = state.backend_pubkey();
     let list = state
         .with_store(|store| projection::build(store, mode, crate::util::now_secs(), &backend))?;
     Ok(serde_json::to_value(list)?)

@@ -41,9 +41,6 @@ pub struct Nip29Provider {
     pub store: Arc<Mutex<Store>>,
     /// Fava owns every relay read and write, signer selection, routing, and receipt.
     pub(crate) fava: Arc<FavaHost>,
-    /// Backend management signing key (`mosaicoPrivateKey`). Missing keys are
-    /// generated and persisted by the shared readiness/provisioning path.
-    management_nsec: Mutex<Option<String>>,
     /// Human operator key (`userNsec`) for self-granting the management key.
     pub user_nsec: Option<String>,
     /// Whitelisted human pubkeys (hex) that should hold admin in owned groups.
@@ -56,7 +53,6 @@ impl Nip29Provider {
     pub(crate) fn new(
         fava: Arc<FavaHost>,
         store: Arc<Mutex<Store>>,
-        management_nsec: Option<String>,
         user_nsec: Option<String>,
         whitelisted_pubkeys: Vec<String>,
     ) -> Self {
@@ -65,7 +61,6 @@ impl Nip29Provider {
             wire,
             store,
             fava,
-            management_nsec: Mutex::new(management_nsec),
             user_nsec,
             whitelisted_pubkeys,
             readiness: Arc::new(ChannelReadiness::default()),
@@ -185,10 +180,11 @@ impl Nip29Provider {
             // one `h` row per channel the session occupies. `nip29::Groups`
             // mints every row; publishing once per channel would
             // have each copy replace the last.
-            DomainEvent::Status(status) => {
-                self.fava
-                    .publish_groups(status.channels.iter().cloned(), builder, keys.public_key())
-            }
+            DomainEvent::Status(status) => self.fava.publish_groups(
+                status.channels.iter().cloned(),
+                builder,
+                keys.public_key(),
+            ),
             DomainEvent::ChatMessage(message) => {
                 self.fava
                     .publish_group(&message.channel, builder, keys.public_key())

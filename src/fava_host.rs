@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use fava::{EventValue, Fava, FavaBuilder, Observation, ObservationClosed, RelayUrl};
+use fava::{EventValue, Fava, FavaBuilder, Observation, RelayUrl};
 use fava_delivery_standard::StandardDeliveryPolicy;
 use fava_event_cache_memory::MemoryEventCache;
 use fava_publisher_nip01::Nip01Publisher;
@@ -40,7 +40,7 @@ mod stress;
 mod test_io;
 pub(crate) mod write;
 
-use crate::fava_views::{FavaViews, RowTransition};
+use crate::observed_views::{ObservedViews, RowTransition};
 
 mod profile_feed;
 pub(crate) use profile_feed::ProfileFeed;
@@ -50,12 +50,6 @@ mod test_relay;
 pub(crate) use test_relay::PlainRelay;
 
 const VIEW_TRANSITION_QUEUE_CAPACITY: usize = 2048;
-
-/// Maximum row target for a windowed broad `#h` observation (mosaico#837).
-/// Fava delivers complete snapshots rather than windowed streams, so this
-/// constant is exposed for callers that expect it but `request_rows` is a
-/// no-op: all retained rows are already in the `RecentRows` store.
-pub(crate) const OBSERVATION_WINDOW_MAX: usize = 10_000;
 
 struct ActiveObservation {
     // Task owns the Observation; aborting drops it → Observation::drop → close().
@@ -72,11 +66,11 @@ pub(crate) struct FavaHost {
     pub(crate) profile_relays: BTreeSet<RelayUrl>,
     subscriptions: Mutex<BTreeMap<String, ActiveObservation>>,
     next_observation_generation: Mutex<u64>,
-    views: Arc<FavaViews>,
+    views: Arc<ObservedViews>,
     transition_tx: Mutex<Option<mpsc::Sender<RowTransition>>>,
     transition_rx: Mutex<Option<mpsc::Receiver<RowTransition>>>,
     #[cfg(test)]
-    pub(crate) test_io: test_io::TestIo,
+    test_io: test_io::TestIo,
 }
 
 impl FavaHost {
@@ -113,7 +107,7 @@ impl FavaHost {
             profile_relays,
             subscriptions: Mutex::new(BTreeMap::new()),
             next_observation_generation: Mutex::new(0),
-            views: Arc::new(FavaViews::default()),
+            views: Arc::new(ObservedViews::default()),
             transition_tx: Mutex::new(Some(transition_tx)),
             transition_rx: Mutex::new(Some(transition_rx)),
             #[cfg(test)]
@@ -122,7 +116,7 @@ impl FavaHost {
     }
 
     /// The product-side view projections accumulated from fava deliveries.
-    pub(crate) fn views(&self) -> &FavaViews {
+    pub(crate) fn views(&self) -> &ObservedViews {
         &self.views
     }
 
@@ -131,7 +125,7 @@ impl FavaHost {
         self.backend_pubkey
     }
 
-    pub(crate) fn views_handle(&self) -> Arc<FavaViews> {
+    pub(crate) fn views_handle(&self) -> Arc<ObservedViews> {
         self.views.clone()
     }
 
@@ -198,13 +192,6 @@ impl FavaHost {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take();
-    }
-
-    /// No-op under fava: fava delivers complete snapshots rather than windowed
-    /// streams, so all retained rows are already in `RecentRows`. The constant
-    /// `OBSERVATION_WINDOW_MAX` is exposed for callers that need the max value.
-    pub(crate) fn request_rows(&self, _id: &str, _at_least: usize) -> Result<()> {
-        Ok(())
     }
 
     pub(crate) fn apply(&self, effect: &SubEffect) -> Result<()> {
@@ -283,7 +270,7 @@ impl Drop for FavaHost {
 
 async fn drain_subscription(
     mut observation: Observation,
-    views: Arc<FavaViews>,
+    views: Arc<ObservedViews>,
     transitions: mpsc::Sender<RowTransition>,
     observation_id: String,
     generation: u64,
@@ -300,22 +287,17 @@ async fn drain_subscription(
             return;
         }
     }
-    loop {
-        match observation.changed().await {
-            Ok(snapshot) => {
-                if let Some(transition) = subscription_transition(
-                    &snapshot,
-                    &views,
-                    &observation_id,
-                    generation,
-                    &mut prev_ids,
-                ) {
-                    if transitions.send(transition).await.is_err() {
-                        return;
-                    }
-                }
+    while let Ok(snapshot) = observation.changed().await {
+        if let Some(transition) = subscription_transition(
+            &snapshot,
+            &views,
+            &observation_id,
+            generation,
+            &mut prev_ids,
+        ) {
+            if transitions.send(transition).await.is_err() {
+                return;
             }
-            Err(ObservationClosed) => break,
         }
     }
     let transition = views.close_observation(&observation_id, generation);
@@ -329,7 +311,7 @@ async fn drain_subscription(
 /// invoke this once before awaiting later changes.
 fn subscription_transition(
     snapshot: &fava::QuerySnapshot,
-    views: &FavaViews,
+    views: &ObservedViews,
     observation_id: &str,
     generation: u64,
     prev_ids: &mut BTreeSet<nostr::event::EventId>,

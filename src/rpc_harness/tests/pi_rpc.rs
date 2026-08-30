@@ -47,12 +47,10 @@ async fn pi_child(
 async fn prompt_ignores_agent_end_and_completes_on_agent_settled() {
     let (handle, mut updates) = pi_child(
         r#"IFS= read -r line || exit 1
-id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([0-9][0-9]*\)".*/\1/p')
-printf '{"id":"%s","type":"response","command":"prompt","success":true}\n' "$id"
+printf '%s\n' '{"id":"1","type":"response","command":"prompt","success":true}'
 printf '%s\n' '{"type":"agent_end","messages":[]}'
 IFS= read -r line || exit 1
-id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([0-9][0-9]*\)".*/\1/p')
-printf '{"id":"%s","type":"response","command":"get_state","success":true,"data":{"sessionId":"pi-session"}}\n' "$id"
+printf '%s\n' '{"id":"2","type":"response","command":"get_state","success":true,"data":{"sessionId":"pi-session"}}'
 printf '%s\n' '{"type":"agent_settled"}'
 while IFS= read -r line; do :; done"#
             .into(),
@@ -73,18 +71,31 @@ while IFS= read -r line; do :; done"#
     .await;
     assert!(agent_end.is_ok(), "Pi never emitted agent_end");
     assert!(!prompt.is_finished(), "agent_end must not settle a Pi turn");
-    handle
-        .pi_request_timeout(
-            serde_json::json!({"type":"get_state"}),
-            std::time::Duration::from_secs(10),
-        )
-        .await
-        .expect("failed to release agent_settled fixture");
+    // The second command is only a fixture handshake that releases the
+    // terminal notification. Its response correlation is covered separately;
+    // this test owns the Pi turn lifecycle claim.
+    let release = tokio::spawn({
+        let handle = handle.clone();
+        async move {
+            handle
+                .pi_request(serde_json::json!({"type":"get_state"}))
+                .await
+        }
+    });
     tokio::time::timeout(std::time::Duration::from_secs(10), prompt)
         .await
-        .expect("agent_settled did not complete the Pi turn")
+        .unwrap_or_else(|_| {
+            panic!(
+                "agent_settled did not complete the Pi turn (child_alive={} pending={})",
+                handle.is_alive(),
+                handle.pending_request_count()
+            )
+        })
         .expect("Pi prompt task panicked")
         .expect("Pi prompt failed");
+    release.abort();
+    let _ = release.await;
+    assert_eq!(handle.pending_request_count(), 0);
     handle.kill().await.unwrap();
 }
 

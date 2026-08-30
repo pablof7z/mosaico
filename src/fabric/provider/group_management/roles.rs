@@ -51,13 +51,6 @@ impl Nip29Provider {
         operation: &str,
         role: Option<String>,
     ) -> GroupPublishOutcome {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return GroupPublishOutcome::Failed(GroupOperationError::new(
-                operation,
-                GroupOperationStage::Configuration,
-                "management signing key unavailable",
-            ));
-        };
         let users = match group_users(pubkeys, role) {
             Ok(users) => users,
             Err(error) => {
@@ -73,7 +66,7 @@ impl Nip29Provider {
         }
         match self
             .fava
-            .add_group_users_and_wait(channel, users, mgmt_keys.public_key())
+            .add_group_users_and_wait(channel, users, self.fava.backend_pubkey())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
@@ -91,13 +84,6 @@ impl Nip29Provider {
         pubkeys: &[String],
     ) -> GroupPublishOutcome {
         let operation = "9001 remove-users";
-        let Some(mgmt_keys) = self.management_keys() else {
-            return GroupPublishOutcome::Failed(GroupOperationError::new(
-                operation,
-                GroupOperationStage::Configuration,
-                "management signing key unavailable",
-            ));
-        };
         let subjects = match group_pubkeys(pubkeys) {
             Ok(subjects) => subjects,
             Err(error) => {
@@ -113,7 +99,7 @@ impl Nip29Provider {
         }
         match self
             .fava
-            .remove_group_users_and_wait(channel, subjects, mgmt_keys.public_key())
+            .remove_group_users_and_wait(channel, subjects, self.fava.backend_pubkey())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,

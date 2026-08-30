@@ -23,7 +23,7 @@ pub(in crate::daemon::server) async fn archive_channel(
         .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
     let delivered = state.provider().group_snapshot(channel).await?;
     let snapshots = [delivered];
-    let groups = crate::fava_views::GroupProjection::new(&snapshots);
+    let groups = crate::observed_views::GroupProjection::new(&snapshots);
     let current = groups
         .get_channel(channel)
         .with_context(|| format!("resolved channel {channel_ref} has no metadata row"))?;
@@ -32,7 +32,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     let (event_id, metadata_confirmed) = if current.about == archived_about {
         (String::new(), true)
     } else {
-        let mgmt_keys = state.management_keys()?;
+        let mgmt_keys = state.backend_keys();
         let edit = fava_simple_groups::MetadataEdit {
             about: Some(archived_about.clone()),
             ..Default::default()

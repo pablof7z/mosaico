@@ -21,7 +21,7 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
         wait_until(std::time::Duration::from_secs(25), || {
             observed_channel_members("#tmp").is_some()
         }),
-        "concurrent RPC fixture requires an Fava-observed #tmp root"
+        "concurrent RPC fixture requires a Fava-observed #tmp root"
     );
 
     // Start one session, then 16 concurrent clients hammer write-RPCs

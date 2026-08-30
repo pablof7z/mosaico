@@ -8,7 +8,7 @@ pub(super) async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Respons
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
         #[cfg(feature = "stress-harness")]
-        "stress_fava_snapshot" => Ok(state.fava().stress_snapshot()),
+        "stress_fava_snapshot" => Ok(state.stress_fava_snapshot()),
         "shutdown" => {
             state.connections.shutdown.notify_waiters();
             Ok(serde_json::json!({"stopped": true}))

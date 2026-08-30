@@ -57,7 +57,7 @@ pub(super) async fn rpc_channel_wait(
     });
     let author_filter = AuthorFilter::from_params(state, &scopes, &p)?;
     let own_pubkeys = own_pubkeys(&rec);
-    let backend_pubkey = state.backend_pubkey().unwrap_or_default();
+    let backend_pubkey = state.backend_pubkey();
 
     // The arrival cursor is captured before subscribing. A message observed in
     // that tiny gap is recovered by the immediate post-subscribe drain.

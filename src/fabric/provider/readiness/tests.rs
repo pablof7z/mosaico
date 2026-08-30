@@ -195,7 +195,7 @@ async fn managed_admin_removal_returns_the_exact_fava_failure_without_local_rost
     let state =
         crate::daemon::server::DaemonState::new_for_test_with_whitelisted(vec![configured.clone()])
             .await;
-    let management = state.fabric_provider().management_pubkey().unwrap();
+    let management = state.fabric_provider().management_pubkey();
     let snapshot = ready_snapshot(
         "",
         &[
@@ -210,7 +210,7 @@ async fn managed_admin_removal_returns_the_exact_fava_failure_without_local_rost
     }
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+            store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
                 .metadata("Room", "", "", 1)
                 .admins(vec![management, configured, removed.clone()])
                 .members(Vec::new())]));

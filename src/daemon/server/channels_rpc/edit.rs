@@ -22,7 +22,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     );
     let channel_h = resolve_target_channel(state, &p.channel)?;
 
-    let mgmt_keys = state.management_keys()?;
+    let mgmt_keys = state.backend_keys();
     let edit = fava_simple_groups::MetadataEdit {
         about: Some(p.about.clone()),
         ..Default::default()

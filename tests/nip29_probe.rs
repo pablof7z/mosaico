@@ -34,7 +34,7 @@ mod fava_client;
 #[path = "nip29_probe/support.rs"]
 mod support;
 
-use nostr::event::{EventBuilder, FinalizeEvent as _, Kind, Tag};
+use nostr::event::{FinalizeEvent as _, Kind, Tag};
 use nostr::filter::{Filter, SingleLetterTag};
 use nostr::key::Keys;
 use std::time::Duration;

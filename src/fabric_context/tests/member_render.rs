@@ -30,24 +30,22 @@ fn full_snapshot_keeps_nameable_members_while_empty_presence_deltas_stay_quiet()
     assert!(!snapshot.contains("since=\"unknown\""), "got: {snapshot}");
     assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
 
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: "root".into(),
-                slug: "amber-reviewer".into(),
-                title: String::new(),
-                activity: String::new(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: 150,
-                last_seen: 150,
-                updated_at: 150,
-                expiration: 300,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "amber-reviewer".into(),
+            title: String::new(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            state_since: 150,
+            last_seen: 150,
+            updated_at: 150,
+            expiration: 300,
+        }],
+    ));
     let delta = render_fabric_context(&store, input(Some(&rec), "root", 100, 200, true))
         .expect("forced delta should render");
     assert!(!delta.contains("<recent-presence>"), "got: {delta}");
@@ -72,7 +70,7 @@ fn member_row_shows_session_handle_without_role_for_peer_session() {
     );
     peer_profile.updated_at = 2;
     profiles.push(peer_profile);
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles).statuses([
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(profiles).statuses([
         Status {
             pubkey: OTHER_PK.into(),
             channel_h: "root".into(),
@@ -134,7 +132,7 @@ fn lease_renewal_without_state_change_produces_no_presence_delta() {
     peer.last_seen = 150;
     peer.updated_at = 150;
     peer.expiration = 240;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),
@@ -153,7 +151,7 @@ fn lease_renewal_without_state_change_produces_no_presence_delta() {
 #[test]
 fn agent_render_includes_workspace_and_members() {
     let store = seed_store();
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
@@ -177,7 +175,7 @@ fn agent_render_includes_workspace_and_members() {
 #[test]
 fn same_named_channels_under_different_workspaces_show_workspace_context() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("test1").metadata("test1", "", "", 1),
         TestGroup::new("test2").metadata("test2", "", "", 1),
         TestGroup::new("test1-xxx")
@@ -230,7 +228,7 @@ fn same_named_channels_under_different_workspaces_show_workspace_context() {
         expiration: 500,
     })
     .collect::<Vec<_>>();
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
             .statuses(statuses),

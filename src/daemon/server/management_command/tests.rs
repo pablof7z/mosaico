@@ -5,7 +5,7 @@ async fn management_channel_labels_are_public_paths_or_generic() {
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("root").metadata("general", "", "", 1),
                 crate::state::TestGroup::new("opaque-child").metadata("review", "", "root", 2),
             ]));

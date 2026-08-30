@@ -33,8 +33,7 @@ pub(super) fn encode(pf: &Profile) -> Result<EventBuilder> {
             tags.push(tag(&["workspace", workspace])?);
         }
     }
-    Ok(EventBuilder::new(kind(KIND_PROFILE), content)
-        .tags(tags))
+    Ok(EventBuilder::new(kind(KIND_PROFILE), content).tags(tags))
 }
 
 pub(super) fn decode(event: &Event, pubkey: String) -> Option<DomainEvent> {

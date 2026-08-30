@@ -23,25 +23,23 @@ fn automatic_context_requires_both_join_fences() {
         "future-dated prejoin body",
         "[]",
     );
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([future.clone()]),
     );
     let rec = session(&store);
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new().profiles(seed_profiles()).events([
-            future,
-            chat(
-                "backdated-after-join",
-                "root",
-                5,
-                "backdated postjoin body",
-                "[]",
-            ),
-            chat("valid-after-join", "root", 210, "valid postjoin body", "[]"),
-        ]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        future,
+        chat(
+            "backdated-after-join",
+            "root",
+            5,
+            "backdated postjoin body",
+            "[]",
+        ),
+        chat("valid-after-join", "root", 210, "valid postjoin body", "[]"),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 600, true))
         .expect("forced context should render");
@@ -59,12 +57,10 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
         .collect::<Vec<_>>()
         .join(" ");
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new().profiles(seed_profiles()).events([
-            chat("mention-long", "root", 210, &body, &tags),
-            reaction("rx-mention-long", "mention-long", "root", SELF_PK, 211),
-        ]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("mention-long", "root", 210, &body, &tags),
+        reaction("rx-mention-long", "mention-long", "root", SELF_PK, 211),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
@@ -88,17 +84,9 @@ fn mention_rows_without_followup_show_compact_affordance() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .events([chat(
-                "mention-guide",
-                "root",
-                210,
-                "please review this",
-                &tags,
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("mention-guide", "root", 210, "please review this", &tags),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("mention should render");
@@ -118,17 +106,9 @@ fn injected_mention_row_is_hidden_from_chatter() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .events([chat(
-                "mention-inj",
-                "root",
-                210,
-                "please pick this up",
-                &tags,
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("mention-inj", "root", 210, "please pick this up", &tags),
+    ]));
 
     store
         .enqueue_inbox(
@@ -179,15 +159,13 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
     ));
     let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
     let tags = format!("[[\"p\",\"{TARGET_PK}\"],[\"p\",\"{REMOTE_PK}\"]]");
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
-        chat(
-            "mention-target",
-            "root",
-            210,
-            &format!("please ask nostr:{npub} for review"),
-            &tags,
-        ),
-    ]));
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([chat(
+        "mention-target",
+        "root",
+        210,
+        &format!("please ask nostr:{npub} for review"),
+        &tags,
+    )]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("p-tagged ambient message should render");
@@ -207,17 +185,9 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
 fn ambient_attachment_renders_the_canonical_directory_without_child_nodes() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .events([chat(
-                "attach-event",
-                "root",
-                210,
-                "Review [plan/report.md]",
-                "[]",
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("attach-event", "root", 210, "Review [plan/report.md]", "[]"),
+    ]));
     store
         .set_message_attachment_dir(
             "attach-event",

@@ -3,7 +3,7 @@
 //! The feed holds only the current member set's kind:0 rows (one retained
 //! `authors:[members]` observation), not a union of all stored events. The
 //! profile-list and resolve surface reads it directly; `get_profile` reads it
-//! by pubkey. No `FavaViews` mirror read is involved.
+//! by pubkey. No `ObservedViews` mirror read is involved.
 
 use super::*;
 use crate::idref;

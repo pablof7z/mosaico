@@ -28,20 +28,20 @@ pub(crate) use test_group_delivery::{TestGroup, TestGroupDelivery, TestRelayDeli
 
 pub struct Store {
     conn: Connection,
-    fava_views: Arc<crate::fava_views::FavaViews>,
+    observed_views: Arc<crate::observed_views::ObservedViews>,
     profile_feed: Arc<crate::fava_host::ProfileFeed>,
 }
 
 impl Store {
-    /// Bind both Fava-backed views in one call: the legacy `FavaViews` mirror and
-    /// the retained profile feed that owns `Store::get_profile`. The two are
-    /// always bound together from the same live [`FavaHost`](crate::fava_host::FavaHost).
-    pub(crate) fn bind_fava_views_and_feed(
+    /// Bind the process-local observed state in one call: row/group projections
+    /// plus the retained profile feed that owns `Store::get_profile`. Both come
+    /// from the same live [`FavaHost`](crate::fava_host::FavaHost).
+    pub(crate) fn bind_observed_state(
         &mut self,
-        views: Arc<crate::fava_views::FavaViews>,
+        views: Arc<crate::observed_views::ObservedViews>,
         host: Arc<crate::fava_host::FavaHost>,
     ) {
-        self.fava_views = views;
+        self.observed_views = views;
         self.profile_feed = Arc::new(crate::fava_host::ProfileFeed::new(host));
     }
 

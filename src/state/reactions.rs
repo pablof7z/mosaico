@@ -9,7 +9,7 @@ impl Store {
     /// All retained kind:7 reaction rows decoded from the bounded recent-rows
     /// window.
     fn reaction_projections(&self) -> Vec<ReactionProjection> {
-        self.fava_views
+        self.observed_views
             .recent_rows()
             .events_by_kind(KIND_REACTION, u32::MAX)
             .into_iter()
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn authored_reactions_join_only_current_fava_messages() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+        store.install_test_relay_delivery(TestRelayDelivery::new().events([
             event("mine", 9, "me", "pushed the fix", 5, "[]"),
             event("theirs", 9, "other", "unrelated", 5, "[]"),
             event("visible", 7, "peer", "👍", 20, r#"[["e","mine"]]"#),
@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(rows[0].reaction_id, "visible");
         assert_eq!(rows[0].target_body, "pushed the fix");
 
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new());
+        store.install_test_relay_delivery(TestRelayDelivery::new());
         assert!(store
             .reactions_on_authored_after("me", 0, 50)
             .unwrap()
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn recent_channel_reactions_keep_newest_valid_rows() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+        store.install_test_relay_delivery(TestRelayDelivery::new().events([
             event("target", 9, "author", "decision", 1, "[]"),
             event("old", 7, "peer", "👍", 10, r#"[["e","target"]]"#),
             event(
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn has_reaction_from_pubkey_on_message_matches_target_and_reactor() {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
+        store.install_test_relay_delivery(TestRelayDelivery::new().events([
             event("target", 9, "author", "msg", 1, "[]"),
             event("r1", 7, "peer", "👍", 10, r#"[["e","target"]]"#),
             event("r2", 7, "other", "🎉", 11, r#"[["e","target"]]"#),

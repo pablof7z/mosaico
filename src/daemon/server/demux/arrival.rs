@@ -1,4 +1,4 @@
-//! Durable product-local ordering before an Fava Row enters product dispatch.
+//! Durable product-local ordering before a Fava row enters product dispatch.
 
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ const MAX_RETRY: Duration = Duration::from_secs(1);
 /// instead of silently dropping a Row that Fava already delivered.
 pub(super) async fn record_before_dispatch(state: &Arc<DaemonState>, event_id: &str) -> u64 {
     retry(event_id, || {
-        state.with_store(|store| store.record_fava_arrival(event_id))
+        state.with_store(|store| store.record_event_arrival(event_id))
     })
     .await
 }

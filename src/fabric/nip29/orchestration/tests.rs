@@ -109,100 +109,80 @@ fn admit_running_requires_an_exact_session() {
 #[test]
 fn parse_none_for_plain_chat_without_mosaico_op() {
     // A prose-only kind:9 chat message must be ignored.
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "just chatting")
-            .tags([tag(&["h", "p"]).unwrap()]),
-    );
+    let ev =
+        sign(EventBuilder::new(kind(KIND_CHAT), "just chatting").tags([tag(&["h", "p"]).unwrap()]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_for_different_mosaico_op() {
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "x")
-            .tags([
-                tag(&["h", "p"]).unwrap(),
-                tag(&["mosaico-op", "subgroup.remove-agents.v1"]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["h-target", "c"]).unwrap(),
-                tag(&["add", "bk", "r"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(KIND_CHAT), "x").tags([
+        tag(&["h", "p"]).unwrap(),
+        tag(&["mosaico-op", "subgroup.remove-agents.v1"]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["h-target", "c"]).unwrap(),
+        tag(&["add", "bk", "r"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_when_h_differs_from_parent() {
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "x")
-            .tags([
-                tag(&["h", "other-group"]).unwrap(),
-                tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["h-target", "c"]).unwrap(),
-                tag(&["add", "bk", "r"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(KIND_CHAT), "x").tags([
+        tag(&["h", "other-group"]).unwrap(),
+        tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["h-target", "c"]).unwrap(),
+        tag(&["add", "bk", "r"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_when_h_target_missing() {
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "x")
-            .tags([
-                tag(&["h", "p"]).unwrap(),
-                tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["add", "bk", "r"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(KIND_CHAT), "x").tags([
+        tag(&["h", "p"]).unwrap(),
+        tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["add", "bk", "r"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_when_two_h_target_tags() {
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "x")
-            .tags([
-                tag(&["h", "p"]).unwrap(),
-                tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["h-target", "c1"]).unwrap(),
-                tag(&["h-target", "c2"]).unwrap(),
-                tag(&["add", "bk", "r"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(KIND_CHAT), "x").tags([
+        tag(&["h", "p"]).unwrap(),
+        tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["h-target", "c1"]).unwrap(),
+        tag(&["h-target", "c2"]).unwrap(),
+        tag(&["add", "bk", "r"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_when_no_add_tags() {
-    let ev = sign(
-        EventBuilder::new(kind(KIND_CHAT), "x")
-            .tags([
-                tag(&["h", "p"]).unwrap(),
-                tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["h-target", "c"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(KIND_CHAT), "x").tags([
+        tag(&["h", "p"]).unwrap(),
+        tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["h-target", "c"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 
 #[test]
 fn parse_none_for_wrong_kind() {
     // A kind:1 with otherwise-valid tags is not an orchestration event.
-    let ev = sign(
-        EventBuilder::new(kind(1), "x")
-            .tags([
-                tag(&["h", "p"]).unwrap(),
-                tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
-                tag(&["parent", "p"]).unwrap(),
-                tag(&["h-target", "c"]).unwrap(),
-                tag(&["add", "bk", "r"]).unwrap(),
-            ]),
-    );
+    let ev = sign(EventBuilder::new(kind(1), "x").tags([
+        tag(&["h", "p"]).unwrap(),
+        tag(&["mosaico-op", MOSAICO_OP_ADD_AGENTS]).unwrap(),
+        tag(&["parent", "p"]).unwrap(),
+        tag(&["h-target", "c"]).unwrap(),
+        tag(&["add", "bk", "r"]).unwrap(),
+    ]));
     assert!(parse_orchestration(&ev).is_none());
 }
 

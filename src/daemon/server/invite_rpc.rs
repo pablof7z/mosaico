@@ -206,7 +206,7 @@ pub(super) async fn ensure_backend_admin(
     if channel.is_empty() {
         anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
     }
-    let mgmt = state.management_keys()?;
+    let mgmt = state.backend_keys();
     let mgmt_hex = mgmt.public_key().to_hex();
     let parent = state
         .with_store(|s| s.channel_parent(channel_h).unwrap_or(None))
@@ -242,7 +242,7 @@ async fn publish_invite_orchestration(
     channel_h: &str,
     target: crate::fabric::nip29::orchestration::AddTarget,
 ) -> Result<String> {
-    let keys = state.management_keys()?;
+    let keys = state.backend_keys();
     let prose = if target.session_pubkey.is_some() {
         format!("resume {} in this channel", target.slug)
     } else {

@@ -43,14 +43,13 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let reply_to = original.message_id.clone();
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
-    let uploaded_attachments =
-        crate::attachment::upload_all(
-            &p.attachments,
-            &state.config().relays,
-            &state.fava(),
-            keys.public_key(),
-        )
-            .await?;
+    let uploaded_attachments = crate::attachment::upload_all(
+        &p.attachments,
+        &state.config().relays,
+        &state.fava(),
+        keys.public_key(),
+    )
+    .await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
     let recipient_reminders =
         state.with_store(|store| recipient_notice::reply_suspension_reminders(store, &original))?;

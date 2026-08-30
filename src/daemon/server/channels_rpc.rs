@@ -71,7 +71,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // call its gate here when it lands. For now we proceed and fail loudly below
     // if the relay rejects the subgroup create/lock.
 
-    let mgmt_keys = state.management_keys()?;
+    let mgmt_keys = state.backend_keys();
     let mgmt_pk = mgmt_keys.public_key().to_hex();
 
     // Opaque random child id; the human handle lives in the kind:39000 `name`,
@@ -164,7 +164,10 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     // result is the command boundary; the retained group observation will
     // project the resulting kind:39000 independently when it arrives.
     if !p.about.trim().is_empty() {
-        let edit = MetadataEdit { about: Some(p.about.clone()), ..Default::default() };
+        let edit = MetadataEdit {
+            about: Some(p.about.clone()),
+            ..Default::default()
+        };
         state
             .fava()
             .publish_metadata_edit_and_wait(&child_h, &edit, mgmt_keys.public_key())

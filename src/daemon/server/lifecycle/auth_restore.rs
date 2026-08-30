@@ -100,5 +100,4 @@ mod tests {
         );
         assert!(!config.attachment_receive_directory.exists());
     }
-
 }

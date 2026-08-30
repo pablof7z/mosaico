@@ -9,7 +9,7 @@ use crate::state::{Store, TestGroup, TestGroupDelivery};
 mod selectors;
 
 fn channels(store: &Store, groups: &[(&str, &str, &str)]) {
-    store.install_test_fava_group_delivery(TestGroupDelivery::new(
+    store.install_test_group_delivery(TestGroupDelivery::new(
         groups
             .iter()
             .map(|(id, name, parent)| TestGroup::new(id).metadata(name, "", parent, 1)),

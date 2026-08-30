@@ -44,7 +44,7 @@ impl Store {
         schema::initialize_file(&mut conn, path)?;
         Ok(Self {
             conn,
-            fava_views: Default::default(),
+            observed_views: Default::default(),
             profile_feed: Default::default(),
         })
     }
@@ -54,7 +54,7 @@ impl Store {
         schema::initialize_memory(&conn)?;
         Ok(Self {
             conn,
-            fava_views: Default::default(),
+            observed_views: Default::default(),
             profile_feed: Default::default(),
         })
     }

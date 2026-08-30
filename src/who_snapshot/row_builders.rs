@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn current_peer_row_preserves_reported_working_state_and_activity() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root").metadata("root", "", "", 1)
         ]));
         let status = Status {

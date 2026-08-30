@@ -13,7 +13,7 @@ const TABLES: &[&str] = &[
     "message_attachments",
     "native_turn_attempts",
     "mcp_actor_aliases",
-    "fava_event_arrivals",
+    "event_arrivals",
     "receipts",
     "session_channels",
     "session_coaching",
@@ -33,7 +33,7 @@ pub(super) fn canonical(conn: &Connection, path: Option<&Path>) -> Result<()> {
         "session_coaching",
         "event_claims",
         "native_turn_attempts",
-        "fava_event_arrivals",
+        "event_arrivals",
         "message_attachments",
     ] {
         ensure_table(conn, table, path)?;
@@ -146,13 +146,7 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
         &["target_session"],
         path,
     )?;
-    ensure_columns(
-        conn,
-        "fava_event_arrivals",
-        &["sequence", "event_id"],
-        &[],
-        path,
-    )?;
+    ensure_columns(conn, "event_arrivals", &["sequence", "event_id"], &[], path)?;
     ensure_columns(
         conn,
         "message_attachments",

@@ -94,9 +94,7 @@ pub(super) fn managed_admin_targets(
             } else {
                 state.with_store(|store| observed_admins(store, &channel.parent))?
             };
-            let channel_desired = provider
-                .desired_admins(&inherited_admins)
-                .context("management signing key unavailable")?;
+            let channel_desired = provider.desired_admins(&inherited_admins);
             desired.insert(channel_h.clone(), channel_desired);
             targets.push(ManagedAdminTarget {
                 channel: channel_h,

@@ -1,4 +1,4 @@
-//! Test relay client backed by fava, replacing the old Fava engine facade.
+//! Test relay client backed by Fava.
 
 #![allow(dead_code)]
 
@@ -137,14 +137,22 @@ impl FavaRelayClient {
                     let dest = session.relay.to_string();
                     use fava::RelayDeliveryOutcome;
                     match outcome {
-                        RelayDeliveryOutcome::Acknowledged { .. } => { success.insert(dest); }
+                        RelayDeliveryOutcome::Acknowledged { .. } => {
+                            success.insert(dest);
+                        }
                         RelayDeliveryOutcome::Rejected { message } => {
                             failed.insert(dest, message.clone());
                         }
-                        _ => { failed.insert(dest, format!("{outcome:?}")); }
+                        _ => {
+                            failed.insert(dest, format!("{outcome:?}"));
+                        }
                     }
                 }
-                Ok(WriteAck { val: event_id, success, failed })
+                Ok(WriteAck {
+                    val: event_id,
+                    success,
+                    failed,
+                })
             }
             Err(e) => Err(anyhow::anyhow!("fava test write failed: {e:#}")),
         }
@@ -158,14 +166,10 @@ impl FavaRelayClient {
             .only_from_relays([relay])
             .context("build pinned relay query")?;
         if let Some(kinds) = filter.kinds {
-            query = query
-                .kinds(kinds)
-                .context("apply kinds to query")?;
+            query = query.kinds(kinds).context("apply kinds to query")?;
         }
         if let Some(authors) = filter.authors {
-            query = query
-                .authors(authors)
-                .context("apply authors to query")?;
+            query = query.authors(authors).context("apply authors to query")?;
         }
         if let Some(ids) = filter.ids {
             query = query.ids(ids).context("apply ids to query")?;

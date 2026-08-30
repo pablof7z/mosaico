@@ -13,7 +13,7 @@ pub(in crate::daemon::server) fn rpc_my_session(
     let rec = resolve_caller(state, params, "my session")?;
     let instance = state.session_instance(&rec);
     let host = state.host().clone();
-    let backend_pubkey = state.backend_pubkey().unwrap_or_default();
+    let backend_pubkey = state.backend_pubkey();
     let fabric = state.with_store(|store| {
         crate::fabric_context::render_full_session_state(
             store,
@@ -58,7 +58,7 @@ mod tests {
     async fn briefing_is_read_only_and_expands_only_the_exact_sessions_workspaces() {
         let state = DaemonState::new_for_test().await;
         let pubkey = state.with_store(|s| {
-            s.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            s.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("alpha")
                     .metadata("alpha", "Alpha", "", 1)
                     .admins(Vec::new())
@@ -68,7 +68,7 @@ mod tests {
                     .admins(Vec::new())
                     .members(vec!["pk".into()]),
             ]));
-            s.install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
+            s.install_test_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
                 crate::state::Profile {
                     pubkey: "pk".into(),
                     name: "codex".into(),
@@ -166,11 +166,9 @@ mod tests {
     async fn stores_and_publishes_title_for_the_exact_caller_session() {
         let state = DaemonState::new_for_test().await;
         let signer_salt = crate::identity::new_session_signer_salt();
-        let keys = crate::identity::derive_session_keys(
-            state.management_keys().unwrap().secret_key(),
-            &signer_salt,
-        )
-        .unwrap();
+        let keys =
+            crate::identity::derive_session_keys(state.backend_keys().secret_key(), &signer_salt)
+                .unwrap();
         let pubkey = keys.public_key().to_hex();
         state.with_store(|s| {
             s.reserve_session_with_facts(

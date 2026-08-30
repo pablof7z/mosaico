@@ -22,8 +22,8 @@ const TASK_H: &str = "task-h";
 
 fn seed_store() -> Store {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()));
+    store.install_test_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()));
     store
 }
 
@@ -168,7 +168,7 @@ fn input<'a>(
 fn archived_joined_channels_are_hidden_from_fabric_context() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("archived").metadata("archived", "[ARCHIVED] done", "root", 30),
@@ -176,17 +176,9 @@ fn archived_joined_channels_are_hidden_from_fabric_context() {
     store
         .grant_session_route(&rec.pubkey, "archived", 30)
         .unwrap();
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .events([chat(
-                "archived-chat",
-                "archived",
-                220,
-                "old task note",
-                "[]",
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("archived-chat", "archived", 220, "old task note", "[]"),
+    ]));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 300, true))
         .expect("forced context should render");
@@ -234,7 +226,7 @@ fn self_unhosted_fact_depends_on_admitted_transport_not_endpoint_liveness() {
 #[test]
 fn missing_channels_are_warned_not_rendered() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles([profile(SELF_PK, "coder", "coder", "", "laptop", false)]),
     );

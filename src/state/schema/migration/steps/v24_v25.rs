@@ -1,4 +1,4 @@
-//! Schema 25: give the durable Fava-arrival ledger its canonical table name.
+//! Schema 25: give the product-owned arrival ledger its canonical table name.
 
 use std::path::Path;
 
@@ -9,14 +9,14 @@ pub(in crate::state::schema::migration) fn migrate(
     conn: &mut Connection,
     _path: &Path,
 ) -> Result<()> {
-    if table_exists(conn, "fava_event_arrivals")? {
+    if table_exists(conn, "event_arrivals")? {
         return stamp(conn);
     }
 
     let source = arrival_ledger(conn)?;
     let tx = conn.transaction().context("starting schema-25 migration")?;
     tx.execute_batch(&format!(
-        "ALTER TABLE {} RENAME TO fava_event_arrivals; PRAGMA user_version = 25;",
+        "ALTER TABLE {} RENAME TO event_arrivals; PRAGMA user_version = 25;",
         quote_identifier(&source),
     ))?;
     tx.commit().context("committing schema-25 migration")

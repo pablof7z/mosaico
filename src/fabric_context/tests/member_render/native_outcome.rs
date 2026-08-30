@@ -22,7 +22,7 @@ fn semantic_status_change_is_a_delta_without_resetting_state_age() {
     peer.last_seen = 150;
     peer.updated_at = 150;
     peer.expiration = 300;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),

@@ -3,26 +3,15 @@
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use anyhow::Result;
-use nostr::event::{EventBuilder, Kind};
 use nostr::event::Tag;
+use nostr::event::{EventBuilder, Kind};
 
 /// Publish a 👍 kind:7 reaction for a management command that has already been
 /// parsed, authorized, and durably claimed. This is best-effort: acknowledgement
 /// delivery must never prevent the accepted command from executing.
 pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, channel_h: &str) {
     let event_id = event.id.to_hex();
-    let keys = match state.management_keys() {
-        Ok(keys) => keys,
-        Err(e) => {
-            tracing::warn!(
-                event_id = %short(&event_id),
-                channel = %channel_h,
-                error = %e,
-                "management command acknowledgement skipped: management key unavailable"
-            );
-            return;
-        }
-    };
+    let keys = state.backend_keys();
     let builder = match build_thumbs_up(&event_id) {
         Ok(builder) => builder,
         Err(e) => {
@@ -60,7 +49,10 @@ mod tests {
     use super::*;
     use nostr::key::Keys;
 
-    fn tag_value<'a>(tags: impl IntoIterator<Item = &'a nostr::event::Tag>, name: &str) -> Option<String> {
+    fn tag_value<'a>(
+        tags: impl IntoIterator<Item = &'a nostr::event::Tag>,
+        name: &str,
+    ) -> Option<String> {
         tags.into_iter().find_map(|tag| {
             let parts = tag.as_slice();
             (parts.first().map(String::as_str) == Some(name))

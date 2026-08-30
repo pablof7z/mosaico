@@ -6,9 +6,9 @@ mod common;
 mod fava_client;
 
 use common::TestRelay;
+use fava_client::FavaRelayClient;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use fava_client::FavaRelayClient;
 use nostr::event::{EventBuilder, Kind, Tag};
 use nostr::filter::Filter;
 use nostr::key::Keys;
@@ -98,7 +98,6 @@ async fn fava_acquires_from_an_explicitly_allowed_local_relay() {
 
     // Build a fava instance pinned to the local relay.
     let fava = {
-        use std::sync::Arc;
         use fava::FavaBuilder;
         use fava_delivery_standard::StandardDeliveryPolicy;
         use fava_event_cache_memory::MemoryEventCache;
@@ -109,6 +108,7 @@ async fn fava_acquires_from_an_explicitly_allowed_local_relay() {
         use fava_subscriptions_no_grouping::planner;
         use fava_transport_websocket::WebSocketTransport;
         use fava_write_store_memory::MemoryWriteStore;
+        use std::sync::Arc;
         FavaBuilder::default()
             .event_cache(Arc::new(MemoryEventCache::default()))
             .query_evaluator(Arc::new(StandardQueryEvaluator))

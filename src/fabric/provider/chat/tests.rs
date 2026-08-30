@@ -14,8 +14,7 @@ async fn offline_provider() -> Nip29Provider {
         .unwrap(),
     );
     let store = Arc::new(Mutex::new(Store::open_memory().unwrap()));
-    let mgmt = Keys::generate().secret_key().to_secret_hex();
-    Nip29Provider::new(fava, store, Some(mgmt), None, Vec::new())
+    Nip29Provider::new(fava, store, None, Vec::new())
 }
 
 fn chat() -> ChatMessage {
@@ -120,7 +119,7 @@ async fn publishing_a_chat_seeds_no_local_row() {
     let keys = Keys::generate();
     let author = keys.public_key().to_hex();
     provider.with_store(|store| {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
+        store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .admins(vec![author.clone()])
             .members(vec![author.clone()])]));
@@ -139,7 +138,7 @@ async fn publishing_a_chat_seeds_no_local_row() {
 /// An incomplete acquisition cannot prove that an unlisted signer is absent,
 /// but a current roster row is still positive evidence that this signer is a
 /// member. Publishing must not start a second readiness/readback loop merely
-/// because another acquisition branch is unavailable.
+/// because another acquisition branch is still settling.
 #[tokio::test]
 async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
     use crate::state::{TestGroup, TestGroupDelivery};
@@ -148,10 +147,10 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
     let keys = Keys::generate();
     let author = keys.public_key().to_hex();
     provider.with_store(|store| {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
+        store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .members(vec![author])
-            .availability(crate::group_snapshot::GroupAvailability::SourceUnavailable)]));
+            .availability(crate::group_snapshot::GroupAvailability::Acquiring)]));
     });
 
     provider

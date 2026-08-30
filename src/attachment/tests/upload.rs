@@ -6,6 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::put;
 use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use nostr::event::Event;
 use nostr::key::Keys;
 use std::sync::Mutex;

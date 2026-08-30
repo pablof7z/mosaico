@@ -282,7 +282,7 @@ fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
 
 fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> RelayEvent {
     let mut events = store
-        .fava_views
+        .observed_views
         .recent_rows()
         .events_by_kind(crate::fabric::nip29::wire::KIND_CHAT, u32::MAX);
     events.retain(|event| event.id != id);
@@ -297,6 +297,6 @@ fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> Rel
         tags_json: "[]".into(),
     };
     events.push(event.clone());
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events(events));
+    store.install_test_relay_delivery(TestRelayDelivery::new().events(events));
     event
 }

@@ -6,11 +6,13 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use nostr::event::Event;
+use nostr::message::{ClientMessage, RelayMessage};
 use tungstenite::{accept, Error, Message};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct RelaySnapshot {
     pub(super) requests: usize,
+    pub(super) deliveries: usize,
     pub(super) closes: usize,
     pub(super) active_requests: usize,
     pub(super) connections: usize,
@@ -19,10 +21,12 @@ pub(super) struct RelaySnapshot {
 #[derive(Default)]
 struct State {
     requests: AtomicUsize,
+    deliveries: AtomicUsize,
     closes: AtomicUsize,
     connections: AtomicUsize,
     next_connection: AtomicU64,
     active: Mutex<BTreeSet<(u64, String)>>,
+    request_frames: Mutex<Vec<String>>,
 }
 
 pub(super) struct CountingRelay {
@@ -76,10 +80,15 @@ impl CountingRelay {
     pub(super) fn snapshot(&self) -> RelaySnapshot {
         RelaySnapshot {
             requests: self.state.requests.load(Ordering::Acquire),
+            deliveries: self.state.deliveries.load(Ordering::Acquire),
             closes: self.state.closes.load(Ordering::Acquire),
             active_requests: self.state.active.lock().unwrap().len(),
             connections: self.state.connections.load(Ordering::Acquire),
         }
+    }
+
+    pub(super) fn request_frames(&self) -> Vec<String> {
+        self.state.request_frames.lock().unwrap().clone()
     }
 }
 
@@ -150,39 +159,40 @@ fn handle_text(
     events: &[Event],
     websocket: &mut tungstenite::WebSocket<TcpStream>,
 ) {
-    let Ok(frame) = serde_json::from_str::<serde_json::Value>(text) else {
+    let Ok(frame) = ClientMessage::from_json(text) else {
         return;
     };
-    let Some(parts) = frame.as_array() else {
-        return;
-    };
-    let Some(kind) = parts.first().and_then(serde_json::Value::as_str) else {
-        return;
-    };
-    let Some(sub_id) = parts.get(1).and_then(serde_json::Value::as_str) else {
-        return;
-    };
-    match kind {
-        "REQ" => {
+    match frame {
+        ClientMessage::Req {
+            subscription_id,
+            filters,
+        } => {
+            let sub_id = subscription_id.into_owned();
+            let filters = filters
+                .into_iter()
+                .map(|filter| filter.into_owned())
+                .collect::<Vec<_>>();
             state.requests.fetch_add(1, Ordering::AcqRel);
+            state.request_frames.lock().unwrap().push(text.to_string());
             state
                 .active
                 .lock()
                 .unwrap()
                 .insert((connection, sub_id.to_string()));
-            for event in events
-                .iter()
-                .filter(|event| request_matches_event(parts, event))
-            {
-                let delivery = serde_json::json!(["EVENT", sub_id, event]).to_string();
-                if websocket.send(Message::Text(delivery.into())).is_err() {
+            for event in events.iter().filter(|event| {
+                filters
+                    .iter()
+                    .any(|filter| filter.match_event(event, Default::default()))
+            }) {
+                let delivery = RelayMessage::event(sub_id.clone(), event.clone()).as_json();
+                if websocket.send(Message::text(delivery)).is_err() {
                     return;
                 }
+                state.deliveries.fetch_add(1, Ordering::AcqRel);
             }
-            let eose = serde_json::json!(["EOSE", sub_id]).to_string();
-            let _ = websocket.send(Message::Text(eose.into()));
+            let _ = websocket.send(Message::text(RelayMessage::eose(sub_id).as_json()));
         }
-        "CLOSE" => {
+        ClientMessage::Close(sub_id) => {
             state.closes.fetch_add(1, Ordering::AcqRel);
             state
                 .active
@@ -190,44 +200,11 @@ fn handle_text(
                 .unwrap()
                 .remove(&(connection, sub_id.to_string()));
         }
-        _ => {}
+        ClientMessage::Event(_)
+        | ClientMessage::Auth(_)
+        | ClientMessage::NegOpen { .. }
+        | ClientMessage::NegMsg { .. }
+        | ClientMessage::NegClose { .. }
+        | ClientMessage::Count { .. } => {}
     }
-}
-
-fn request_matches_event(parts: &[serde_json::Value], event: &Event) -> bool {
-    parts.iter().skip(2).any(|filter| {
-        let Some(filter) = filter.as_object() else {
-            return false;
-        };
-        matches_numeric_set(filter.get("kinds"), event.kind.as_u16() as u64)
-            && matches_tag_set(filter.get("#d"), event, "d")
-            && matches_tag_set(filter.get("#p"), event, "p")
-    })
-}
-
-fn matches_numeric_set(values: Option<&serde_json::Value>, value: u64) -> bool {
-    values.is_none_or(|values| {
-        values.as_array().is_some_and(|values| {
-            values
-                .iter()
-                .any(|candidate| candidate.as_u64() == Some(value))
-        })
-    })
-}
-
-fn matches_tag_set(values: Option<&serde_json::Value>, event: &Event, name: &str) -> bool {
-    values.is_none_or(|values| {
-        let Some(values) = values.as_array() else {
-            return false;
-        };
-        event.tags.iter().any(|tag| {
-            let parts = tag.as_slice();
-            parts.first().map(String::as_str) == Some(name)
-                && parts.get(1).is_some_and(|value| {
-                    values
-                        .iter()
-                        .any(|candidate| candidate.as_str() == Some(value))
-                })
-        })
-    })
 }

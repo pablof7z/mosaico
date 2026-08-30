@@ -62,6 +62,23 @@ impl DaemonProcess {
         rpc(&self.socket, method).unwrap_or_else(|error| panic!("RPC {method}: {error}"))
     }
 
+    pub(super) fn log_tail(&self) -> String {
+        let path = self
+            .socket
+            .parent()
+            .expect("daemon socket has a parent")
+            .join("daemon.log");
+        let log = std::fs::read_to_string(path).unwrap_or_default();
+        log.lines()
+            .rev()
+            .take(40)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     pub(super) fn shutdown(&mut self, timeout: Duration) {
         let response = self.call("shutdown");
         assert_eq!(response["stopped"], true);

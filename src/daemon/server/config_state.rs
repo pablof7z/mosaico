@@ -30,20 +30,6 @@ impl DaemonState {
             .clone()
     }
 
-    /// Backfill older chat history on demand (mosaico#837). The broad `#h`
-    /// observation opens with a small newest-first window and grows only when an
-    /// agent reads deeper history than it holds. This raises the window's row
-    /// target to its declared max; the new rows arrive asynchronously into the
-    /// retained `RecentRows`, so the caller re-reads to see them. Idempotent — a
-    /// target at or below the current one is a no-op, so repeated deep reads do
-    /// not spam the relay.
-    pub(in crate::daemon::server) fn request_full_chat_window(&self) -> Result<()> {
-        self.fava().request_rows(
-            crate::reconcile::subscriptions::BROAD_H_ID,
-            crate::fava_host::OBSERVATION_WINDOW_MAX,
-        )
-    }
-
     /// The operator's whitelisted human pubkeys (config `whitelistedPubkeys`);
     /// classify a mention's sender as human vs agent for envelope presentation.
     pub(crate) fn whitelisted_pubkeys(&self) -> Vec<String> {
@@ -54,5 +40,15 @@ impl DaemonState {
     /// coverage refresh calls `set_members` on this `Arc`.
     pub(crate) fn profile_feed(&self) -> Arc<crate::fava_host::ProfileFeed> {
         self.with_store(|store| store.profile_feed())
+    }
+
+    #[cfg(feature = "stress-harness")]
+    pub(crate) fn stress_fava_snapshot(&self) -> serde_json::Value {
+        let profile_feed = self.profile_feed();
+        serde_json::json!({
+            "managed_observations": self.fava().stress_managed_observations(),
+            "profile_authors": profile_feed.stress_member_count(),
+            "profile_observation_active": profile_feed.stress_is_active(),
+        })
     }
 }

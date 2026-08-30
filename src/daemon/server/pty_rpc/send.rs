@@ -77,7 +77,7 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         );
     }
 
-    let expect_member = state.backend_pubkey().unwrap_or_default();
+    let expect_member = state.backend_pubkey();
     let already_ready = state.with_store(|store| {
         store.get_channel(scope).ok().flatten().is_some()
             && store

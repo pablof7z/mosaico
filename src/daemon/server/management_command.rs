@@ -25,9 +25,7 @@ pub(super) fn is_management_command_for_backend(state: &Arc<DaemonState>, event:
     if event.kind.as_u16() != crate::fabric::nip29::wire::KIND_CHAT {
         return false;
     }
-    let Some(backend_pk) = state.backend_pubkey() else {
-        return false;
-    };
+    let backend_pk = state.backend_pubkey();
     event.pubkey.to_hex() != backend_pk
         && p_tags(event).iter().any(|pk| pk == &backend_pk)
         && parse::is_command_shaped(&event.content) // #375: prose is not a command
@@ -223,7 +221,7 @@ async fn publish_reply(
     requester: &str,
     body: &str,
 ) -> Result<()> {
-    let keys = state.management_keys()?;
+    let keys = state.backend_keys();
     let pubkey = keys.public_key().to_hex();
     let chat = ChatMessage {
         from: AgentRef::new(pubkey, format!("{} (mosaico)", state.host())),

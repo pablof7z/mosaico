@@ -2,9 +2,7 @@ use super::{ChannelCtx, Nip29Provider};
 use std::collections::BTreeSet;
 
 pub(super) async fn is_ready(provider: &Nip29Provider, ctx: &ChannelCtx<'_>) -> bool {
-    let Some(required_admins) = required_admins(provider) else {
-        return false;
-    };
+    let required_admins = required_admins(provider);
     let Some(snapshot) = provider.current_group_snapshot(ctx.channel) else {
         return false;
     };
@@ -14,14 +12,14 @@ pub(super) async fn is_ready(provider: &Nip29Provider, ctx: &ChannelCtx<'_>) -> 
     snapshot_ready(&snapshot, ctx, &required_admins, managed)
 }
 
-fn required_admins(provider: &Nip29Provider) -> Option<Vec<String>> {
-    let mut admins = vec![provider.management_pubkey()?];
+fn required_admins(provider: &Nip29Provider) -> Vec<String> {
+    let mut admins = vec![provider.management_pubkey()];
     for pk in &provider.whitelisted_pubkeys {
         if !admins.contains(pk) {
             admins.push(pk.clone());
         }
     }
-    Some(admins)
+    admins
 }
 
 pub(super) fn snapshot_ready(
@@ -30,7 +28,7 @@ pub(super) fn snapshot_ready(
     required_admins: &[String],
     managed: bool,
 ) -> bool {
-    let groups = crate::fava_views::GroupProjection::new(std::slice::from_ref(snapshot));
+    let groups = crate::observed_views::GroupProjection::new(std::slice::from_ref(snapshot));
     if groups.get_channel(ctx.channel).is_none() {
         return false;
     }

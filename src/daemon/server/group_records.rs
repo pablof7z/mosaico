@@ -2,7 +2,7 @@
 //!
 //! Kinds 39000/39001/39002 are watched through a single fava `Observation`.
 //! Each fava snapshot is decoded client-side into `Vec<GroupSnapshot>` and
-//! pushed into `FavaViews` for all downstream consumers. Coverage filtering
+//! pushed into `ObservedViews` for all downstream consumers. Coverage filtering
 //! happens client-side; no relay-side predicate is used.
 
 use std::collections::BTreeSet;
@@ -12,7 +12,7 @@ use anyhow::Result;
 use fava::{Observation, ObservationClosed};
 
 use super::DaemonState;
-use crate::group_snapshot::{self, GroupAvailability, GroupSnapshot};
+use crate::group_snapshot::{self, GroupSnapshot};
 use crate::reconcile::CoverageSnapshot;
 
 #[path = "group_records/root_names.rs"]
@@ -209,9 +209,7 @@ fn record_discoveries(known_ids: &mut BTreeSet<String>, snapshots: &[GroupSnapsh
 }
 
 fn managed_roots(state: &DaemonState, snapshots: &[GroupSnapshot]) -> Vec<String> {
-    let Some(management_pubkey) = state.backend_pubkey() else {
-        return Vec::new();
-    };
+    let management_pubkey = state.backend_pubkey();
     managed_roots_from_snapshots(snapshots, &management_pubkey)
 }
 

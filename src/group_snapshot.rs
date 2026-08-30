@@ -1,7 +1,8 @@
-//! Local group-record vocabulary, replacing `fava::nip29` types.
+//! Mosaico's local projection of relay-authoritative group records.
 //!
-//! These types mirror the Fava shape so callers need only import-path changes.
-//! They are built from fava `QuerySnapshot` rows decoded via `fava_simple_groups`.
+//! These product-facing values are decoded from Fava snapshots via
+//! `fava_simple_groups`; protocol replacement and relay-union rules remain in
+//! those owning layers.
 
 use std::collections::BTreeSet;
 
@@ -13,7 +14,6 @@ use nostr::key::PublicKey;
 
 /// Whether relay-authoritative group records are currently available.
 ///
-/// Mirrors `fava::nip29::GroupAvailability` so call sites need only re-import.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupAvailability {
     /// Relay-live records arrived; the snapshot reflects current relay state.
@@ -22,15 +22,12 @@ pub enum GroupAvailability {
     CachedOnly,
     /// Relay demand is being established; no delivery yet.
     Acquiring,
-    /// No relay delivered any records and none is expected without intervention.
-    SourceUnavailable,
 }
 
 // ------------------------------------------------------------------ subjects
 
 /// One relay-signed admin or member entry.
 ///
-/// Mirrors `fava::nip29::ListedSubject`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedSubject {
     pub pubkey: PublicKey,
@@ -47,7 +44,6 @@ impl ListedSubject {
 
 /// Relay-signed kind:39000 metadata for one group.
 ///
-/// Mirrors `fava::nip29::GroupMetadata`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupMetadata {
     pub name: Option<String>,
@@ -68,7 +64,12 @@ impl GroupMetadata {
             .map(|tag| tag.as_slice().to_vec())
             .collect();
         let as_of = std::time::Duration::from_secs(event.created_at.as_secs());
-        Self { name, about, tags, as_of }
+        Self {
+            name,
+            about,
+            tags,
+            as_of,
+        }
     }
 }
 
@@ -87,7 +88,7 @@ fn tag_value<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
 
 /// Complete relay-signed state for one group at one instant.
 ///
-/// Mirrors `fava::nip29::GroupSnapshot`. The `id` is the `d` tag value.
+/// The `id` is the `d` tag value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupSnapshot {
     pub id: String,
@@ -95,15 +96,6 @@ pub struct GroupSnapshot {
     pub admins: Vec<ListedSubject>,
     pub members: Vec<ListedSubject>,
     pub availability: GroupAvailability,
-}
-
-impl GroupSnapshot {
-    /// Builder-style setter for tests.
-    #[cfg(test)]
-    pub fn availability(mut self, av: GroupAvailability) -> Self {
-        self.availability = av;
-        self
-    }
 }
 
 // ------------------------------------------------------------ decode helpers
@@ -162,10 +154,18 @@ pub(crate) fn decode_snapshots(
     all_ids
         .into_iter()
         .map(|id| {
-            let metadata = metadata_map.get(&id).map(GroupMetadata::from_metadata_event);
+            let metadata = metadata_map
+                .get(&id)
+                .map(GroupMetadata::from_metadata_event);
             let admins = decode_admins(admins_map.get(&id));
             let members = decode_members(members_map.get(&id));
-            GroupSnapshot { id, metadata, admins, members, availability: av }
+            GroupSnapshot {
+                id,
+                metadata,
+                admins,
+                members,
+                availability: av,
+            }
         })
         .collect()
 }
@@ -183,11 +183,7 @@ pub(crate) fn availability_from_evidence(
     }
 }
 
-fn insert_latest(
-    map: &mut std::collections::BTreeMap<String, Event>,
-    key: String,
-    event: Event,
-) {
+fn insert_latest(map: &mut std::collections::BTreeMap<String, Event>, key: String, event: Event) {
     map.entry(key)
         .and_modify(|existing| {
             if event.created_at > existing.created_at {

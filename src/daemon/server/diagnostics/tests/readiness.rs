@@ -43,7 +43,7 @@ fn absent_group_snapshot(group: &str) -> GroupSnapshot {
 fn register_caller(state: &Arc<DaemonState>, pubkey: &str) {
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project").metadata("project", "", "", 1),
             ]));
             store.reserve_hook_session_for_test(&RegisterSession {
@@ -64,11 +64,11 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
     let caller = Keys::generate().public_key().to_hex();
     let target = Keys::generate().public_key().to_hex();
-    let management = state.backend_pubkey().unwrap();
+    let management = state.backend_pubkey();
     register_caller(&state, &caller);
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project")
                     .metadata("project", "", "", 1)
                     .admins(vec![management.clone()])
@@ -119,10 +119,10 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
 #[tokio::test]
 async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
     let state = DaemonState::new_for_test_with_relays(vec![RELAY.into()]).await;
-    let management = state.backend_pubkey().unwrap();
+    let management = state.backend_pubkey();
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project")
                     .metadata("project", "", "", 1)
                     .admins(vec![management.clone()])

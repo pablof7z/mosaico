@@ -4,15 +4,15 @@ use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.fava_views.recent_rows().event(id))
+        Ok(self.observed_views.recent_rows().event(id))
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
-        self.fava_views.recent_rows().event_by_prefix(prefix)
+        self.observed_views.recent_rows().event_by_prefix(prefix)
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.fava_views.recent_rows().event(id).is_some())
+        Ok(self.observed_views.recent_rows().event(id).is_some())
     }
 
     pub fn chat_for_channel(
@@ -22,7 +22,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<RelayEvent>> {
         Ok(self
-            .fava_views
+            .observed_views
             .recent_rows()
             .events_in_channel(channel_h, since, limit))
     }
@@ -32,7 +32,7 @@ impl Store {
         channel_h: &str,
     ) -> Result<std::collections::HashMap<String, u64>> {
         Ok(self
-            .fava_views
+            .observed_views
             .recent_rows()
             .latest_chat_by_author(channel_h, crate::fabric::nip29::wire::KIND_CHAT)
             .into_iter()
@@ -59,7 +59,7 @@ impl Store {
         };
         let mut events = Vec::new();
         for event in self
-            .fava_views
+            .observed_views
             .recent_rows()
             .events_in_channel(channel_h, 0, u32::MAX)
         {
@@ -67,7 +67,7 @@ impl Store {
                 continue;
             }
             if self
-                .fava_arrival_sequence(&event.id)?
+                .event_arrival_sequence(&event.id)?
                 .is_some_and(|sequence| sequence <= joined_sequence)
             {
                 events.push(event);
@@ -82,7 +82,10 @@ impl Store {
 
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let kind = u16::try_from(kind).context("Nostr kind exceeds u16")?;
-        Ok(self.fava_views.recent_rows().events_by_kind(kind, limit))
+        Ok(self
+            .observed_views
+            .recent_rows()
+            .events_by_kind(kind, limit))
     }
 }
 

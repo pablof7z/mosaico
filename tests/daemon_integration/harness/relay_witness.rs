@@ -50,7 +50,7 @@ pub(crate) async fn publish_addressed_chat(
 pub(crate) fn sign_builder_into_group(
     group: &str,
     builder: EventBuilder,
-    keys: &Keys,
+    _keys: &Keys,
 ) -> EventBuilder {
     let h_tag = Tag::parse(["h", group]).expect("h tag is valid");
     builder.tags([h_tag])

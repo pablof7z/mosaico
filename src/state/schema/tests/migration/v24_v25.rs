@@ -9,8 +9,8 @@ fn schema_twenty_four_renames_the_arrival_ledger_without_losing_its_cursor() {
     let conn = Connection::open(&path).unwrap();
     conn.execute_batch(
         r#"
-        ALTER TABLE fava_event_arrivals RENAME TO arrival_ledger_before_fava;
-        INSERT INTO arrival_ledger_before_fava (event_id) VALUES ('first');
+        ALTER TABLE event_arrivals RENAME TO deployed_arrival_ledger;
+        INSERT INTO deployed_arrival_ledger (event_id) VALUES ('first');
         PRAGMA user_version = 24;
         "#,
     )
@@ -18,13 +18,13 @@ fn schema_twenty_four_renames_the_arrival_ledger_without_losing_its_cursor() {
     drop(conn);
 
     let store = Store::open(&path).expect("schema twenty-four upgrades to current");
-    assert_eq!(store.record_fava_arrival("second").unwrap(), 2);
+    assert_eq!(store.record_event_arrival("second").unwrap(), 2);
     drop(store);
 
     let conn = Connection::open(&path).unwrap();
     assert_eq!(version(&conn), 25);
-    assert!(table_exists(&conn, "fava_event_arrivals"));
-    assert!(!table_exists(&conn, "arrival_ledger_before_fava"));
+    assert!(table_exists(&conn, "event_arrivals"));
+    assert!(!table_exists(&conn, "deployed_arrival_ledger"));
 }
 
 fn table_exists(conn: &Connection, table: &str) -> bool {

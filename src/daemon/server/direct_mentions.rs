@@ -197,7 +197,7 @@ mod tests {
             .iter()
             .map(|target| vec!["p", target.as_str()])
             .collect::<Vec<_>>();
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([RelayEvent {
+        store.install_test_relay_delivery(TestRelayDelivery::new().events([RelayEvent {
             id: event_id.into(),
             kind: 9,
             pubkey: sender_pk.into(),

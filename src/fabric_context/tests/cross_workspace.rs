@@ -6,7 +6,7 @@ fn add_workspace(store: &Store) {
 }
 
 fn install_workspace_delivery(store: &Store, remote_members: &[&str]) {
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("remote")
@@ -48,7 +48,7 @@ fn outside_workspace_is_a_compact_root_and_does_not_leak_presence_or_chatter() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([
@@ -123,17 +123,15 @@ fn unscoped_session_sees_known_roots_without_expanding_them() {
     let store = seed_store();
     let rec = session_record(&store, "unscoped", "");
     add_workspace(&store);
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([projected_status(
-                OTHER_PK,
-                "remote",
-                "coordinating release",
-                250,
-                500,
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [projected_status(
+            OTHER_PK,
+            "remote",
+            "coordinating release",
+            250,
+            500,
+        )],
+    ));
 
     let text = render_fabric_context(&store, input(Some(&rec), "", 0, 300, true))
         .expect("full briefing should orient an unscoped session");
@@ -148,16 +146,14 @@ fn current_workspace_delta_omits_outside_workspace_statuses() {
     let store = seed_store();
     let rec = session(&store);
     add_workspace(&store);
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([
-                projected_status(OTHER_PK, "remote", "old work", 150, 500),
-                projected_status(OTHER_PK, "remote", "newer outside work", 250, 500),
-                projected_status(SELF_PK, "remote", "self work", 250, 500),
-                projected_status(OTHER_PK, "root", "current workspace work", 250, 500),
-            ]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [
+            projected_status(OTHER_PK, "remote", "old work", 150, 500),
+            projected_status(OTHER_PK, "remote", "newer outside work", 250, 500),
+            projected_status(SELF_PK, "remote", "self work", 250, 500),
+            projected_status(OTHER_PK, "root", "current workspace work", 250, 500),
+        ],
+    ));
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 200, 300, false))
         .expect("current workspace activity should render");

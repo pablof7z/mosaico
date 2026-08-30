@@ -44,14 +44,14 @@ mod tests {
     fn provider() -> (Nip29Provider, Arc<crate::fava_host::FavaHost>) {
         let backend = Keys::generate();
         let fava = Arc::new(
-            crate::fava_host::FavaHost::open(&[], None, None, &backend).expect("in-memory Fava host"),
+            crate::fava_host::FavaHost::open(&[], None, None, &backend)
+                .expect("in-memory Fava host"),
         );
         let mut store = Store::open_memory().expect("in-memory state store");
-        store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
+        store.bind_observed_state(fava.views_handle(), fava.clone());
         let store = Arc::new(Mutex::new(store));
-        let management_nsec = backend.secret_key().to_secret_hex();
         (
-            Nip29Provider::new(fava.clone(), store, Some(management_nsec), None, Vec::new()),
+            Nip29Provider::new(fava.clone(), store, None, Vec::new()),
             fava,
         )
     }

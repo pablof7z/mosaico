@@ -106,7 +106,10 @@ async fn fava_owned_reset_removes_a_closed_superseded_store_and_is_idempotent() 
     superseded_epoch_store(&path);
 
     reset(&path).expect("a closed superseded store must be resettable");
-    assert!(!path.exists(), "Fava's reset must remove the complete store");
+    assert!(
+        !path.exists(),
+        "Fava's reset must remove the complete store"
+    );
     let reopened =
         super::super::FavaHost::open(&[], None, Some(&path), &nostr::key::Keys::generate())
             .expect("the path an operator was told to clear must open afterwards");

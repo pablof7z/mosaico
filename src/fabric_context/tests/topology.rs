@@ -7,7 +7,7 @@ mod member_deltas;
 #[test]
 fn every_channel_shows_only_last_accepted_activity() {
     let store = seed_store();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("lounge-h")
@@ -15,12 +15,10 @@ fn every_channel_shows_only_last_accepted_activity() {
             .admins(Vec::new())
             .members(pubkeys(&[OTHER_PK])),
     ]));
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new().profiles(seed_profiles()).events([
-            chat("lounge-old", "lounge-h", 20, "hello", "[]"),
-            chat("task-accepted", TASK_H, 30, "hello", "[]"),
-        ]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("lounge-old", "lounge-h", 20, "hello", "[]"),
+        chat("task-accepted", TASK_H, 30, "hello", "[]"),
+    ]));
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true)).unwrap();
@@ -39,7 +37,7 @@ fn every_channel_shows_only_last_accepted_activity() {
 fn full_and_delta_channels_use_identical_tags_and_nesting() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group_with_metadata("Updated task room", 250),
     ]));
@@ -84,11 +82,11 @@ fn full_rosters_distinguish_humans_from_agents() {
     let store = seed_store();
     let mut profiles = seed_profiles();
     profiles.push(profile("human", "Pablo", "Pablo", "", "", false));
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, OTHER_PK, "human"], &["unknown-admin"]),
         task_group(),
     ]));
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
             .events([human_chat("human-msg", "root", 40)]),
@@ -127,7 +125,7 @@ fn an_acquiring_group_never_claims_a_complete_agent_count() {
             .metadata("partial", "Partial roster", "root", 1)
             .members(pubkeys(&[OTHER_PK]))
     };
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         partial_group().availability(crate::group_snapshot::GroupAvailability::Acquiring),
@@ -143,7 +141,7 @@ fn an_acquiring_group_never_claims_a_complete_agent_count() {
     let partial_tag = opening_tag(&partial, "#root/partial");
     assert!(!partial_tag.contains(" agents="), "{partial_tag}");
 
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         partial_group().availability(crate::group_snapshot::GroupAvailability::Ready),
@@ -158,7 +156,7 @@ fn an_acquiring_group_never_claims_a_complete_agent_count() {
 #[test]
 fn hydrated_roster_with_an_unknown_identity_omits_the_agent_count() {
     let store = seed_store();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, "unknown-pk"], &[]),
         task_group(),
     ]));
@@ -201,7 +199,7 @@ fn opening_tag<'a>(xml: &'a str, id: &str) -> &'a str {
 #[test]
 fn a_channel_with_an_unarrived_parent_does_not_sink_the_whole_topology() {
     let store = seed_store();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("orphan")

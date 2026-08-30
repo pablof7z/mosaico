@@ -17,7 +17,11 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 22
+## Current schema: 25
+
+Schema 25 gives the host-local arrival ledger its product-owned
+`event_arrivals` name. The schema remains a one-way migration with no runtime
+alias or dual read.
 
 Schema 22 removes all relay-derived persistence:
 
@@ -36,13 +40,13 @@ message tables:
 
 | Table | Durable local fact | Explicitly does not store |
 |---|---|---|
-| `fava_event_arrivals` | Event id plus host-local monotonically increasing arrival sequence | Event kind, author, tags, content, timestamp, sources, or replacement state |
+| `event_arrivals` | Event id plus host-local monotonically increasing arrival sequence | Event kind, author, tags, content, timestamp, sources, or replacement state |
 | `message_attachments` | Event id plus verified directory containing downloaded files on this host | Message content, recipients, attachment tags, URLs, or relay metadata |
 
 The arrival sequence is a local route fence. It lets automatic ambient context
 distinguish events observed before and after a session joined without copying
 the event. The attachment directory is a local filesystem binding joined onto
-an Fava-owned message while that message is present.
+a Fava-owned message while that message is present.
 
 The remaining tables are product-local authority:
 

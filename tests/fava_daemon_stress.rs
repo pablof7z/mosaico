@@ -1,4 +1,4 @@
-//! Real standalone-daemon proof for the captured 207-profile observation shape.
+//! Real standalone-daemon proof for one 207-author retained profile query.
 //! Every process, database, socket, and relay is disposable and local.
 
 #[path = "fava_daemon_stress/process.rs"]
@@ -14,14 +14,12 @@ use nostr::key::Keys;
 use process::{sample, DaemonProcess};
 use relay::{CountingRelay, RelaySnapshot};
 
-const PROFILE_OBSERVATIONS: usize = 207;
-// One retained group-record discovery, one group-content observation, and two
-// daemon-lifetime management observations surround the narrow profile set.
-const MANAGED_OBSERVATIONS: usize = PROFILE_OBSERVATIONS + 4;
+const PROFILE_AUTHORS: usize = 207;
+const MANAGED_CONTENT_OBSERVATIONS: usize = 1;
 const STEADY_WINDOW: Duration = Duration::from_secs(3);
 
 #[test]
-fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
+fn standalone_daemon_keeps_the_207_author_profile_feed_responsive_and_bounded() {
     let relay = CountingRelay::start(group_snapshots());
     let home = tempfile::tempdir().expect("disposable Mosaico home");
     let config = home.path().join("config.json");
@@ -29,17 +27,25 @@ fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
 
     let mut daemon = DaemonProcess::spawn(&binary(), home.path(), &config);
     daemon.wait_ready(Duration::from_secs(30));
-    let product = wait_for_product_shape(&daemon, Duration::from_secs(20));
-    assert_eq!(product["profile_observations"], PROFILE_OBSERVATIONS);
-    assert_eq!(product["managed_observations"], MANAGED_OBSERVATIONS);
+    let product = wait_for_product_shape(&daemon, &relay, Duration::from_secs(20));
+    assert_eq!(product["profile_authors"], PROFILE_AUTHORS);
+    assert_eq!(product["profile_observation_active"], true);
+    assert_eq!(
+        product["managed_observations"],
+        MANAGED_CONTENT_OBSERVATIONS
+    );
     let before_relay = wait_for_relay_quiet(&relay, Duration::from_secs(10));
     assert!(
         before_relay.requests > 0,
         "the product emitted no relay request"
     );
     assert!(
+        before_relay.deliveries >= 2,
+        "the relay never delivered both seeded group records: {before_relay:?}"
+    );
+    assert!(
         before_relay.active_requests <= 40,
-        "207 compatible profile observations exceeded the live wire bound: {before_relay:?}"
+        "the 207-author profile query exceeded the live wire bound: {before_relay:?}"
     );
     assert!(
         before_relay.requests <= before_relay.active_requests + 2,
@@ -98,8 +104,9 @@ fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
     println!(
         "{}",
         serde_json::json!({
-            "profile_observations": PROFILE_OBSERVATIONS,
-            "managed_observations": MANAGED_OBSERVATIONS,
+            "profile_authors": PROFILE_AUTHORS,
+            "profile_observation_active": true,
+            "managed_content_observations": MANAGED_CONTENT_OBSERVATIONS,
             "steady_cpu_percent": steady_cpu_percent,
             "steady_window_seconds": elapsed,
             "peak_rss_kib": max_rss,
@@ -107,6 +114,7 @@ fn standalone_daemon_keeps_207_profile_observations_responsive_and_bounded() {
             "peak_file_descriptors": max_fds,
             "max_ping_ms": max_ping_ms,
             "relay_requests": final_relay.requests,
+            "relay_deliveries": final_relay.deliveries,
             "relay_closes": final_relay.closes,
             "final_relay_connections": final_relay.connections,
             "final_active_requests": final_relay.active_requests,
@@ -138,13 +146,15 @@ fn group_snapshots() -> [Event; 2] {
     let backend = Keys::parse(BACKEND_SECRET).expect("deterministic backend key");
     let relay = Keys::generate();
     let mut tags = vec![Tag::identifier("stress-root")];
-    tags.push(Tag::public_key(backend.public_key()));
-    for ordinal in 1..PROFILE_OBSERVATIONS {
+    tags.push(
+        Tag::parse(["p", &backend.public_key().to_hex(), "admin"]).expect("backend admin tag"),
+    );
+    for ordinal in 1..PROFILE_AUTHORS {
         let secret = format!("{:064x}", ordinal + 1);
         let pubkey = Keys::parse(&secret)
             .expect("deterministic stress key")
             .public_key();
-        tags.push(Tag::public_key(pubkey));
+        tags.push(Tag::parse(["p", &pubkey.to_hex(), "admin"]).expect("stress admin tag"));
     }
     let metadata = EventBuilder::new(Kind::from(39_000), "")
         .tags([
@@ -160,16 +170,26 @@ fn group_snapshots() -> [Event; 2] {
     [metadata, admins]
 }
 
-fn wait_for_product_shape(daemon: &DaemonProcess, timeout: Duration) -> serde_json::Value {
+fn wait_for_product_shape(
+    daemon: &DaemonProcess,
+    relay: &CountingRelay,
+    timeout: Duration,
+) -> serde_json::Value {
     let deadline = Instant::now() + timeout;
     loop {
         let snapshot = daemon.call("stress_fava_snapshot");
-        if snapshot["profile_observations"] == PROFILE_OBSERVATIONS {
+        if snapshot["profile_authors"] == PROFILE_AUTHORS
+            && snapshot["profile_observation_active"] == true
+            && snapshot["managed_observations"] == MANAGED_CONTENT_OBSERVATIONS
+        {
             return snapshot;
         }
         assert!(
             Instant::now() < deadline,
-            "207 product observations never opened"
+            "the 207-author retained profile query never opened; last snapshot={snapshot}; relay={:?}; requests={:?}; daemon log:\n{}",
+            relay.snapshot(),
+            relay.request_frames(),
+            daemon.log_tail()
         );
         std::thread::sleep(Duration::from_millis(20));
     }

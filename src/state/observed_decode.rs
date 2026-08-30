@@ -6,10 +6,10 @@
 //! `id`); they do not need the signed event, so [`RecentRows`] — which stores
 //! `RelayEvent` — is a sufficient substrate. Profile decode moved to the
 //! retained [`ProfileFeed`](crate::fava_host::ProfileFeed), which keeps its own
-//! kind:0 drain. Status decode stays on the bounded row mirror: kind:30315 is
+//! kind:0 drain. Status decode stays on the bounded row holder: kind:30315 is
 //! replaceable and `Nip29WireCodec.decode_event` wants the signed event, so the
-//! mirror's `Row` remains the status substrate (mosaico#837 — the mirror is
-//! windowed, not the old O(history) rebuild).
+//! holder's `Row` remains the status substrate. The standing broad observation
+//! applies the same fixed whole-query ceiling as the product read projection.
 
 use crate::domain::Reaction;
 use crate::fabric::nip29::wire::{KIND_CHAT, KIND_REACTION};

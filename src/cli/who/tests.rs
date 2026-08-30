@@ -18,7 +18,7 @@ fn register_local_in(
     ts: u64,
 ) -> String {
     if store.get_channel(channel).unwrap().is_none() {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new(channel).metadata(channel, "", "", ts)
         ]));
     }
@@ -99,7 +99,7 @@ fn peer(
 
 fn install_peers(store: &Store, peers: impl IntoIterator<Item = (Profile, Status)>) {
     let (profiles, statuses): (Vec<_>, Vec<_>) = peers.into_iter().unzip();
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
             .statuses(statuses),
@@ -191,7 +191,7 @@ fn who_snapshot_uses_session_draft_title_for_sibling_sessions() {
 #[test]
 fn who_snapshot_ignores_relay_echo_for_known_local_agent() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1_000)
     ]));
     // pk-claude is one of our signing keys, but no live local session exists.
@@ -212,12 +212,12 @@ fn who_snapshot_ignores_relay_echo_for_known_local_agent() {
 #[test]
 fn who_snapshot_hides_archived_channel_presence() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1),
         TestGroup::new("archived").metadata("archived", "[ARCHIVED] done", "proj", 1),
     ]));
     register_local_in(&store, "coder", "pk-coder", "archived", "sid-coder", 1_000);
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().statuses([Status {
+    store.install_test_relay_delivery(TestRelayDelivery::new().statuses([Status {
         pubkey: "pk-reviewer".to_string(),
         channel_h: "archived".to_string(),
         slug: "reviewer".to_string(),
@@ -244,7 +244,7 @@ fn same_host_peer_is_not_remote() {
     // A sibling agent (e.g. codex@) on the SAME laptop arrives as a peer row; it
     // must NOT be tagged remote (the bug being fixed).
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1_000)
     ]));
     install_peers(
@@ -264,7 +264,7 @@ fn same_host_peer_is_not_remote() {
 #[test]
 fn remote_peer_shows_host_and_flag() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1_000)
     ]));
     install_peers(&store, [peer("pk-a", "a", "tower", "", false, 1_000)]);

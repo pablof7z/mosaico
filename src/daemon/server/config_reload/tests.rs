@@ -125,10 +125,10 @@ async fn managed_child_inherits_the_parents_desired_generation_without_roster_po
     let configured = Keys::generate().public_key().to_hex();
     let removed = Keys::generate().public_key().to_hex();
     let state = DaemonState::new_for_test_with_whitelisted(vec![configured.clone()]).await;
-    let management = state.provider().management_pubkey().unwrap();
+    let management = state.provider().management_pubkey();
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("root")
                     .metadata("Root", "", "", 1)
                     .admins(vec![
@@ -170,7 +170,7 @@ async fn managed_child_of_an_external_group_inherits_the_observed_parent_admins(
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("external")
                     .metadata("External", "", "", 1)
                     .admins(vec![inherited.clone()]),

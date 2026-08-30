@@ -81,8 +81,8 @@ fn verify_tag(event: &Event, kind: &str, expected: &str, name: &str) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use nostr::event::{EventBuilder, FinalizeEvent};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent};
     use nostr::key::Keys;
 
     use super::*;

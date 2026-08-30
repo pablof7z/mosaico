@@ -88,22 +88,6 @@ impl FavaHost {
         Ok((event_id, write))
     }
 
-    /// Publish into one NIP-29 group and wait for relay settlement.
-    pub(crate) async fn publish_group_and_wait(
-        self: &std::sync::Arc<Self>,
-        group: &str,
-        builder: EventBuilder,
-        author: PublicKey,
-    ) -> Result<EventId> {
-        let (event_id, write) =
-            self.publish_groups_with_handle(std::iter::once(group.to_string()), builder, author)?;
-        write
-            .settled(fava::all_terminal())
-            .await
-            .context("waiting for group write settlement")?;
-        Ok(event_id)
-    }
-
     /// Publish a kind:0 copy to every configured app/indexer relay.
     pub(crate) fn enqueue_profile(
         &self,

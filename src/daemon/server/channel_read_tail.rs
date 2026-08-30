@@ -65,17 +65,6 @@ pub(in crate::daemon::server) async fn handle_channel_read<W: AsyncWriteExt + Un
     let offset = p.offset.unwrap_or(0);
 
     let _ = ensure_subscription(state, &scope).await;
-    // On-demand backfill (mosaico#837): a deep historical read (not the recent
-    // tail, from the start of the channel) asks for more than the boot window
-    // holds. Raise the broad #h window's row target to its max; the older rows
-    // arrive asynchronously into the retained window, so this read returns what
-    // is currently held and the next read sees the backfill. Idempotent, so a
-    // window already at max is a no-op.
-    if !p.tail && since == 0 {
-        if let Err(error) = state.request_full_chat_window() {
-            tracing::warn!(%error, "on-demand chat backfill request failed");
-        }
-    }
     let read_scopes = channel_read_scopes(state, &scope);
     let mut rx = if p.live {
         Some(state.tail_subscribe())
@@ -85,7 +74,7 @@ pub(in crate::daemon::server) async fn handle_channel_read<W: AsyncWriteExt + Un
     let live_started_at = now_secs();
     let live_floor = live_started_at.max(since);
 
-    let backend_pubkey = state.backend_pubkey().unwrap_or_default();
+    let backend_pubkey = state.backend_pubkey();
     let rows = state.with_store(|s| {
         let mut rows: Vec<Message> = read_scopes
             .iter()

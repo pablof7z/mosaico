@@ -54,7 +54,7 @@ async fn production_get_profile_reads_the_live_feed_driven_by_membership() {
     // `build_coverage_snapshot` sees the member in `profile_pubkeys` and
     // `sync_subscriptions` calls `profile_feed.set_members({backend, member})`.
     state.with_store(|store: &Store| {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+        store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
             .metadata("room", "", "", 1)
             .members([pk.clone()])]));
     });

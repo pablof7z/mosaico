@@ -63,7 +63,7 @@ For the NIP-29 provider this includes:
 - reactions;
 - replacement selection, source evidence, freshness, and removal.
 
-Mosaico may decode an Fava delivery into a process-local product shape. That
+Mosaico may decode a Fava delivery into a process-local product shape. That
 shape has the observation's lifetime and authority: it is updated by delivered
 frames, removed by delivered retractions, and cleared when its observation
 closes. It cannot outlive Fava by falling back to SQLite.
@@ -89,9 +89,9 @@ that the relay cannot reconstruct as product-local continuity:
 | Session and identity authority | `sessions`, `session_coaching`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` | Runtime generations, endpoints, local signers, aliases, and coaching already shown |
 | Route and reconciliation policy | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` | Local route affinity, join fences, desired standing, filesystem bindings, and unresolved local intents |
 | Delivery and execution ledgers | `inbox`, `event_claims`, `native_turn_attempts`, `receipts`, `channel_readiness_attempts` | Locally addressed work, idempotency claims, native execution outcomes, and bounded local attempt evidence |
-| Minimal relay correlation | `fava_event_arrivals`, `message_attachments` | A durable event-id/arrival-sequence fence and the verified directory containing downloaded local files |
+| Minimal relay correlation | `event_arrivals`, `message_attachments` | A durable event-id/arrival-sequence fence and the verified directory containing downloaded local files |
 
-`fava_event_arrivals` stores no event payload. `message_attachments` stores no
+`event_arrivals` stores no event payload. `message_attachments` stores no
 attachment tag, URL, relay metadata, or message body. An `inbox` or
 `event_claims` row may retain the bounded payload required to execute one
 daemon-owned delivery; it is a product-local queue/claim, not a general message
@@ -160,24 +160,22 @@ The status projection fans a kind:30315 event out to **every** channel it names
 in its own `#h` tags (decoded `status.channels`), not one channel per
 observation — see `Row retention` below.
 
-### Row retention (the bounded `RowViews` mirror)
+### Row retention (the bounded `RowViews` holder)
 
 Fava's `RowDelta::Removed(EventId)` carries only the event id — by contract the
 app already holds the row from an earlier `Added` (`fava_grammar::RowDelta`:
 *"the app is expected to already hold the event from an earlier `Added` … no
 second copy of the payload is kept around just to hand back on removal"*).
-Mosaico's `RowViews` (`src/fava_views/rows.rs`) is that fava-mandated row holder:
+Mosaico's `RowViews` (`src/observed_views/rows.rs`) is that fava-mandated row holder:
 `apply_departure` needs the departed row's signed event to decode the status
 and emit a `Leave` per channel the status named, and `Removed(id)` provides no
 payload. **The row holder cannot be deleted without changing fava's `RowDelta`
 contract.**
 
-The holder is bounded, not the old O(history) rebuild: the broad `#h` opens with
-a `Window::Expandable{initial:500, max:10000}` (mosaico#837), so `RowViews`
-retains at most the window's rows. Deep history beyond the window is backfilled
-on demand via `FavaHost::request_rows` (`handle_channel_read` raises the broad
-`#h` window target for a non-tail `since=0` read); older rows arrive
-asynchronously into the window and the next read sees them.
+The holder is bounded, not an O(history) rebuild: the broad `#h` query has one
+newest-first 10,000-event result ceiling, so both Fava's snapshot and `RowViews`
+retain at most that delivered set. Deliberate history reads use the same current
+delivered set; there is no no-op expansion API or second backfill source.
 
 `RecentRows` (`src/recent_rows.rs`) is the sync-readable projection of the same
 delivered rows as lightweight `RelayEvent`s (id/kind/pubkey/channel_h/tags_json/
@@ -226,7 +224,7 @@ The relay enforces NIP-29 write admission. Mosaico does not repeat that decision
 from a stale roster. For another fabric, cryptographic membership or another
 native mechanism may supply the same product answer through its provider.
 
-Direct delivery is separate from ambient membership. When an Fava observation
+Direct delivery is separate from ambient membership. When a Fava observation
 delivers a message explicitly p-tagging a daemon-owned pubkey, Mosaico may park
 one durable inbox row for that exact identity, then choose an executor from
 local runtime state. A stopped identity may resume; a revoked or unavailable

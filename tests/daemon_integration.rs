@@ -12,12 +12,12 @@ mod channels;
 mod common;
 #[path = "daemon_integration/harness.rs"]
 mod daemon_harness;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 #[path = "daemon_integration/messaging.rs"]
 mod messaging;
 #[path = "daemon_integration/my_session.rs"]
 mod my_session;
-#[path = "common/fava_client.rs"]
-mod fava_client;
 #[path = "daemon_integration/process.rs"]
 mod process;
 #[path = "daemon_integration/search.rs"]

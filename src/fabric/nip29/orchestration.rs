@@ -101,8 +101,7 @@ fn build_event(
         }
     }
 
-    Ok(EventBuilder::new(kind(KIND_CHAT), prose)
-        .tags(tags))
+    Ok(EventBuilder::new(kind(KIND_CHAT), prose).tags(tags))
 }
 
 /// A parsed add-agents orchestration event.

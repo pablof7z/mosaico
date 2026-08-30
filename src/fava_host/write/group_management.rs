@@ -43,8 +43,7 @@ impl FavaHost {
             }
             let pubkeys = users.iter().map(|user| user.pubkey).collect::<Vec<_>>();
             let roles = first.roles.iter().map(String::as_str).collect::<Vec<_>>();
-            let builder =
-                put_user(&group, &pubkeys, &roles).context("building put-user event")?;
+            let builder = put_user(&group, &pubkeys, &roles).context("building put-user event")?;
             publish_group_builder_and_wait(&host, builder, author, "put-user")?;
             Ok(())
         })
@@ -70,8 +69,7 @@ impl FavaHost {
         let group = group.to_string();
         tokio::task::spawn_blocking(move || {
             let group = simple_group(&group, host.relays.iter().cloned())?;
-            let builder =
-                remove_user(&group, &pubkeys).context("building remove-user event")?;
+            let builder = remove_user(&group, &pubkeys).context("building remove-user event")?;
             publish_group_builder_and_wait(&host, builder, author, "remove-user")?;
             Ok(())
         })
@@ -95,8 +93,7 @@ impl FavaHost {
         let edit = edit.clone();
         tokio::task::spawn_blocking(move || {
             let group = simple_group(&group, host.relays.iter().cloned())?;
-            let builder =
-                edit_metadata(&group, &edit).context("building edit-metadata event")?;
+            let builder = edit_metadata(&group, &edit).context("building edit-metadata event")?;
             publish_group_builder_and_wait(&host, builder, author, "edit-metadata")
         })
         .await

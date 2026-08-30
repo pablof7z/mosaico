@@ -39,7 +39,7 @@ pub(super) fn install_relay_delivery(
     statuses: impl IntoIterator<Item = Status>,
     events: impl IntoIterator<Item = RelayEvent>,
 ) {
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles([Profile {
                 pubkey: "pk-coder".into(),
@@ -76,7 +76,7 @@ pub(super) fn seed_channel(store: &Store) {
 }
 
 pub(super) fn install_channel_delivery(store: &Store, members: impl IntoIterator<Item = String>) {
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("proj")
+    store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("proj")
         .metadata("main", "", "", 1)
         .admins(Vec::new())
         .members(members)]));

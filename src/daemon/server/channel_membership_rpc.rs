@@ -187,10 +187,9 @@ mod tests {
     async fn joining_a_missing_channel_never_creates_it() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
-            store
-                .install_test_fava_group_delivery(TestGroupDelivery::new([
-                    TestGroup::new("root-h").metadata("project", "", "", 1)
-                ]))
+            store.install_test_group_delivery(TestGroupDelivery::new([
+                TestGroup::new("root-h").metadata("project", "", "", 1)
+            ]))
         });
         let before = state.with_store(|store| store.list_channels().unwrap());
 

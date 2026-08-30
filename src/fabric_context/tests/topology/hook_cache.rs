@@ -19,7 +19,7 @@ fn a_heartbeat_only_refresh_does_not_emit_a_member_delta() {
         updated_at: 150,
         expiration: 500,
     };
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer.clone()]),
@@ -31,7 +31,7 @@ fn a_heartbeat_only_refresh_does_not_emit_a_member_delta() {
     peer.last_seen = 250;
     peer.updated_at = 250;
     peer.expiration = 600;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),
@@ -64,7 +64,7 @@ fn an_atomic_heartbeat_only_refresh_does_not_emit_a_member_delta() {
         updated_at: 150,
         expiration: 500,
     };
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer.clone()]),
@@ -76,7 +76,7 @@ fn an_atomic_heartbeat_only_refresh_does_not_emit_a_member_delta() {
     peer.last_seen = 250;
     peer.updated_at = 250;
     peer.expiration = 600;
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),
@@ -99,24 +99,22 @@ fn a_future_dated_status_is_not_recovered_before_its_time() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([crate::state::Status {
-                pubkey: OTHER_PK.into(),
-                channel_h: "root".into(),
-                slug: "reviewer".into(),
-                title: "Future work".into(),
-                activity: String::new(),
-                workspace: "root".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: 350,
-                last_seen: 350,
-                updated_at: 350,
-                expiration: 500,
-            }]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Future work".into(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            state_since: 350,
+            last_seen: 350,
+            updated_at: 350,
+            expiration: 500,
+        }],
+    ));
     let future = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     assert!(
         hook.render_context(&rec.pubkey, "turn_start", 200, 300, future)
@@ -130,7 +128,7 @@ fn a_future_dated_status_is_not_recovered_before_its_time() {
 fn a_fresh_hook_cache_rebaselines_members_without_replaying_chatter() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_fava_relay_delivery(
+    store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([crate::state::Status {
@@ -172,17 +170,9 @@ fn coordination_reminder_uses_eight_turn_cooldown_and_one_copy_per_snapshot() {
     let store = seed_store();
     let mut rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .events([chat(
-                "mention-cooldown",
-                "root",
-                210,
-                "please decide",
-                &tags,
-            )]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
+        chat("mention-cooldown", "root", 210, "please decide", &tags),
+    ]));
     let mut hook = HookContextState::default();
 
     for turn in 1..=9 {

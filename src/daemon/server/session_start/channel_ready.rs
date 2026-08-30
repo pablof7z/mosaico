@@ -169,7 +169,7 @@ mod tests {
         );
 
         state.with_store(|store| {
-            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("leaf-h").metadata("leaf", "", "", 2),
             ]));
         });

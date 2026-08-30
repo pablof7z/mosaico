@@ -37,11 +37,11 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
         "name='project'\ndescription='Project work'\ndeveloper_instructions='Work'",
     );
     let state = DaemonState::new_for_test().await;
-    let management = state.backend_pubkey().unwrap();
+    let management = state.backend_pubkey();
     state.with_store(|store| {
         // Observed but not administered: cached because the relay describes it,
         // never this backend's to advertise.
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root-a")
                 .metadata("root-a", "", "", 1)
                 .admins(vec![management.clone()]),

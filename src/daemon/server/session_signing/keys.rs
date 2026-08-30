@@ -20,7 +20,7 @@ impl DaemonState {
             return Ok(keys);
         }
         if let Some(signer_salt) = self.with_store(|store| store.session_signer_salt(pubkey))? {
-            let mgmt = self.management_keys()?;
+            let mgmt = self.backend_keys();
             let keys = crate::identity::derive_session_keys(mgmt.secret_key(), &signer_salt)?;
             if keys.public_key().to_hex() != pubkey {
                 anyhow::bail!("stored signer salt does not reproduce session pubkey");

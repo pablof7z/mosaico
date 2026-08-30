@@ -112,12 +112,6 @@ async fn publish_host_profile_if_root(state: &Arc<DaemonState>, channel_h: &str)
     }
 }
 
-pub(super) fn schedule_replay_chat(state: Arc<DaemonState>, channel: String) {
-    tokio::spawn(async move {
-        replay_channel_chat(&state, &channel).await;
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

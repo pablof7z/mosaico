@@ -9,10 +9,8 @@ pub(super) struct SessionStartRequest {
     pub readiness_parent: Option<String>,
     pub channel_provision_name: Option<String>,
     pub watch_pid: Option<i32>,
-    pub pty_session: Option<String>,
     pub ring_doorbell: bool,
     pub already_running: bool,
-    pub channel_already_subscribed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -34,7 +32,6 @@ pub(super) struct EngineStartIntent {
 pub(super) struct SessionStartPlan {
     pub channel_ready: Option<ChannelReadyIntent>,
     pub ring_doorbell: bool,
-    pub replay_chat: bool,
     pub spawn: Option<EngineStartIntent>,
     pub emit_tail: bool,
     pub reassert: bool,
@@ -52,9 +49,6 @@ pub(super) fn plan(request: &SessionStartRequest) -> SessionStartPlan {
             pubkey: request.pubkey.clone(),
         }),
         ring_doorbell: request.ring_doorbell,
-        replay_chat: active
-            && scoped
-            && (request.channel_already_subscribed || request.pty_session.is_some()),
         spawn: active.then(|| EngineStartIntent {
             rel_cwd: request.rel_cwd.clone(),
             watch_pid: request.watch_pid,
@@ -77,10 +71,8 @@ mod tests {
             readiness_parent: Some("parent".into()),
             channel_provision_name: None,
             watch_pid: Some(7),
-            pty_session: Some("pty".into()),
             ring_doorbell: true,
             already_running,
-            channel_already_subscribed: false,
         }
     }
 
@@ -92,7 +84,6 @@ mod tests {
             active.channel_ready.as_ref().unwrap().readiness_parent,
             Some("parent".into())
         );
-        assert!(active.replay_chat);
         assert!(!active.reassert);
 
         let reassert = plan(&request(true));
@@ -108,7 +99,6 @@ mod tests {
 
         let plan = plan(&unscoped);
         assert!(plan.channel_ready.is_none());
-        assert!(!plan.replay_chat);
         assert!(plan.spawn.is_some());
     }
 }

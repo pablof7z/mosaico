@@ -12,11 +12,7 @@ pub(in crate::daemon::server) async fn resolve_backend_pubkey(
     }
 
     if label == state.host() {
-        return state.backend_pubkey().ok_or_else(|| {
-            anyhow::anyhow!(
-                "backend label {label:?} matches local backend but no signing key is configured"
-            )
-        });
+        return Ok(state.backend_pubkey());
     }
 
     if let Some(pk) = state.with_store(|s| s.pubkey_for_backend_label(label).ok().flatten()) {

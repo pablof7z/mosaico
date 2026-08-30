@@ -191,8 +191,7 @@ impl Nip29WireCodec {
                         &attachment.sha256,
                     ])?);
                 }
-                EventBuilder::new(kind(KIND_CHAT), body.clone())
-                    .tags(tags)
+                EventBuilder::new(kind(KIND_CHAT), body.clone()).tags(tags)
             }
             DomainEvent::Reaction(Reaction {
                 reactor: _reactor,

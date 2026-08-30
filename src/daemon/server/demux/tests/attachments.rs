@@ -1,7 +1,7 @@
 use super::*;
 use axum::{body::Bytes, routing::get, Router};
-use nostr::event::{EventBuilder, FinalizeEvent, Kind};
 use nostr::event::Tag;
+use nostr::event::{EventBuilder, FinalizeEvent, Kind};
 use nostr::key::Keys;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,7 +30,7 @@ fn attachment_tag(url: &str, label: &str, bytes: &[u8]) -> Tag {
 fn register_receiver(state: &DaemonState, pubkey: &str) {
     state.with_store(|store| {
         register(store, pubkey, "reviewer", "room", "locator");
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("room").metadata("room", "", "", 1),
         ]));
     });
@@ -120,7 +120,7 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
 
 #[tokio::test]
 async fn slow_attachment_does_not_stall_demux() {
-    // Under the single broad `#h` observation (mosaico#837) the FavaViews
+    // Under the single broad `#h` observation (mosaico#837) the ObservedViews
     // `transition.added` set dedups a row to one delivery, so `dispatch` runs
     // once per event — the per-process `first_sight` LRU that used to guard
     // duplicate in-flight attachment spawns is retired. This test now covers

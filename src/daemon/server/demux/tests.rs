@@ -3,6 +3,8 @@ use crate::state::{RegisterSession, StopReason, Store};
 
 #[path = "tests/attachments.rs"]
 mod attachments;
+#[path = "tests/reaction.rs"]
+mod reaction;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,8 +27,8 @@ fn register(store: &Store, pubkey: &str, slug: &str, channel: &str, _locator: &s
 #[tokio::test]
 async fn observed_local_authored_chat_emits_tail_exactly_once() {
     use crate::row::{Row, RowDelta};
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
@@ -49,11 +51,7 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
     };
     let views = state.fava().views_handle();
 
-    let first = views.apply_frame(
-        "mosaico-h-room",
-        1,
-        vec![RowDelta::Added(row.clone())],
-    );
+    let first = views.apply_frame("mosaico-h-room", 1, vec![RowDelta::Added(row.clone())]);
     apply_transition(&state, first).await;
     let repeated = views.apply_frame("mosaico-h-room", 2, vec![RowDelta::Added(row)]);
     apply_transition(&state, repeated).await;
@@ -75,8 +73,8 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
 #[tokio::test]
 async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
     use crate::row::{Row, RowDelta};
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
@@ -126,8 +124,8 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
 #[tokio::test]
 async fn status_tail_events_follow_exact_observation_edges() {
     use crate::row::{Row, RowDelta};
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::event::Tag;
+    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
     use nostr::key::Keys;
 
     let state = DaemonState::new_for_test().await;
@@ -154,12 +152,12 @@ async fn status_tail_events_follow_exact_observation_edges() {
 
     // Under the single broad observation, one entry fans out to all channels
     // named in the status event's #h tags simultaneously.
-    let entered = views.apply_frame(
-        "mosaico-broad-h",
+    let entered = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Added(row.clone())]);
+    assert_eq!(
+        entered.added.len(),
         1,
-        vec![RowDelta::Added(row.clone())],
+        "first entry adds to the canonical union"
     );
-    assert_eq!(entered.added.len(), 1, "first entry adds to the canonical union");
     assert_eq!(entered.entered.len(), 1, "single broad observation edge");
     apply_transition(&state, entered).await;
     let ab_events = [
@@ -169,19 +167,27 @@ async fn status_tail_events_follow_exact_observation_edges() {
         tail.try_recv().unwrap(),
     ];
     assert!(
-        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-a")),
+        ab_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-a")),
         "broad entry emits Join for room-a"
     );
     assert!(
-        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-a")),
+        ab_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-a")),
         "broad entry emits Status for room-a"
     );
     assert!(
-        ab_events.iter().any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-b")),
+        ab_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Join { channel, .. } if channel == "room-b")),
         "broad entry emits Join for room-b"
     );
     assert!(
-        ab_events.iter().any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-b")),
+        ab_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Status { channel, .. } if channel == "room-b")),
         "broad entry emits Status for room-b"
     );
     assert!(tail.try_recv().is_err(), "exactly four status events");
@@ -191,15 +197,21 @@ async fn status_tail_events_follow_exact_observation_edges() {
     apply_transition(&state, departed).await;
     let leave_events = [tail.try_recv().unwrap(), tail.try_recv().unwrap()];
     assert!(
-        leave_events.iter().all(|e| matches!(e, TailEvent::Leave { .. })),
+        leave_events
+            .iter()
+            .all(|e| matches!(e, TailEvent::Leave { .. })),
         "both channel departures emit Leave"
     );
     assert!(
-        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-a")),
+        leave_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-a")),
         "broad departure emits Leave for room-a"
     );
     assert!(
-        leave_events.iter().any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-b")),
+        leave_events
+            .iter()
+            .any(|e| matches!(e, TailEvent::Leave { channel, .. } if channel == "room-b")),
         "broad departure emits Leave for room-b"
     );
     assert!(tail.try_recv().is_err());
@@ -266,37 +278,4 @@ fn has_alive_gate_matches_joined_subchannel_not_just_home_channel() {
     assert!(offline_mention::liveness::has_alive_session_for(
         &store, "pk-ord-1"
     ));
-}
-
-// ── eye-reaction routing gate ─────────────────────────────────────────────────
-
-/// Replicates the `hosted.contains(mentioned_pk)` gate in handle_incoming that
-/// decides whether to publish the eye reaction.
-fn should_publish_eye_reaction(hosted: &[String], mentioned_pk: &str) -> bool {
-    hosted.contains(&mentioned_pk.to_string())
-}
-
-#[test]
-fn eye_reaction_fires_for_hosted_agent_pubkey() {
-    let hosted = vec!["pk-ord-1".to_string(), "pk-ord-2".to_string()];
-    assert!(should_publish_eye_reaction(&hosted, "pk-ord-1"));
-}
-
-#[test]
-fn eye_reaction_fires_for_identity_derived_pubkey() {
-    // The hosted set includes persisted local session pubkeys.
-    let hosted = vec!["base-pk".to_string(), "pk-ord-1".to_string()];
-    assert!(should_publish_eye_reaction(&hosted, "pk-ord-1"));
-}
-
-#[test]
-fn eye_reaction_does_not_fire_for_foreign_peer() {
-    let hosted = vec!["pk-ord-1".to_string()];
-    assert!(!should_publish_eye_reaction(&hosted, "foreign-pk"));
-}
-
-#[test]
-fn eye_reaction_does_not_fire_for_empty_mentioned_pk() {
-    let hosted = vec!["pk-ord-1".to_string()];
-    assert!(!should_publish_eye_reaction(&hosted, ""));
 }

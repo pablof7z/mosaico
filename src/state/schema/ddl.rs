@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_session_channels_channel
     ON session_channels(channel_h, pubkey);
 
 -- Minimal durable cursor: event contents remain exclusively in Fava.
-CREATE TABLE IF NOT EXISTS fava_event_arrivals (
+CREATE TABLE IF NOT EXISTS event_arrivals (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL UNIQUE
 );

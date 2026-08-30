@@ -57,7 +57,7 @@ fn event(id: &str, kind: u16, author: &str, body: &str, at: u64, tags: &str) -> 
 async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
     let state = DaemonState::new_for_test_with_whitelisted(vec![HUMAN.into()]).await;
     state.with_store(|store| {
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root").metadata("root", "", "", 1),
             TestGroup::new("child").metadata("child", "", "root", 2),
         ]));
@@ -122,7 +122,7 @@ async fn store_adapter_separates_conversation_busy_and_non_agent_audiences() {
             851,
             r#"[["e","message-1"]]"#,
         ));
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             TestRelayDelivery::new()
                 .profiles([
                     profile(A1, "a1", false),

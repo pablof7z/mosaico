@@ -16,11 +16,11 @@ pub(in crate::state::schema::migration) fn migrate(
     let tx = conn.transaction().context("starting schema-22 migration")?;
     tx.execute_batch(
         r#"
-        CREATE TABLE fava_event_arrivals (
+        CREATE TABLE event_arrivals (
             sequence INTEGER PRIMARY KEY AUTOINCREMENT,
             event_id TEXT NOT NULL UNIQUE
         );
-        INSERT INTO fava_event_arrivals (sequence, event_id)
+        INSERT INTO event_arrivals (sequence, event_id)
         SELECT rowid, id FROM relay_events ORDER BY rowid;
 
         CREATE TABLE message_attachments (

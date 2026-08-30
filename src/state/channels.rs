@@ -35,7 +35,7 @@ impl Store {
     /// namespace. `None` when no channel by that name exists under `parent`.
     pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
         Ok(self
-            .fava_views
+            .observed_views
             .with_groups(|groups| groups.channel_id_for_name(parent, name)))
     }
 
@@ -89,13 +89,15 @@ impl Store {
     /// Fetch one channel's metadata.
     pub fn get_channel(&self, channel_h: &str) -> Result<Option<Channel>> {
         Ok(self
-            .fava_views
+            .observed_views
             .with_groups(|groups| groups.get_channel(channel_h)))
     }
 
     /// All known channels, newest metadata first.
     pub fn list_channels(&self) -> Result<Vec<Channel>> {
-        Ok(self.fava_views.with_groups(|groups| groups.list_channels()))
+        Ok(self
+            .observed_views
+            .with_groups(|groups| groups.list_channels()))
     }
 
     pub fn is_archived_channel(&self, channel_h: &str) -> Result<bool> {
@@ -108,7 +110,7 @@ impl Store {
     /// Root channels as read-model rows, ordered by stable channel id.
     pub fn list_root_channels(&self) -> Result<Vec<Channel>> {
         Ok(self
-            .fava_views
+            .observed_views
             .with_groups(|groups| groups.list_root_channels()))
     }
 
@@ -121,7 +123,7 @@ impl Store {
     /// or `None` if the channel is unknown.
     pub fn channel_parent(&self, channel_h: &str) -> Result<Option<String>> {
         Ok(self
-            .fava_views
+            .observed_views
             .with_groups(|groups| groups.channel_parent(channel_h)))
     }
 
@@ -129,28 +131,28 @@ impl Store {
     /// Returns `None` when the channel or any ancestor is unknown; callers that
     /// use rootness for routing/admission must not silently treat that as root.
     pub fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
-        self.fava_views
+        self.observed_views
             .with_groups(|groups| groups.root_channel_of(channel_h))
     }
 
     /// True when the channel is a known top-level root channel (`parent`
     /// empty). Unknown channels are not root.
     pub fn is_root_channel(&self, channel_h: &str) -> Result<bool> {
-        self.fava_views
+        self.observed_views
             .with_groups(|groups| groups.is_root_channel(channel_h))
     }
 
     /// True when the channel is known and belongs under a different top-level
     /// channel root. Unknown ancestry is not treated as a sub-channel.
     pub fn is_subchannel(&self, channel_h: &str) -> Result<bool> {
-        self.fava_views
+        self.observed_views
             .with_groups(|groups| groups.is_subchannel(channel_h))
     }
 
     /// Direct children of `parent` (one hop), ordered by stable id.
     pub fn list_child_channels(&self, parent: &str) -> Result<Vec<Channel>> {
         Ok(self
-            .fava_views
+            .observed_views
             .with_groups(|groups| groups.list_child_channels(parent)))
     }
 

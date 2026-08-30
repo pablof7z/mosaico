@@ -4,15 +4,12 @@ use crate::fabric::nip29::lifecycle;
 impl Nip29Provider {
     /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
     pub async fn nip29_set_group_name(&self, group: &str, name: &str) -> bool {
-        let Some(mgmt_keys) = self.management_keys() else {
-            return false;
-        };
         let edit = fava_simple_groups::MetadataEdit {
             name: Some(name.to_string()),
             ..Default::default()
         };
         self.fava
-            .publish_metadata_edit_and_wait(group, &edit, mgmt_keys.public_key())
+            .publish_metadata_edit_and_wait(group, &edit, self.fava.backend_pubkey())
             .await
             .is_ok()
     }
@@ -21,12 +18,9 @@ impl Nip29Provider {
         &self,
         group: &str,
     ) -> GroupPublishOutcome {
-        let Some(keys) = self.management_keys() else {
-            return configuration_failure("9007 create-group");
-        };
         if let Err(e) = self
             .fava
-            .publish_create_group_and_wait(group, keys.public_key())
+            .publish_create_group_and_wait(group, self.fava.backend_pubkey())
             .await
         {
             return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
@@ -38,7 +32,7 @@ impl Nip29Provider {
         let edit = lifecycle::group_lock_closed(group, group);
         match self
             .fava
-            .publish_metadata_edit_and_wait(group, &edit, keys.public_key())
+            .publish_metadata_edit_and_wait(group, &edit, self.fava.backend_pubkey())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
@@ -65,12 +59,9 @@ impl Nip29Provider {
         name: &str,
         parent: &str,
     ) -> GroupPublishOutcome {
-        let Some(keys) = self.management_keys() else {
-            return configuration_failure("9007 create-subgroup");
-        };
         if let Err(e) = self
             .fava
-            .publish_create_subgroup_and_wait(child, parent, keys.public_key())
+            .publish_create_subgroup_and_wait(child, parent, self.fava.backend_pubkey())
             .await
         {
             return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
@@ -82,7 +73,7 @@ impl Nip29Provider {
         let edit = lifecycle::group_lock_closed(child, name);
         match self
             .fava
-            .publish_metadata_edit_and_wait(child, &edit, keys.public_key())
+            .publish_metadata_edit_and_wait(child, &edit, self.fava.backend_pubkey())
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
@@ -93,12 +84,4 @@ impl Nip29Provider {
             )),
         }
     }
-}
-
-fn configuration_failure(operation: &str) -> GroupPublishOutcome {
-    GroupPublishOutcome::Failed(GroupOperationError::new(
-        operation,
-        GroupOperationStage::Configuration,
-        "management signing key unavailable",
-    ))
 }

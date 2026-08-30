@@ -328,7 +328,7 @@ accepted write. Relay sessions belong to Fava, never to an agent runtime.
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
    *does* receive events p-tagged to a different agent B. The relay does **not**
    scope ordinary public event delivery to the connection's authed identity.
-   Mosaico pins one shared public read demand to configured hosts; NIP-42 protected reads remain an Fava capability, not the product acquisition path for public groups.
+   Mosaico pins one shared public read demand to configured hosts; NIP-42 protected reads remain a Fava capability, not the product acquisition path for public groups.
 2. **Multi-key publish.** Fava freezes the draft author at acceptance, selects the
    exact registered capability named by the write override, validates the signed
    result, authenticates the relay session as that author when challenged, and

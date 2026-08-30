@@ -57,7 +57,7 @@ impl Fixture {
     }
 
     fn refresh(&self) {
-        self.store.install_test_fava_relay_delivery(
+        self.store.install_test_relay_delivery(
             TestRelayDelivery::new()
                 .profiles(self.profiles.clone())
                 .events(self.events.borrow().clone()),

@@ -1,8 +1,6 @@
 use super::*;
 use nostr::key::Keys;
 
-mod boot_recovery;
-
 #[test]
 fn configured_local_hosts_are_explicitly_allowed_but_onion_is_not() {
     let local = RelayUrl::parse("ws://127.0.0.1:7777").unwrap();

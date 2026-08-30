@@ -61,6 +61,10 @@ pub struct DaemonState {
     store: Arc<Mutex<Store>>,
     provider: Arc<RwLock<Arc<Nip29Provider>>>,
     fava: Arc<RwLock<Arc<crate::fava_host::FavaHost>>>,
+    /// Backend identity admitted at config load. Fava owns publication signing;
+    /// Mosaico retains this parsed key only for deterministic session-key
+    /// derivation and local author selection.
+    backend_keys: RwLock<Keys>,
     cfg: RwLock<Config>,
     config_reload: Mutex<()>,
     /// Serializes lifecycle-owned NIP-29 standing transitions. Relay writes
@@ -80,14 +84,16 @@ pub struct DaemonState {
 }
 impl DaemonState {
     /// Hex pubkey of the daemon-owned management identity.
-    fn backend_pubkey(&self) -> Option<String> {
+    fn backend_pubkey(&self) -> String {
         self.provider().management_pubkey()
     }
-    /// Management signer for NIP-29 group ops; provisions `mosaicoPrivateKey`.
-    fn management_keys(&self) -> Result<Keys> {
-        self.provider()
-            .management_keys()
-            .ok_or_else(|| anyhow::anyhow!("no signing key (mosaicoPrivateKey) set"))
+    /// Parsed backend identity for local derivation. Configuration admission
+    /// guarantees it exists and is valid before the daemon state is built.
+    fn backend_keys(&self) -> Keys {
+        self.backend_keys
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
     }
     pub(crate) fn with_store<R>(&self, f: impl FnOnce(&Store) -> R) -> R {
         let g = self.store.lock().expect("store mutex poisoned");
@@ -195,7 +201,7 @@ pub(crate) use session_signing::{
     load_session_identity, prepare_session_identity, PreparedIdentity,
 };
 use session_start::rpc_session_start;
-use subscriptions::{ensure_subscription, replay_channel_chat, sync_subscriptions};
+use subscriptions::{ensure_subscription, sync_subscriptions};
 use turns::{rpc_turn_check, rpc_turn_end, rpc_turn_start};
 use who::rpc_who;
 mod dispatch;

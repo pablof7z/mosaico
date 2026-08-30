@@ -39,9 +39,7 @@ pub(super) async fn rpc_dispatch(
     .context("dispatch must be run from within a mosaico agent session")?;
     let backend_pubkey = match target.backend.as_deref() {
         Some(backend) if backend != state.host() => resolve_backend_pubkey(state, backend).await?,
-        _ => state
-            .backend_pubkey()
-            .context("local backend has no management pubkey")?,
+        _ => state.backend_pubkey(),
     };
     let requested = if p.channels.is_empty() {
         vec![crate::channel_ref::format_channel_ref(&p.workspace, &[])]
@@ -228,11 +226,10 @@ fn dispatch_ack_from_snapshot(
         let fava::EventValue::Signed(event) = record.event() else {
             return None;
         };
-        (crate::fabric::nip29::session_dispatch::dispatch_ack_ref(&event)
-            == Some(dispatch_event_id))
-        .then(|| DispatchAck {
-            pubkey: event.pubkey.to_hex(),
-        })
+        (crate::fabric::nip29::session_dispatch::dispatch_ack_ref(event) == Some(dispatch_event_id))
+            .then(|| DispatchAck {
+                pubkey: event.pubkey.to_hex(),
+            })
     })
 }
 

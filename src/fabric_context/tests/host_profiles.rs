@@ -28,7 +28,7 @@ pub(super) fn advertise_host(
         workspaces: workspaces.clone(),
         updated_at,
     });
-    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles));
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(profiles));
     let root_admins = if workspaces.iter().any(|workspace| workspace == "root") {
         vec![pubkey.to_string()]
     } else {
@@ -52,7 +52,7 @@ pub(super) fn advertise_host(
                 .members(Vec::new()),
         );
     }
-    store.install_test_fava_group_delivery(TestGroupDelivery::new(groups));
+    store.install_test_group_delivery(TestGroupDelivery::new(groups));
 }
 
 #[test]

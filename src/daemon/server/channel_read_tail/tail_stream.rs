@@ -245,7 +245,7 @@ mod tests {
     async fn public_tail_events_replace_internal_channel_ids_with_full_paths() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
-            store.install_test_fava_group_delivery(TestGroupDelivery::new([
+            store.install_test_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root-h").metadata("root", "", "", 1),
                 TestGroup::new("child-h").metadata("review", "", "root-h", 2),
             ]));

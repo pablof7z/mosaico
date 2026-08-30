@@ -7,8 +7,8 @@ use nostr::event::Event;
 use crate::group_snapshot::GroupSnapshot;
 use crate::row::Row;
 
-use super::FavaHost;
 use super::read::{BoundedRead, BoundedReadTermination};
+use super::FavaHost;
 
 struct ScriptedError {
     context: String,

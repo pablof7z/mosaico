@@ -13,6 +13,12 @@ use crate::reconcile::SubscriptionQuery;
 
 use super::FavaHost;
 
+/// Whole-query ceiling for the standing multi-channel activity observation.
+/// This bounds both Fava's snapshot and Mosaico's signed-row holder; deliberate
+/// reads operate on this current delivered set and never pretend to backfill a
+/// second history source.
+const BROAD_H_RESULT_LIMIT: usize = 10_000;
+
 impl FavaHost {
     /// Convert one Mosaico subscription question into a fava `Query`.
     pub(crate) fn fava_query(&self, query: &SubscriptionQuery) -> Result<Query> {
@@ -42,6 +48,8 @@ impl FavaHost {
         q = q
             .tag_values(h, groups.iter().map(String::as_str))
             .context("group-contents-multi h-tag")?
+            .limit(BROAD_H_RESULT_LIMIT)
+            .context("group-contents-multi result limit")?
             .only_from_relays(self.relays.iter().cloned())
             .context("group-contents-multi relay scope")?;
         Ok(q)
@@ -64,27 +72,14 @@ impl FavaHost {
         Ok(q)
     }
 
-    /// kind:0 for one pubkey from the profile relays.
-    fn profile_query(&self, pubkey: &str) -> Result<Query> {
-        let pubkey = nostr::key::PublicKey::from_hex(pubkey)
-            .with_context(|| format!("invalid pubkey in profile query: {pubkey}"))?;
-        Query::events()
-            .kinds([fava::Kind::from_u16(0)])
-            .context("profile kinds")?
-            .authors([pubkey])
-            .context("profile author")?
-            .from_relays(self.profile_relays.iter().cloned())
-            .context("profile relay scope")
-    }
-
     /// kind:0 for the current member set, from the profile relays.
     /// Used by the retained profile feed.
     pub(crate) fn profile_feed_query(&self, authors: &BTreeSet<String>) -> Result<Query> {
         if authors.is_empty() {
             // Empty author set matches nothing — return a vacuous query.
-            return Ok(Query::events()
+            return Query::events()
                 .kinds([fava::Kind::from_u16(0)])
-                .context("profile-feed kinds")?);
+                .context("profile-feed kinds");
         }
         let pubkeys = authors
             .iter()

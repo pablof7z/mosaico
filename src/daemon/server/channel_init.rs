@@ -30,7 +30,7 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
         )
     })?;
 
-    let management = state.management_keys()?;
+    let management = state.backend_keys();
     let management_pubkey = management.public_key().to_hex();
     let provider = state.provider();
     let readiness = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {

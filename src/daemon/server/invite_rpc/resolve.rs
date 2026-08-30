@@ -89,7 +89,7 @@ mod tests {
     fn historical_remote_npub_resolves_without_status() {
         let store = Store::open_memory().unwrap();
         let pubkey = Keys::generate().public_key();
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             TestRelayDelivery::new().profiles([profile(&pubkey.to_hex(), "old-codex")]),
         );
 
@@ -117,7 +117,7 @@ mod tests {
             updated_at: 1,
             expiration: 1,
         };
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             TestRelayDelivery::new()
                 .profiles([profile(&pubkey, "old-codex")])
                 .statuses([status]),
@@ -135,7 +135,7 @@ mod tests {
         let mut profile = profile(&pubkey.to_hex(), "remote");
         profile.agent_slug = "remote".into();
         profile.is_backend = true;
-        store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile]));
+        store.install_test_relay_delivery(TestRelayDelivery::new().profiles([profile]));
 
         assert!(remote_sessions(&store, &pubkey.to_bech32().unwrap())
             .unwrap()

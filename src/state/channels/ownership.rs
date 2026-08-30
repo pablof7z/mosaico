@@ -34,7 +34,7 @@ impl Store {
         let managed = statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<BTreeSet<_>>>()?;
-        Ok(self.fava_views.with_groups(|groups| {
+        Ok(self.observed_views.with_groups(|groups| {
             groups
                 .list_channels()
                 .into_iter()

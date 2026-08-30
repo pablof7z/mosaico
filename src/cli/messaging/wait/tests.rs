@@ -81,7 +81,7 @@ fn agent_native_wait_renderers_use_one_mosaico_envelope() {
 #[test]
 fn direct_delivery_omits_for_while_wait_keeps_recipients() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         TestGroup::new("x").metadata("x", "", "", 1)
     ]));
     let row = crate::state::InboxRow {

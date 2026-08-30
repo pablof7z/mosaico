@@ -250,13 +250,13 @@ mod tests {
         let store = Store::open_memory().unwrap();
         let pk1 = Keys::generate().public_key().to_hex();
         let pk2 = Keys::generate().public_key().to_hex();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("proj", "", "", 1),
             crate::state::TestGroup::new("child").metadata("planning", "", "root", 2),
             crate::state::TestGroup::new("grandchild").metadata("review", "", "child", 3),
             crate::state::TestGroup::new("other").metadata("other", "", "", 4),
         ]));
-        store.install_test_fava_relay_delivery(
+        store.install_test_relay_delivery(
             crate::state::TestRelayDelivery::new()
                 .profiles([crate::state::Profile {
                     pubkey: pk1.clone(),

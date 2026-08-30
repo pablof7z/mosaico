@@ -29,9 +29,7 @@ pub(super) fn repair_delivered(
     snapshots: &[crate::group_snapshot::GroupSnapshot],
     attempted: &mut BTreeSet<String>,
 ) {
-    let Some(backend_pubkey) = state.backend_pubkey() else {
-        return;
-    };
+    let backend_pubkey = state.backend_pubkey();
     let bindings = match state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()
     }) {
@@ -156,14 +154,12 @@ mod tests {
     #[test]
     fn an_attempted_root_is_not_republished() {
         let backend = Keys::generate().public_key();
-        assert!(
-            roots_needing_workspace_name(
-                &[snapshot("one", "wrong", None, Some(backend))],
-                &backend.to_hex(),
-                &BTreeSet::new(),
-                &BTreeSet::from(["one".to_string()]),
-            )
-            .is_empty()
-        );
+        assert!(roots_needing_workspace_name(
+            &[snapshot("one", "wrong", None, Some(backend))],
+            &backend.to_hex(),
+            &BTreeSet::new(),
+            &BTreeSet::from(["one".to_string()]),
+        )
+        .is_empty());
     }
 }

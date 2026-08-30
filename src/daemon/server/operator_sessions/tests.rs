@@ -6,7 +6,7 @@ mod presence;
 #[test]
 fn projection_exposes_public_identity_without_private_runtime_id() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("workspace").metadata("mosaico", "", "", 1),
         crate::state::TestGroup::new("room").metadata("review", "", "workspace", 2),
         crate::state::TestGroup::new("skills-root").metadata("skills", "", "", 3),
@@ -65,7 +65,7 @@ fn projection_exposes_public_identity_without_private_runtime_id() {
 #[test]
 fn stopped_session_projection_retains_project_and_restart_capability() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("root").metadata("mosaico", "", "", 1),
     ]));
     store.upsert_workspace("root", "/repo/mosaico", 1).unwrap();
@@ -107,7 +107,7 @@ fn stopped_session_projection_retains_project_and_restart_capability() {
 #[test]
 fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("root").metadata("cut-tracker", "", "", 1),
     ]));
     let pubkey = Keys::generate().public_key().to_hex();
@@ -154,7 +154,7 @@ fn unhosted_resumable_projection_exposes_open_turn_takeover_state() {
 #[test]
 fn projection_includes_live_unbound_supervisor() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("workspace").metadata("mosaico", "", "", 1),
     ]));
     store.upsert_workspace("workspace", "/repo", 1).unwrap();
@@ -195,7 +195,7 @@ fn projection_includes_live_unbound_supervisor() {
 #[test]
 fn bound_endpoint_projection_is_transport_owned_and_generic() {
     let store = Store::open_memory().unwrap();
-    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("root").metadata("root", "", "", 1),
     ]));
     let pubkey = Keys::generate().public_key().to_hex();
@@ -244,7 +244,7 @@ fn bound_endpoint_projection_is_transport_owned_and_generic() {
 fn missing_hosted_locator_preserves_the_admitted_transport() {
     for transport in ["pty", "acp", "app-server", "pi-rpc"] {
         let store = Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
         ]));
         let pubkey = Keys::generate().public_key().to_hex();

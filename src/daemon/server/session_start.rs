@@ -165,7 +165,6 @@ pub(super) async fn rpc_session_start_inner(
     })?;
     retire_reclaimed_profile(state, reclaimed_pubkey.as_deref()).await?;
 
-    let endpoint = p.pty_session.clone().filter(|value| !value.is_empty());
     let request = advisory::SessionStartRequest {
         pubkey: pubkey.clone(),
         channel_h: channel.clone(),
@@ -174,15 +173,8 @@ pub(super) async fn rpc_session_start_inner(
         readiness_parent: (!readiness_parent.is_empty()).then_some(readiness_parent.clone()),
         channel_provision_name,
         watch_pid: p.watch_pid,
-        pty_session: endpoint,
         ring_doorbell: p.pty_session.is_some(),
         already_running,
-        channel_already_subscribed: state
-            .subscriptions
-            .reconciler
-            .lock()
-            .unwrap()
-            .covers_channel(&channel),
     };
     let plan = advisory::plan(&request);
     let joined = joined_channels::record(state, &pubkey, channel.clone(), p.channels, now);
@@ -208,9 +200,6 @@ pub(super) async fn rpc_session_start_inner(
         lifecycle_epoch,
         plan.channel_ready,
     );
-    if plan.replay_chat {
-        effects::schedule_replay_chat(state.clone(), channel.clone());
-    }
     joined_channels::schedule_admission(
         state.clone(),
         pubkey.clone(),

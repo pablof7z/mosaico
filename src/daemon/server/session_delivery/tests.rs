@@ -20,10 +20,10 @@ async fn seeded_state_with_transport(transport: &str) -> (Arc<DaemonState>, crat
     let state = DaemonState::new_for_test().await;
     let session = state
         .with_store(|store| {
-            store.install_test_fava_group_delivery(TestGroupDelivery::new([
+            store.install_test_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("room").metadata("Room", "", "", 1)
             ]));
-            store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+            store.install_test_relay_delivery(TestRelayDelivery::new().profiles([Profile {
                 pubkey: "peer-pubkey".into(),
                 name: "peer".into(),
                 slug: "peer".into(),

@@ -69,7 +69,7 @@ pub(in crate::daemon::server) async fn resolve_channel(
     let proposed = crate::util::opaque_group_id();
     let child_h = state
         .with_store(|s| s.reserve_channel_resolution_intent(parent, name, &proposed, now_secs()))?;
-    let member = state.backend_pubkey().unwrap_or_default();
+    let member = state.backend_pubkey();
 
     let gate = state
         .provider()

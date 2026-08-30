@@ -46,7 +46,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(!table_exists(&conn, "session_aliases"));
     assert!(!table_exists(&conn, "identities"));
     assert!(!table_exists(&conn, "durable_agent_sessions"));
-    assert!(table_exists(&conn, "fava_event_arrivals"));
+    assert!(table_exists(&conn, "event_arrivals"));
     assert!(table_exists(&conn, "message_attachments"));
     for fava_owned in [
         "relay_channels",
@@ -115,10 +115,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
         ]
     );
 
-    assert_eq!(
-        columns(&conn, "fava_event_arrivals"),
-        ["sequence", "event_id"]
-    );
+    assert_eq!(columns(&conn, "event_arrivals"), ["sequence", "event_id"]);
     assert_eq!(
         columns(&conn, "message_attachments"),
         ["event_id", "directory"]

@@ -32,10 +32,7 @@ pub(in crate::daemon::server) fn rpc_backend_profile_refresh(
 pub(in crate::daemon::server) async fn publish_backend_profile(
     state: &Arc<DaemonState>,
 ) -> Result<BackendProfilePublishReport> {
-    let backend_keys = state
-        .provider()
-        .management_keys()
-        .context("backend profile requires a management key")?;
+    let backend_keys = state.backend_keys();
     let snapshot = backend_profile_snapshot(state)?;
     for failure in &snapshot.failures {
         tracing::error!(error = %failure, "agent capability is not advertisable");
@@ -117,7 +114,7 @@ pub(in crate::daemon::server) fn managed_roots(
 pub(in crate::daemon::server) fn backend_profile_snapshot(
     state: &Arc<DaemonState>,
 ) -> Result<BackendProfileSnapshot> {
-    let management_pubkey = state.backend_pubkey().unwrap_or_default();
+    let management_pubkey = state.backend_pubkey();
     let workspaces = state.with_store(|store| managed_roots(store, &management_pubkey))?;
     let bindings = state.with_store(|store| {
         crate::daemon::workspace_path::WorkspacePathResolver::new(store).bindings()

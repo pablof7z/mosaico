@@ -61,7 +61,10 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
 /// additions irrespective of delivery order. This lets a replaceable winner's
 /// removal reveal an older current row in the same batch without emitting a
 /// transient absence."*).
-async fn apply_transition(state: &Arc<DaemonState>, transition: crate::fava_views::RowTransition) {
+async fn apply_transition(
+    state: &Arc<DaemonState>,
+    transition: crate::observed_views::RowTransition,
+) {
     for departed in transition.removed {
         apply_departure(state, departed);
     }
@@ -84,7 +87,7 @@ async fn apply_transition(state: &Arc<DaemonState>, transition: crate::fava_view
 /// rather than from the observation id.
 fn apply_observation_entry(
     state: &Arc<DaemonState>,
-    entered: crate::fava_views::EnteredRow,
+    entered: crate::observed_views::EnteredRow,
     hosted: &mut Option<Vec<String>>,
 ) {
     if entered.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
@@ -125,7 +128,7 @@ fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
 /// delivered in the same frame is already installed in the Fava view, so
 /// `get_status` suppresses a transient Leave for channels the agent still
 /// occupies without introducing a Mosaico freshness or expiry clock.
-fn apply_departure(state: &Arc<DaemonState>, departed: crate::fava_views::DepartedRow) {
+fn apply_departure(state: &Arc<DaemonState>, departed: crate::observed_views::DepartedRow) {
     if departed.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
     }
@@ -169,7 +172,7 @@ fn finish_incoming(
     decoded: crate::fabric::ProductDecode,
     now: u64,
 ) {
-    // Each event reaches here exactly once. The FavaViews `transition.added`
+    // Each event reaches here exactly once. The ObservedViews `transition.added`
     // set only carries rows newly added to the views, and under the single
     // broad `#h` observation (mosaico#837) there is no overlapping delivery to
     // re-add a row, so the per-process `first_sight` LRU that guarded this

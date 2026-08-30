@@ -10,11 +10,9 @@
 //! what a `[label]` may look like, and the operator assumption that a group
 //! relay also serves Blossom at the same host.
 
+use crate::asset_hash::Sha256Hash;
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
-use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use crate::asset_hash::Sha256Hash;
-use nostr::event::Tag;
 use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
@@ -23,7 +21,7 @@ use url::Url;
 
 use crate::fava_host::FavaHost;
 
-const AUTH_LIFETIME_SECS: u64 = 5 * 60;
+mod authorization;
 
 #[derive(serde::Deserialize)]
 struct BlossomDescriptor {
@@ -213,7 +211,7 @@ async fn upload(
         )
     })?;
     let hash = Sha256Hash::of(&bytes);
-    let auth_token = authorization(fava, author, &hash).await?;
+    let auth_token = authorization::sign_upload(fava, author, &hash).await?;
     let content_type = mime_guess::from_path(&attachment.path).first_or_octet_stream();
     let upload_url = server
         .join("upload")
@@ -280,35 +278,6 @@ async fn upload(
         url,
         sha256: returned_sha256,
     })
-}
-
-/// Compose a BUD-11 kind:24242 authorization and have Fava sign it with the
-/// registered author signer before returning the base64url-encoded JSON.
-async fn authorization(fava: &Arc<FavaHost>, author: PublicKey, hash: &Sha256Hash) -> Result<String> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let expiration = now + AUTH_LIFETIME_SECS;
-    let t_tag = Tag::parse(["t", "upload"]).map_err(|e| anyhow::anyhow!("BUD-11 t tag: {e}"))?;
-    let x_tag =
-        Tag::parse(["x", &hash.to_hex()]).map_err(|e| anyhow::anyhow!("BUD-11 x tag: {e}"))?;
-    let exp_tag = Tag::parse(["expiration", &expiration.to_string()])
-        .map_err(|e| anyhow::anyhow!("BUD-11 expiration tag: {e}"))?;
-    let unsigned = fava::EventBuilder::new(fava::Kind::from_u16(24242))
-        .content("Upload Blob")
-        .tags([t_tag, x_tag, exp_tag])
-        .by(author)
-        .build()
-        .map_err(anyhow::Error::from)?;
-    let signed = fava
-        .fava
-        .sign(unsigned)
-        .await
-        .map_err(anyhow::Error::from)
-        .context("Fava signing BUD-11 upload authorization")?;
-    let json = signed.as_json();
-    Ok(URL_SAFE_NO_PAD.encode(json.as_bytes()))
 }
 
 /// Whether `url` targets a loopback or RFC-1918 private address.

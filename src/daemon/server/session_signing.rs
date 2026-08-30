@@ -34,7 +34,7 @@ pub(crate) fn validate_live_session_identity(
         let signer_salt = state
             .with_store(|store| store.session_signer_salt(&session.pubkey))?
             .with_context(|| format!("pubkey {:?} has no signer material", session.pubkey))?;
-        let mgmt = state.management_keys()?;
+        let mgmt = state.backend_keys();
         crate::identity::derive_session_keys(mgmt.secret_key(), &signer_salt)?
             .public_key()
             .to_hex()
@@ -116,7 +116,7 @@ pub(crate) fn prepare_session_identity(
         });
     }
 
-    let mgmt = state.management_keys()?;
+    let mgmt = state.backend_keys();
     let (keys, pubkey, allocation) = state.with_store(|store| {
         store.reserve_derived_identity(&agent.slug, session_name, now, |signer_salt| {
             let keys = crate::identity::derive_session_keys(mgmt.secret_key(), signer_salt)?;

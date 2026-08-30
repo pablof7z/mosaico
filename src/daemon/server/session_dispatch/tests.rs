@@ -21,7 +21,7 @@ fn fully_qualified_channels_use_leading_hash_paths() {
 
 fn caller_session(state: &Arc<DaemonState>, channels: &[&str]) -> crate::state::Session {
     state.with_store(|s| {
-        s.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new(
+        s.install_test_group_delivery(crate::state::TestGroupDelivery::new(
             channels
                 .iter()
                 .map(|channel| crate::state::TestGroup::new(channel).metadata(channel, "", "", 1)),

@@ -107,7 +107,7 @@ fn query_from_params(
         until: params.until,
         limit,
         before: None,
-        backend_pubkey: state.backend_pubkey(),
+        backend_pubkey: Some(state.backend_pubkey()),
     })
 }
 

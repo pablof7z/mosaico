@@ -1,13 +1,12 @@
 //! Bounded read projections through the daemon's sole fava engine.
 
-use std::collections::BTreeSet;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use fava::{EventValue, Observation, ObservationClosed, Query, RelayUrl};
+use fava::{EventValue, Observation, ObservationClosed, Query};
 
-use super::FavaHost;
 use super::query::FetchFilter;
+use super::FavaHost;
 use crate::row::Row;
 
 /// One bounded fava observation snapshot without erasing why observation stopped.

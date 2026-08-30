@@ -1,8 +1,8 @@
 use super::*;
 use crate::reconcile::StatusReconciler;
 pub(super) mod auth_restore;
-mod host_profile_bootstrap;
 pub(super) mod fava_open;
+mod host_profile_bootstrap;
 mod reconcile;
 mod shutdown;
 
@@ -35,12 +35,11 @@ pub async fn run() -> Result<()> {
     let mut store = Store::open(&store_path())?;
     reconcile::leftover_startup_state(&store)?;
     let fava = Arc::new(fava_open::open(&cfg, &storage, &backend_keys)?);
-    store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
+    store.bind_observed_state(fava.views_handle(), fava.clone());
     let store = Arc::new(Mutex::new(store));
     let provider = Arc::new(Nip29Provider::new(
         fava.clone(),
         store.clone(),
-        cfg.management_nsec().cloned(),
         cfg.user_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
     ));
@@ -52,6 +51,7 @@ pub async fn run() -> Result<()> {
         store,
         provider,
         fava,
+        backend_keys: std::sync::RwLock::new(backend_keys),
         cfg: std::sync::RwLock::new(cfg),
         config_reload: Mutex::new(()),
         agent_config: AgentConfigState::new(),

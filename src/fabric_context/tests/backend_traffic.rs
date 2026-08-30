@@ -14,19 +14,17 @@ use super::{
 fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
     const MGMT_PK: &str = "backend-mgmt-pubkey";
     let store = seed_store();
-    store.install_test_fava_group_delivery(TestGroupDelivery::new([
+    store.install_test_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, OTHER_PK, MGMT_PK], &[]),
         task_group(),
     ]));
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([
-                idle_status(SELF_PK, "coder", "Coding"),
-                idle_status(OTHER_PK, "reviewer", "Reviewing"),
-                idle_status(MGMT_PK, "backend", "Managing relay"),
-            ]),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [
+            idle_status(SELF_PK, "coder", "Coding"),
+            idle_status(OTHER_PK, "reviewer", "Reviewing"),
+            idle_status(MGMT_PK, "backend", "Managing relay"),
+        ],
+    ));
     let rec = session(&store);
 
     let excluded = |backend_pubkey: &str| -> String {
@@ -118,9 +116,7 @@ fn backend_traffic_excluded_from_chatter() {
             &format!("[[\"p\",\"{MGMT_PK}\"]]"),
         ),
     ];
-    store.install_test_fava_relay_delivery(
-        TestRelayDelivery::new().profiles(profiles).events(events),
-    );
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(profiles).events(events));
 
     let render = |backend_pubkey: &str| -> String {
         let build = FabricContextInput {

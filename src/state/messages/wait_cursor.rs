@@ -2,11 +2,11 @@ use super::*;
 
 impl Store {
     pub(crate) fn latest_message_arrival_sequence(&self) -> Result<u64> {
-        self.latest_fava_arrival_sequence()
+        self.latest_event_arrival_sequence()
     }
 
     pub(crate) fn message_arrival_sequence(&self, message_id: &str) -> Result<Option<u64>> {
-        self.fava_arrival_sequence(message_id)
+        self.event_arrival_sequence(message_id)
     }
 
     pub(crate) fn messages_after_arrival_sequence(
@@ -16,7 +16,7 @@ impl Store {
     ) -> Result<Vec<(u64, Message)>> {
         let mut rows = Vec::new();
         for row in self.message_projections() {
-            let Some(sequence) = self.fava_arrival_sequence(&row.message.message_id)? else {
+            let Some(sequence) = self.event_arrival_sequence(&row.message.message_id)? else {
                 continue;
             };
             rows.push((sequence, row.message));

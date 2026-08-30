@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn descendant_resolves_through_root_binding() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root").metadata("root", "", "", 1),
             TestGroup::new("child").metadata("child", "", "root", 1),
         ]));
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn broken_ancestry_is_an_error_instead_of_a_root_fallback() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.install_test_fava_group_delivery(TestGroupDelivery::new([
+        store.install_test_group_delivery(TestGroupDelivery::new([
             TestGroup::new("child").metadata("child", "", "missing-parent", 1)
         ]));
         let resolver = WorkspacePathResolver::new(&store);
