@@ -6,8 +6,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::put;
 use axum::Router;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use nostr::event::Event;
+use nostr::key::Keys;
 use std::sync::Mutex;
 
 #[derive(Clone, Debug, Default)]
@@ -84,6 +84,7 @@ async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
     std::fs::write(&file, bytes).unwrap();
     let keys = Keys::generate();
     let host = local_host(&relay);
+    host.register_signer(&keys).unwrap();
 
     let uploaded = upload_all(
         &[Attachment {
@@ -92,7 +93,7 @@ async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
         }],
         &[relay],
         &host,
-        &keys,
+        keys.public_key(),
     )
     .await
     .unwrap();
@@ -135,9 +136,7 @@ async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
 }
 
 /// The whole reason to adopt the crate rather than keep the local client: the
-/// grant is signed through `NmpHost`, never with raw `Keys`. This was the only
-/// production `sign_with_keys` in the repo, and it is why a non-local signer
-/// could not produce an attachment at all.
+/// grant is signed through Fava's registered signer, never with raw `Keys`.
 #[tokio::test]
 async fn the_authorization_is_signed_through_nmp_not_with_raw_keys() {
     let (relay, capture, server) = test_server("blob.bin").await;
@@ -146,6 +145,7 @@ async fn the_authorization_is_signed_through_nmp_not_with_raw_keys() {
     std::fs::write(&file, b"trace").unwrap();
     let keys = Keys::generate();
     let host = local_host(&relay);
+    host.register_signer(&keys).unwrap();
 
     upload_all(
         &[Attachment {
@@ -154,7 +154,7 @@ async fn the_authorization_is_signed_through_nmp_not_with_raw_keys() {
         }],
         &[relay],
         &host,
-        &keys,
+        keys.public_key(),
     )
     .await
     .unwrap();
@@ -165,8 +165,8 @@ async fn the_authorization_is_signed_through_nmp_not_with_raw_keys() {
         Event::from_json(String::from_utf8(URL_SAFE_NO_PAD.decode(encoded).unwrap()).unwrap())
             .unwrap();
     assert!(
-        host.has_registered_identity(&keys.public_key()),
-        "signing the grant must go through NMP's identity registry"
+        event.verify().is_ok(),
+        "signing the grant must go through Fava's signer registry"
     );
     assert_eq!(event.pubkey, keys.public_key());
     server.abort();
@@ -198,6 +198,8 @@ async fn a_descriptor_whose_hash_does_not_match_the_bytes_is_refused() {
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
     let host = local_host(&base);
+    let author = Keys::generate();
+    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -206,7 +208,7 @@ async fn a_descriptor_whose_hash_does_not_match_the_bytes_is_refused() {
         }],
         &[base],
         &host,
-        &Keys::generate(),
+        author.public_key(),
     )
     .await
     .unwrap_err()
@@ -232,6 +234,8 @@ async fn surfaces_server_error_with_its_reason() {
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
     let host = local_host(&base);
+    let author = Keys::generate();
+    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -240,7 +244,7 @@ async fn surfaces_server_error_with_its_reason() {
         }],
         &[base],
         &host,
-        &Keys::generate(),
+        author.public_key(),
     )
     .await
     .unwrap_err()
@@ -274,6 +278,8 @@ async fn rejects_an_incomplete_success_descriptor() {
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
     let host = local_host(&base);
+    let author = Keys::generate();
+    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -282,7 +288,7 @@ async fn rejects_an_incomplete_success_descriptor() {
         }],
         &[base],
         &host,
-        &Keys::generate(),
+        author.public_key(),
     )
     .await
     .unwrap_err()
