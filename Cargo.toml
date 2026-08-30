@@ -23,7 +23,7 @@ harness = false
 # Nostr (must match fava's exact pin)
 nostr = { version = "=0.45.3", default-features = false, features = ["std"] }
 
-# Fava engine — NMP replacement
+# Fava engine
 fava = { path = "/Users/pablofernandez/Work/fava/crates/fava" }
 fava-simple-groups = { path = "/Users/pablofernandez/Work/fava/crates/fava-simple-groups" }
 fava-event-cache-memory = { path = "/Users/pablofernandez/Work/fava/crates/fava-event-cache-memory" }
@@ -39,9 +39,6 @@ fava-router-app-relays = { path = "/Users/pablofernandez/Work/fava/crates/fava-r
 fava-signer = { path = "/Users/pablofernandez/Work/fava/crates/fava-signer" }
 fava-signer-local = { path = "/Users/pablofernandez/Work/fava/crates/fava-signer-local" }
 fava-query = { path = "/Users/pablofernandez/Work/fava/crates/fava-query" }
-
-# Blossom file-upload layer (no nostr types cross the boundary)
-nmp-asset = { version = "=0.1.0", git = "https://github.com/pablof7z/nmp.git", rev = "b6f95ee725106fd404fe4904b071f8aee3197b09" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal", "process", "io-util", "io-std", "net", "fs"] }
 tokio-stream = { version = "0.1", features = ["sync"] }

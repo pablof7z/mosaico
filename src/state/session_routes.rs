@@ -18,7 +18,7 @@ impl Store {
         lifecycle_epoch: u64,
         now: u64,
     ) -> Result<ConfirmedAdmissionCommit> {
-        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
+        let joined_event_seq = self.latest_fava_arrival_sequence()?;
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,
             rusqlite::TransactionBehavior::Immediate,
@@ -161,7 +161,7 @@ impl Store {
         if channel_h.trim().is_empty() {
             return Ok(());
         }
-        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
+        let joined_event_seq = self.latest_fava_arrival_sequence()?;
         self.conn.execute(
             "INSERT OR IGNORE INTO session_channels
                  (pubkey, channel_h, joined_at, joined_event_seq)
@@ -206,7 +206,7 @@ impl Store {
         let Some((joined_at, joined_event_seq)) = membership else {
             return Ok(false);
         };
-        let Some(arrival_sequence) = self.nmp_arrival_sequence(&event.id)? else {
+        let Some(arrival_sequence) = self.fava_arrival_sequence(&event.id)? else {
             return Ok(false);
         };
         Ok(event.channel_h == channel_h

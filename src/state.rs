@@ -7,7 +7,7 @@
 //!      pending channel-name reservations,
 //!      generation-scoped progressive coaching claims,
 //! and on-disk workspace paths (`workspace_roots`). Relay-owned state is read
-//! directly from retained NMP observations.
+//! directly from retained Fava observations.
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
 //! The pubkey is the sole session identity. Harness-native ids and PTY endpoints
@@ -28,26 +28,26 @@ pub(crate) use test_group_delivery::{TestGroup, TestGroupDelivery, TestRelayDeli
 
 pub struct Store {
     conn: Connection,
-    nmp_views: Arc<crate::nmp_views::NmpViews>,
-    profile_feed: Arc<crate::nmp_host::ProfileFeed>,
+    fava_views: Arc<crate::fava_views::FavaViews>,
+    profile_feed: Arc<crate::fava_host::ProfileFeed>,
 }
 
 impl Store {
-    /// Bind both NMP-backed views in one call: the legacy `NmpViews` mirror and
+    /// Bind both Fava-backed views in one call: the legacy `FavaViews` mirror and
     /// the retained profile feed that owns `Store::get_profile`. The two are
-    /// always bound together from the same live [`NmpHost`](crate::nmp_host::NmpHost).
-    pub(crate) fn bind_nmp_views_and_feed(
+    /// always bound together from the same live [`FavaHost`](crate::fava_host::FavaHost).
+    pub(crate) fn bind_fava_views_and_feed(
         &mut self,
-        views: Arc<crate::nmp_views::NmpViews>,
-        host: Arc<crate::nmp_host::NmpHost>,
+        views: Arc<crate::fava_views::FavaViews>,
+        host: Arc<crate::fava_host::FavaHost>,
     ) {
-        self.nmp_views = views;
-        self.profile_feed = Arc::new(crate::nmp_host::ProfileFeed::new(host));
+        self.fava_views = views;
+        self.profile_feed = Arc::new(crate::fava_host::ProfileFeed::new(host));
     }
 
     /// The retained profile feed driving `Store::get_profile`. The coverage
     /// refresh calls `set_members` on this `Arc`.
-    pub(crate) fn profile_feed(&self) -> Arc<crate::nmp_host::ProfileFeed> {
+    pub(crate) fn profile_feed(&self) -> Arc<crate::fava_host::ProfileFeed> {
         Arc::clone(&self.profile_feed)
     }
 }
@@ -94,7 +94,7 @@ pub struct ChannelMember {
 }
 
 /// kind:30315 current activity for one agent session in one channel, projected
-/// from the exact NMP observation that currently owns the Row. NMP applies
+/// from the exact Fava observation that currently owns the Row. Fava applies
 /// replacement and NIP-40 removal before this value reaches Mosaico.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
@@ -114,7 +114,7 @@ pub struct Status {
     pub expiration: u64,
 }
 
-/// A verbatim relay event projected from NMP's current delivered Rows.
+/// A verbatim relay event projected from Fava's current delivered Rows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayEvent {
     pub id: String,
@@ -127,7 +127,7 @@ pub struct RelayEvent {
     pub tags_json: String,
 }
 
-/// Current kind:9 row projected from NMP. The author's pubkey is the sole
+/// Current kind:9 row projected from Fava. The author's pubkey is the sole
 /// sender identity; Mosaico does not persist message history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -146,7 +146,7 @@ pub struct MessageRecipient {
     pub recipient_pubkey: String,
 }
 
-/// One current NIP-25 reaction plus the target body projected from NMP.
+/// One current NIP-25 reaction plus the target body projected from Fava.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactionRow {
     pub reaction_id: String,
@@ -155,7 +155,7 @@ pub struct ReactionRow {
     pub reactor_pubkey: String,
     pub emoji: String,
     pub created_at: u64,
-    /// The reacted-to message body from the same NMP view. Reactions whose
+    /// The reacted-to message body from the same Fava view. Reactions whose
     /// target is absent are excluded from `ReactionRow` queries.
     pub target_body: String,
 }

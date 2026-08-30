@@ -3,7 +3,7 @@ use super::*;
 async fn agent_context_does_not_block_explicit_who() {
     let state = DaemonState::new_for_test().await;
     state.with_store(|store| {
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
         ]));
     });
@@ -22,7 +22,7 @@ async fn agent_context_does_not_block_explicit_who() {
 async fn stale_unresolved_process_anchor_does_not_turn_an_operator_into_an_agent() {
     let state = DaemonState::new_for_test().await;
     state.with_store(|store| {
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
         ]));
     });
@@ -44,7 +44,7 @@ async fn stale_unresolved_process_anchor_does_not_turn_an_operator_into_an_agent
 async fn human_who_never_returns_agent_fabric() {
     let state = DaemonState::new_for_test().await;
     state.with_store(|store| {
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("root", "", "", 1),
         ]));
     });
@@ -63,11 +63,11 @@ async fn human_who_never_returns_agent_fabric() {
 async fn raw_who_json_uses_public_channel_paths() {
     let state = DaemonState::new_for_test().await;
     state.with_store(|store| {
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root-h").metadata("root", "", "", 1),
             crate::state::TestGroup::new("child-h").metadata("review", "", "root-h", 2),
         ]));
-        store.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
+        store.install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
             crate::state::Profile {
                 pubkey: "agent-pk".into(),
                 name: "reviewer".into(),

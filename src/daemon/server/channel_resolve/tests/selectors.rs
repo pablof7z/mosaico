@@ -95,8 +95,8 @@ fn describe_missing_channel_lists_the_workspace_and_sibling_workspaces() {
 #[test]
 fn describe_missing_channel_lists_known_workspaces_when_root_missing() {
     let store = Store::open_memory().unwrap();
-    channels(&store, &[("nmp", "general", "")]);
+    channels(&store, &[("fava", "general", "")]);
     let message = describe_missing_channel(&store, "#nonexistent/child");
     assert!(message.contains("No workspace named \"nonexistent\""));
-    assert!(message.contains("#nmp"));
+    assert!(message.contains("#fava"));
 }

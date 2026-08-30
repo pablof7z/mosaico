@@ -15,11 +15,11 @@ fn event(id: &str, tags_json: &str) -> RelayEvent {
 }
 
 #[test]
-fn wait_cursor_follows_nmp_arrival_order() {
+fn wait_cursor_follows_fava_arrival_order() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([event("first", "[]")]));
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([event("first", "[]")]));
     let cursor = store.latest_message_arrival_sequence().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().events([event("first", "[]"), event("second", "[]")]),
     );
 
@@ -31,7 +31,7 @@ fn wait_cursor_follows_nmp_arrival_order() {
 #[test]
 fn reply_target_comes_from_the_observed_message_tags() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([event(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([event(
         "reply",
         r#"[["e","root","","root"],["e","parent","","reply"]]"#,
     )]));

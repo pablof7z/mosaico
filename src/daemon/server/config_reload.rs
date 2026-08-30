@@ -82,7 +82,7 @@ fn reload(
     if runtime_changed(&previous, &next) {
         reload_relay_runtime(state, storage, &previous, &next, &next_backend_keys)?;
     } else {
-        install_config(state, provider_for(state.nmp(), &next, &state.store), next);
+        install_config(state, provider_for(state.fava(), &next, &state.store), next);
     }
     super::lifecycle::auth_restore::restore(state)
         .context("restoring identities after config reload")?;
@@ -106,18 +106,18 @@ fn reload_relay_runtime(
     super::group_records::shutdown(state);
     *state.subscriptions.reconciler.lock().unwrap() =
         crate::reconcile::SubscriptionReconciler::new();
-    state.nmp().shutdown();
+    state.fava().shutdown();
     // The fava write store (redb) holds an exclusive file lock for the
-    // lifetime of the NmpHost. Drop the old host before opening the
+    // lifetime of the FavaHost. Drop the old host before opening the
     // replacement so the new build can acquire the lock.
     release_store_lock(state, next_backend_keys)?;
     match build_runtime(next, storage, next_backend_keys, &state.store) {
-        Ok((nmp, provider)) => install_runtime(state, nmp, provider, next.clone()),
+        Ok((fava, provider)) => install_runtime(state, fava, provider, next.clone()),
         Err(reload_error) => {
             let prior_keys = backend_keys(previous)?;
-            let (nmp, provider) = build_runtime(previous, storage, &prior_keys, &state.store)
+            let (fava, provider) = build_runtime(previous, storage, &prior_keys, &state.store)
                 .context("restoring the prior relay runtime")?;
-            install_runtime(state, nmp, provider, previous.clone());
+            install_runtime(state, fava, provider, previous.clone());
             super::lifecycle::auth_restore::restore(state)
                 .context("restoring identities after failed config reload")?;
             super::spawn_demux(state.clone());
@@ -130,14 +130,14 @@ fn reload_relay_runtime(
     Ok(())
 }
 
-/// Swap the current NmpHost for a lock-free in-memory placeholder so the
+/// Swap the current FavaHost for a lock-free in-memory placeholder so the
 /// redb exclusive lock is released before `build_runtime` reopens the file.
 fn release_store_lock(state: &Arc<DaemonState>, keys: &Keys) -> Result<()> {
     let placeholder = Arc::new(
-        crate::nmp_host::NmpHost::open(&[], None, None, keys)
-            .context("creating lock-release placeholder NmpHost")?,
+        crate::fava_host::FavaHost::open(&[], None, None, keys)
+            .context("creating lock-release placeholder FavaHost")?,
     );
-    *state.nmp.write().unwrap_or_else(|p| p.into_inner()) = placeholder;
+    *state.fava.write().unwrap_or_else(|p| p.into_inner()) = placeholder;
     Ok(())
 }
 
@@ -146,22 +146,22 @@ fn build_runtime(
     storage: &crate::daemon::storage_paths::StoragePaths,
     backend_keys: &Keys,
     store: &Arc<Mutex<Store>>,
-) -> Result<(Arc<crate::nmp_host::NmpHost>, Arc<Nip29Provider>)> {
-    let nmp = Arc::new(super::lifecycle::nmp_open::open(
+) -> Result<(Arc<crate::fava_host::FavaHost>, Arc<Nip29Provider>)> {
+    let fava = Arc::new(super::lifecycle::fava_open::open(
         config,
         storage,
         backend_keys,
     )?);
-    Ok((nmp.clone(), provider_for(nmp, config, store)))
+    Ok((fava.clone(), provider_for(fava, config, store)))
 }
 
 fn provider_for(
-    nmp: Arc<crate::nmp_host::NmpHost>,
+    fava: Arc<crate::fava_host::FavaHost>,
     config: &Config,
     store: &Arc<Mutex<Store>>,
 ) -> Arc<Nip29Provider> {
     Arc::new(Nip29Provider::new(
-        nmp,
+        fava,
         store.clone(),
         config.management_nsec().cloned(),
         config.user_nsec().cloned(),
@@ -178,7 +178,7 @@ fn backend_keys(config: &Config) -> Result<Keys> {
 
 fn install_runtime(
     state: &DaemonState,
-    nmp: Arc<crate::nmp_host::NmpHost>,
+    fava: Arc<crate::fava_host::FavaHost>,
     provider: Arc<Nip29Provider>,
     config: Config,
 ) {
@@ -186,11 +186,11 @@ fn install_runtime(
         .store
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
-        .bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
+        .bind_fava_views_and_feed(fava.views_handle(), fava.clone());
     *state
-        .nmp
+        .fava
         .write()
-        .unwrap_or_else(|poison| poison.into_inner()) = nmp;
+        .unwrap_or_else(|poison| poison.into_inner()) = fava;
     *state
         .provider
         .write()

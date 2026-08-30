@@ -169,7 +169,7 @@ mod tests {
         );
 
         state.with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("leaf-h").metadata("leaf", "", "", 2),
             ]));
         });
@@ -208,12 +208,12 @@ mod tests {
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
         for _ in 0..4 {
             state
-                .nmp()
+                .fava()
                 .script_group_snapshot(absent_group_snapshot("missing-root"));
         }
         state
-            .nmp()
-            .script_write_error("scripted NMP publish refusal", FAILURE);
+            .fava()
+            .script_write_error("scripted Fava publish refusal", FAILURE);
 
         let error = verify_start_channel_ready(
             &state,
@@ -228,7 +228,7 @@ mod tests {
         let rendered = format!("{error:#}");
         assert!(rendered.contains(FAILURE), "{rendered}");
         assert!(
-            rendered.contains("9007 create-group NMP publish failed"),
+            rendered.contains("9007 create-group Fava publish failed"),
             "{rendered}"
         );
         assert!(

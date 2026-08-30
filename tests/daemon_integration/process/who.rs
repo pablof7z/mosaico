@@ -22,7 +22,7 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
             observed_channel_members("#tmp").is_some()
                 && observed_channel_members("#proj2").is_some()
         }),
-        "both workspace roots must be delivered by NMP before renderer sessions start"
+        "both workspace roots must be delivered by Fava before renderer sessions start"
     );
 
     let out = run_cli_stdin(

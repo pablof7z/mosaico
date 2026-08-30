@@ -23,7 +23,7 @@ pub(in crate::daemon::server) async fn ensure_subscription(
 /// hand it to the [`SubscriptionReconciler`], and apply the returned
 /// Open/Close/Replace effects. This is the single point every subscription
 /// writer funnels through — no split-brain. A channel a session just left with
-/// no other owner closes its NMP observation here.
+/// no other owner closes its Fava observation here.
 pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonState>) -> Result<()> {
     let _serial = state.subscriptions.sync.lock().await;
     let snapshot = build_coverage_snapshot(state);
@@ -44,7 +44,7 @@ pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonStat
         super::group_records::GroupRecordsCoverage::from_snapshot(&snapshot, &trusted_operators),
     )?;
     // Compute the plan under the policy lock, then drop it before handing the
-    // effects to NMP's engine.
+    // effects to Fava's engine.
     let effects = {
         let mut rec = state.subscriptions.reconciler.lock().unwrap();
         rec.plan(&snapshot)
@@ -94,7 +94,7 @@ pub(in crate::daemon::server) fn reconcile_after_group_state_event(
     });
 }
 
-/// Apply policy effects through NMP. NMP owns relay planning, observation
+/// Apply policy effects through Fava. Fava owns relay planning, observation
 /// lifecycle, reconnect repair, and canonical wire-event deduplication.
 pub(in crate::daemon::server) async fn apply_effects(
     state: &Arc<DaemonState>,
@@ -110,10 +110,10 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     if let SubEffect::Close { id } = effect {
         tracing::debug!(
             subscription = id,
-            "closing NMP observation (last owner left)"
+            "closing Fava observation (last owner left)"
         );
     }
-    state.nmp().apply(effect)
+    state.fava().apply(effect)
 }
 
 /// Reopen the channel observation so the session sees canonical current rows
@@ -144,7 +144,7 @@ pub(in crate::daemon::server) async fn replay_channel_chat(_state: &Arc<DaemonSt
 ///   Owned by the daemon scope.
 /// - `profile_pubkeys`: the backend identity plus every current group member.
 ///   Each gets a narrow exact-author kind:0 observation, so profile reads are
-///   answered by retained NMP state rather than an app-owned cache.
+///   answered by retained Fava state rather than an app-owned cache.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
         .subscriptions

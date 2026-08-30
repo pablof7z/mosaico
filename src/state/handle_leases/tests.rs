@@ -40,7 +40,7 @@ fn relay_profile_projection_never_blocks_local_allocation() {
     let store = Store::open_memory().unwrap();
     let wanted_codename = candidates("local-new").next().unwrap();
     let wanted_handle = crate::idref::session_handle("codex", &wanted_codename);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles([remote_profile(&wanted_handle)]),
     );
 
@@ -51,7 +51,7 @@ fn relay_profile_projection_never_blocks_local_allocation() {
 #[test]
 fn relay_profile_projection_never_blocks_custom_name() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles([remote_profile("quill-codex")]),
     );
 

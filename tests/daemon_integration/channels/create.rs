@@ -28,7 +28,7 @@ fn start_creator(home: &Home, sid: &str) -> String {
         wait_until(std::time::Duration::from_secs(25), || {
             observed_channel_members("#tmp").is_some()
         }),
-        "NMP did not deliver #tmp before creator startup completed"
+        "Fava did not deliver #tmp before creator startup completed"
     );
     let store = Store::open(&home.store_path()).unwrap();
     pubkey_for_harness_session(&store, "claude-code", sid).expect("creator pubkey")
@@ -36,7 +36,7 @@ fn start_creator(home: &Home, sid: &str) -> String {
 
 fn named_child_h(_home: &Home, parent_h: &str, name: &str) -> String {
     observed_channel_h(parent_h, name)
-        .unwrap_or_else(|| panic!("missing NMP-observed child {name:?} beneath {parent_h:?}"))
+        .unwrap_or_else(|| panic!("missing Fava-observed child {name:?} beneath {parent_h:?}"))
 }
 
 /// Creating siblings through an absolute parent path returns their public
@@ -103,7 +103,7 @@ fn channel_create_returns_public_paths_and_preserves_siblings() {
         "adding a sibling must preserve the complete parent child set"
     );
 
-    // The parent channel group was created + locked, so NMP's delivered roster
+    // The parent channel group was created + locked, so Fava's delivered roster
     // names the backend management key as an administrator.
     let store = Store::open(&home.store_path()).unwrap();
     let routes_after = session_routes(&store, &creator);
@@ -191,7 +191,7 @@ fn channel_create_no_agents_adds_join_without_replacing_routes() {
     assert_eq!(
         observed_channel_h(parent, &child_name).as_deref(),
         Some(child_h.as_str()),
-        "NMP's delivered topology should resolve the child beneath its explicit parent"
+        "Fava's delivered topology should resolve the child beneath its explicit parent"
     );
     let routes_after = session_routes(&store, &pubkey);
     assert!(routes_before

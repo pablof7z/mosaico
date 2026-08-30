@@ -9,7 +9,7 @@ use super::{
 #[test]
 fn human_who_renderer_is_non_xml_and_terminal_friendly() {
     let store = seed_store();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([idle_status(SELF_PK, "coder", "Reviewing fabric context")]),
@@ -32,7 +32,7 @@ fn human_who_renderer_is_non_xml_and_terminal_friendly() {
 #[test]
 fn human_who_renderer_colorizes_when_requested() {
     let store = seed_store();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([idle_status(SELF_PK, "coder", "Reviewing fabric context")]),
@@ -54,7 +54,7 @@ fn human_who_renderer_colorizes_when_requested() {
 #[test]
 fn a_member_without_a_heartbeat_renders_with_no_state_word() {
     let store = seed_store();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([idle_status(SELF_PK, "coder", "Reviewing fabric context")])

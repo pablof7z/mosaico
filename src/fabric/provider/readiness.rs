@@ -51,7 +51,7 @@ fn ensure_channel_ready_inner<'a>(
     Box::pin(async move {
         // No depth cap: a channel path may nest arbitrarily deep (mkdir -p style),
         // so provisioning walks the whole ancestor chain up to the channel root.
-        // Parent links are a strict acyclic ancestry delivered by NMP,
+        // Parent links are a strict acyclic ancestry delivered by Fava,
         // so this recursion terminates at the root (parent_hint == None).
 
         // Normalize: Some("") is the DB's sentinel for "known root channel" but
@@ -78,7 +78,7 @@ fn ensure_channel_ready_inner<'a>(
                 provider,
                 &ctx,
                 ChannelGate::Ready,
-                "channel readiness verified from NMP group state",
+                "channel readiness verified from Fava group state",
             );
         }
 
@@ -98,10 +98,10 @@ fn ensure_channel_ready_inner<'a>(
             vec![]
         };
         // A locally reserved root/child id is exact product intent. If its
-        // retained NMP observation has no records yet, send the one create
-        // operation and let NMP's terminal result decide it; do not open a
+        // retained Fava observation has no records yet, send the one create
+        // operation and let Fava's terminal result decide it; do not open a
         // second observation merely to prove absence. For an unrelated id,
-        // absence is not ours to invent, so the bounded NMP read still fails
+        // absence is not ours to invent, so the bounded Fava read still fails
         // closed.
         let managed = provider
             .with_store(|store| store.is_managed_channel(ctx.channel))
@@ -152,7 +152,7 @@ fn ensure_channel_ready_inner<'a>(
                         provider,
                         &ctx,
                         ChannelGate::Repaired,
-                        "channel creation and required role publications settled through NMP",
+                        "channel creation and required role publications settled through Fava",
                     );
                 }
                 Ok(false) => {}
@@ -227,7 +227,7 @@ fn ensure_channel_ready_inner<'a>(
             }
         }
 
-        // NMP's group snapshot is the authority. Read it directly; readiness
+        // Fava's group snapshot is the authority. Read it directly; readiness
         // never depends on a Mosaico-owned channel copy.
         match provider.fetch_channel(ctx.channel).await {
             Ok(Some(_)) => {}
@@ -235,7 +235,7 @@ fn ensure_channel_ready_inner<'a>(
                 return attempt::degraded(
                     provider,
                     &ctx,
-                    "settled NMP group snapshot contained no kind:39000 metadata",
+                    "settled Fava group snapshot contained no kind:39000 metadata",
                 );
             }
             Err(error) => {

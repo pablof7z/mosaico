@@ -15,7 +15,7 @@ fn local_lifecycle_overrides_an_offline_relay_row() {
             now: 95,
         })
         .unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([Status {
@@ -62,7 +62,7 @@ fn suspended_and_working_deltas_follow_the_current_row() {
         updated_at: 90,
         expiration: 120,
     };
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer.clone()]),
@@ -87,7 +87,7 @@ fn suspended_and_working_deltas_follow_the_current_row() {
     peer.activity = "stale live activity".into();
     peer.last_seen = 110;
     peer.updated_at = 110;
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([peer]),

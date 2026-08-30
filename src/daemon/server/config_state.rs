@@ -23,8 +23,8 @@ impl DaemonState {
             .clone()
     }
 
-    pub(crate) fn nmp(&self) -> Arc<crate::nmp_host::NmpHost> {
-        self.nmp
+    pub(crate) fn fava(&self) -> Arc<crate::fava_host::FavaHost> {
+        self.fava
             .read()
             .unwrap_or_else(|poison| poison.into_inner())
             .clone()
@@ -38,9 +38,9 @@ impl DaemonState {
     /// target at or below the current one is a no-op, so repeated deep reads do
     /// not spam the relay.
     pub(in crate::daemon::server) fn request_full_chat_window(&self) -> Result<()> {
-        self.nmp().request_rows(
+        self.fava().request_rows(
             crate::reconcile::subscriptions::BROAD_H_ID,
-            crate::nmp_host::OBSERVATION_WINDOW_MAX,
+            crate::fava_host::OBSERVATION_WINDOW_MAX,
         )
     }
 
@@ -52,7 +52,7 @@ impl DaemonState {
 
     /// The retained kind:0 profile feed driving `Store::get_profile`. The
     /// coverage refresh calls `set_members` on this `Arc`.
-    pub(crate) fn profile_feed(&self) -> Arc<crate::nmp_host::ProfileFeed> {
+    pub(crate) fn profile_feed(&self) -> Arc<crate::fava_host::ProfileFeed> {
         self.with_store(|store| store.profile_feed())
     }
 }

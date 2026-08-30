@@ -53,7 +53,7 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
         }
     };
     if let Err(e) = state
-        .nmp()
+        .fava()
         .publish_group(&channel_h, builder, mgmt_keys.public_key())
     {
         tracing::warn!(

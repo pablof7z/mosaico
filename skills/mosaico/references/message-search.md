@@ -1,7 +1,7 @@
 # Message search
 
 Use `mosaico channel search` to find messages in the daemon's current retained
-NMP observation. Search never opens a second query or backfills from the relay,
+Fava observation. Search never opens a second query or backfills from the relay,
 so a missing result means only that no matching message is present in the
 currently delivered rows.
 
@@ -12,14 +12,14 @@ every channel currently represented in those rows. A narrower channel
 path includes that channel and every descendant:
 
 ```bash
-mosaico channel search --channel '#nmp/research'
+mosaico channel search --channel '#fava/research'
 ```
 
 There is no workspace filter. A workspace root is an ordinary channel path, so
-`--channel '#nmp'` searches that root and its descendants.
+`--channel '#fava'` searches that root and its descendants.
 
 Do not add a local permission check before searching. NIP-29 relay policy owns
-admission and authorization. Once messages have been delivered by NMP to the
+admission and authorization. Once messages have been delivered by Fava to the
 current backend, channel and workspace paths are query scopes rather than
 separate local visibility boundaries.
 
@@ -44,12 +44,12 @@ combine with AND. For example:
 mosaico channel search \
   --from @Pablo --from @reviewer \
   --contains commit \
-  --channel '#nmp/research' \
+  --channel '#fava/research' \
   --since 7d
 ```
 
 This finds currently observed messages authored by Pablo **or** reviewer whose body
-contains `commit`, within `#nmp/research` or any descendant, during the last
+contains `commit`, within `#fava/research` or any descendant, during the last
 seven days.
 
 ## Output and pagination
@@ -58,10 +58,10 @@ Results are selected newest-first and grouped by channel in agent-native XML:
 
 ```xml
 <mosaico>
-  <channel ref="#nmp/research">
+  <channel ref="#fava/research">
     <message from="@Pablo" for="@reviewer" id="4e91c0" age="4m">landed the commit</message>
   </channel>
-  <channel ref="#nmp/research/design">
+  <channel ref="#fava/research/design">
     <message from="@reviewer" id="7bc421" time="1785348600">approved</message>
   </channel>
   <next cursor="opaque-cursor" />

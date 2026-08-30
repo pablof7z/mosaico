@@ -6,17 +6,17 @@ use std::time::Duration;
 const PROFILE_FETCH_TIMEOUT: Duration = Duration::from_secs(4);
 
 impl Nip29Provider {
-    /// Resolve one exact-author kind:0 through a bounded NMP read.
+    /// Resolve one exact-author kind:0 through a bounded Fava read.
     ///
-    /// The returned value is decoded directly from NMP's Row. It is deliberately
+    /// The returned value is decoded directly from Fava's Row. It is deliberately
     /// not inserted into Mosaico's retained views: only a live observation owns
-    /// those views, and Row identity/source provenance remains at the NMP read
+    /// those views, and Row identity/source provenance remains at the Fava read
     /// boundary because the product profile domain has no place for it.
     pub(crate) async fn fetch_profile(&self, pubkey: &str) -> Option<crate::domain::Profile> {
         nostr::key::PublicKey::from_hex(pubkey).ok()?;
-        let filter = crate::nmp_host::read::filter(&[0], &[pubkey.to_string()], &[]).ok()?;
+        let filter = crate::fava_host::read::filter(&[0], &[pubkey.to_string()], &[]).ok()?;
         let read = self
-            .nmp
+            .fava
             .fetch_profiles(filter, 1, PROFILE_FETCH_TIMEOUT)
             .await
             .ok()?;
@@ -41,24 +41,24 @@ mod tests {
     use nostr::key::Keys;
     use std::sync::{Arc, Mutex};
 
-    fn provider() -> (Nip29Provider, Arc<crate::nmp_host::NmpHost>) {
+    fn provider() -> (Nip29Provider, Arc<crate::fava_host::FavaHost>) {
         let backend = Keys::generate();
-        let nmp = Arc::new(
-            crate::nmp_host::NmpHost::open(&[], None, None, &backend).expect("in-memory NMP host"),
+        let fava = Arc::new(
+            crate::fava_host::FavaHost::open(&[], None, None, &backend).expect("in-memory Fava host"),
         );
         let mut store = Store::open_memory().expect("in-memory state store");
-        store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
+        store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
         let store = Arc::new(Mutex::new(store));
         let management_nsec = backend.secret_key().to_secret_hex();
         (
-            Nip29Provider::new(nmp.clone(), store, Some(management_nsec), None, Vec::new()),
-            nmp,
+            Nip29Provider::new(fava.clone(), store, Some(management_nsec), None, Vec::new()),
+            fava,
         )
     }
 
     #[tokio::test]
-    async fn bounded_profile_fetch_decodes_the_nmp_row_without_mutating_the_view() {
-        let (provider, nmp) = provider();
+    async fn bounded_profile_fetch_decodes_the_fava_row_without_mutating_the_view() {
+        let (provider, fava) = provider();
         let profile_keys = Keys::generate();
         let owner = Keys::generate().public_key().to_hex();
         let profile = Profile::agent(
@@ -73,7 +73,7 @@ mod tests {
             .expect("profile draft")
             .finalize(&profile_keys)
             .expect("signed profile");
-        nmp.script_read_settled_events(vec![event.clone()]);
+        fava.script_read_settled_events(vec![event.clone()]);
 
         let fetched = provider
             .fetch_profile(&profile_keys.public_key().to_hex())

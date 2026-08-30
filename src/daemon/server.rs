@@ -1,4 +1,4 @@
-//! The daemon process: sole owner of state.db, NMP acquisition, and provider I/O.
+//! The daemon process: sole owner of state.db, Fava acquisition, and provider I/O.
 use super::client::StartupLock;
 use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
@@ -60,7 +60,7 @@ use state::{
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
     provider: Arc<RwLock<Arc<Nip29Provider>>>,
-    nmp: Arc<RwLock<Arc<crate::nmp_host::NmpHost>>>,
+    fava: Arc<RwLock<Arc<crate::fava_host::FavaHost>>>,
     cfg: RwLock<Config>,
     config_reload: Mutex<()>,
     /// Serializes lifecycle-owned NIP-29 standing transitions. Relay writes

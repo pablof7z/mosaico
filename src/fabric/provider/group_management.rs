@@ -49,7 +49,7 @@ impl Nip29Provider {
         };
 
         match self
-            .nmp
+            .fava
             .add_group_users_and_wait(group, users, user_keys.public_key())
             .await
         {
@@ -81,7 +81,7 @@ impl Nip29Provider {
         label: &str,
     ) -> GroupPublishOutcome {
         match self
-            .nmp
+            .fava
             .publish_group_and_wait(group, builder, keys.public_key())
             .await
         {
@@ -161,7 +161,36 @@ impl Nip29Provider {
     }
 
     pub(crate) fn management_pubkey(&self) -> Option<String> {
-        self.management_keys()
-            .map(|keys| keys.public_key().to_hex())
+        // Fava already owns the backend signer. This path runs on every
+        // group-record delivery, so deriving the public identity by parsing
+        // `mosaicoPrivateKey` here both leaks signing ownership upward and
+        // turns an observation read into repeated secp256k1 key creation.
+        Some(self.fava.backend_pubkey().to_hex())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    use crate::fava_host::FavaHost;
+    use crate::state::Store;
+
+    #[tokio::test]
+    async fn management_pubkey_comes_from_the_fava_registered_signer() {
+        let backend = Keys::generate();
+        let fava = Arc::new(FavaHost::open(&[], None, None, &backend).unwrap());
+        let provider = Nip29Provider::new(
+            fava,
+            Arc::new(Mutex::new(Store::open_memory().unwrap())),
+            // An invalid private key proves this public-identity lookup does
+            // not parse Mosaico configuration.
+            Some("not-a-private-key".into()),
+            None,
+            Vec::new(),
+        );
+
+        assert_eq!(provider.management_pubkey(), Some(backend.public_key().to_hex()));
     }
 }

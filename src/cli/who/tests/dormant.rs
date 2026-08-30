@@ -2,10 +2,10 @@ use super::*;
 use crate::state::{AdmittedRuntimeFacts, Profile, RegisterSession, StopReason};
 
 fn seed_stopped_member(store: &Store) {
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 900)
     ]));
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([Profile {
         pubkey: "pk-codex".into(),
         name: "willow-summit-042-codex".into(),
         slug: "willow-summit-042".into(),

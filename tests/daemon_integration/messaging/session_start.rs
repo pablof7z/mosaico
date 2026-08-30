@@ -43,7 +43,7 @@ fn session_start_runs_engine_and_records_alive_session() {
             "#tmp",
             &[&pubkey]
         )),
-        "session did not reach the NMP-delivered #tmp roster"
+        "session did not reach the Fava-delivered #tmp roster"
     );
 
     rt().block_on(async {
@@ -138,7 +138,7 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             "#tmp",
             &[&new_pubkey]
         )),
-        "replacement session did not reach the NMP-delivered #tmp roster"
+        "replacement session did not reach the Fava-delivered #tmp roster"
     );
 
     rt().block_on(async {

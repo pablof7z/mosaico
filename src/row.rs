@@ -1,6 +1,6 @@
-//! Local row vocabulary, replacing `nmp::Row` and `nmp::RowDelta`.
+//! Local row vocabulary, replacing `fava::Row` and `fava::RowDelta`.
 //!
-//! These types have the same field names as their NMP counterparts so that
+//! These types have the same field names as their Fava counterparts so that
 //! most call sites need only an import-path change.
 
 use nostr::event::Event;
@@ -8,7 +8,7 @@ use nostr::event::EventId;
 
 /// One relay-delivered event row.
 ///
-/// Mirrors the public field shape of `nmp::Row`.  Sources are omitted because
+/// Mirrors the public field shape of `fava::Row`.  Sources are omitted because
 /// fava tracks provenance inside `QuerySnapshot.evidence` and Mosaico never
 /// re-exposes them to product callers.
 #[derive(Clone, Debug)]
@@ -18,7 +18,7 @@ pub(crate) struct Row {
 
 /// Delta applied to a retained fava observation.
 ///
-/// The `SourcesGrew` variant from `nmp::RowDelta` is absent: fava delivers
+/// The `SourcesGrew` variant from `fava::RowDelta` is absent: fava delivers
 /// complete replacement snapshots, so source growth is implicit in every
 /// snapshot delivery and never needs its own delta.
 #[derive(Clone, Debug)]

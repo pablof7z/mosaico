@@ -36,7 +36,7 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
         }
     };
     if let Err(e) = state
-        .nmp()
+        .fava()
         .publish_group(channel_h, builder, keys.public_key())
     {
         tracing::warn!(
@@ -92,10 +92,10 @@ mod tests {
     fn the_publish_door_puts_the_acknowledgement_in_the_command_channel() {
         let keys = Keys::generate();
         let draft = crate::fabric::nip29::signed_into_group(
-            "nmp",
+            "fava",
             build_thumbs_up(&"ab".repeat(32)).unwrap(),
             &keys,
         );
-        assert_eq!(tag_value(draft.tags.iter(), "h").as_deref(), Some("nmp"));
+        assert_eq!(tag_value(draft.tags.iter(), "h").as_deref(), Some("fava"));
     }
 }

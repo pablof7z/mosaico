@@ -29,7 +29,7 @@ pub(super) async fn materialize(
     if already_materialized {
         return;
     }
-    // This daemon's OWN message reaches here too: NMP injects the accepted
+    // This daemon's OWN message reaches here too: Fava injects the accepted
     // write into the subscription that feeds the demux (#1182), so the send
     // path's local copy and this path's download are two routes to one
     // directory. If the files are already on disk under this event's id, adopt

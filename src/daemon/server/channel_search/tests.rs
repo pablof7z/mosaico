@@ -21,13 +21,13 @@ impl Fixture {
             profile(&agent, "mist-codex", "codex", "remote"),
         ];
         state.with_store(|store| {
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root").metadata("general", "", "", 1),
                 TestGroup::new("child").metadata("research", "", "root", 2),
                 TestGroup::new("deep").metadata("notes", "", "child", 3),
                 TestGroup::new("other").metadata("general", "", "", 4),
             ]));
-            store.install_test_nmp_relay_delivery(
+            store.install_test_fava_relay_delivery(
                 TestRelayDelivery::new().profiles(profiles.clone()),
             );
         });
@@ -64,7 +64,7 @@ impl Fixture {
 
     fn refresh(&self) {
         self.state.with_store(|store| {
-            store.install_test_nmp_relay_delivery(
+            store.install_test_fava_relay_delivery(
                 TestRelayDelivery::new()
                     .profiles(self.profiles.clone())
                     .events(self.events.borrow().clone()),

@@ -13,10 +13,10 @@
 //! and publishes disposable kind:1 probe events. It is not part of default CI or
 //! routine local regression tests.
 
-#[path = "common/nmp_client.rs"]
-mod nmp_client;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 
-use nmp_client::NmpRelayClient;
+use fava_client::FavaRelayClient;
 use nostr::event::{EventBuilder, Kind, Tag};
 use nostr::filter::Filter;
 use nostr::key::Keys;
@@ -42,9 +42,9 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
     eprintln!("[probe] daemon authed as A={}", key_a.public_key().to_hex());
     eprintln!("[probe] subscribing for mentions to B={}", pk_b.to_hex());
 
-    let daemon = NmpRelayClient::connect(key_a.clone(), &relay)
+    let daemon = FavaRelayClient::connect(key_a.clone(), &relay)
         .await
-        .expect("connect daemon NMP client");
+        .expect("connect daemon Fava client");
 
     // Open a fava observation on the A-authed connection for kind:1 p-tagging B.
     let relay_url = fava::RelayUrl::parse(&relay).expect("valid relay URL");
@@ -86,9 +86,9 @@ async fn one_authed_conn_receives_mentions_to_other_pubkeys() {
 
     // A separate sender (key C) publishes a kind:1 p-tagging B.
     let key_c = Keys::generate();
-    let sender = NmpRelayClient::connect(key_c.clone(), &relay)
+    let sender = FavaRelayClient::connect(key_c.clone(), &relay)
         .await
-        .expect("connect sender NMP client");
+        .expect("connect sender Fava client");
     let marker = format!("mosaico-probe-{}", key_c.public_key().to_hex());
     let builder = EventBuilder::new(Kind::from(1u16), &marker).tags([Tag::public_key(pk_b)]);
     sender
@@ -141,9 +141,9 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
     // Daemon connection authed as A.
     let key_a = Keys::generate();
     let key_b = Keys::generate(); // a second hosted agent
-    let mut daemon = NmpRelayClient::connect(key_a.clone(), &relay)
+    let mut daemon = FavaRelayClient::connect(key_a.clone(), &relay)
         .await
-        .expect("connect daemon NMP client");
+        .expect("connect daemon Fava client");
     daemon
         .register_identity(&key_b)
         .expect("register second hosted identity");
@@ -158,9 +158,9 @@ async fn one_conn_publishes_events_signed_by_multiple_keys() {
     eprintln!("[probe] publish B-signed over A-conn: {res:?}");
 
     // Read it back as a fresh reader to confirm it landed under B's pubkey.
-    let reader = NmpRelayClient::connect(Keys::generate(), &relay)
+    let reader = FavaRelayClient::connect(Keys::generate(), &relay)
         .await
-        .expect("connect reader NMP client");
+        .expect("connect reader Fava client");
     let f = Filter::new()
         .kind(Kind::from(1u16))
         .author(key_b.public_key())

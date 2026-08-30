@@ -60,8 +60,8 @@ jobs:
       - name: Unit tests (just test-unit)
         run: just test-unit
 
-      - name: NMP subscription attribution harness (just stress-nmp-check)
-        run: just stress-nmp-check
+      - name: Fava subscription attribution harness (just stress-fava-check)
+        run: just stress-fava-check
 
       - name: Hermetic integration tests (just test-hermetic-integration)
         run: just test-hermetic-integration

@@ -47,7 +47,7 @@ fn orchestration_session_uses_existing_group_without_minting() {
             observed_channel_has_role("#tmp", &creator, "member")
                 && observed_channel_h("tmp", "issue-42").is_some()
         }),
-        "creator or existing task channel was not delivered through NMP"
+        "creator or existing task channel was not delivered through Fava"
     );
     let task_h = observed_channel_h("tmp", "issue-42").unwrap();
 
@@ -87,7 +87,7 @@ fn orchestration_session_uses_existing_group_without_minting() {
                     })
                 })
         }),
-        "NMP did not deliver #tmp/issue-42 with the session member; channel_h={}; observed={:?}; daemon_log={}",
+        "Fava did not deliver #tmp/issue-42 with the session member; channel_h={}; observed={:?}; daemon_log={}",
         channel_h,
         observed,
         std::fs::read_to_string(home.dir.path().join("daemon.log"))

@@ -2,23 +2,17 @@
 //!
 //! # The HTTP here is a gap, not a preference
 //!
-//! `nmp-blossom` has no blob RETRIEVAL door at the pinned revision. It ships
-//! `upload`, `mirror`, `delete` and `list`; `BlossomVerb::Get` exists as
-//! vocabulary with no draft builder and no client method, and the crate's own
-//! doc says the `get`/`media` endpoints are follow-up work (upstream NMP #749,
-//! blocked on #748). Its wired `reqwest::Client` — hickory DNS behind a
-//! post-resolution local-IP admission filter, no redirects, no retries, no
-//! proxy, one deadline — is private, so a consumer cannot borrow the transport
-//! either.
+//! The engine has no blob retrieval primitive, so this module owns the bounded
+//! HTTP fetch and its local-network admission policy.
 //!
-//! So the fetch is ours until NMP #749 lands, and it is the only part that is.
+//! The fetch is ours because only it can decide where verified bytes belong.
 //! The thing that made the old code a hole was not the `reqwest` call: it was
-//! that nothing checked the bytes. `nmp_asset::Sha256Hash` — the same exact-byte
-//! identity `nmp-blossom` mints an upload witness from — does that here.
+//! that nothing checked the bytes. `crate::asset_hash::Sha256Hash` — the same exact-byte
+//! identity sent in the upload descriptor — does that here.
 
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
-use nmp_asset::Sha256Hash;
+use crate::asset_hash::Sha256Hash;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -27,9 +21,7 @@ use std::time::Duration;
 use crate::attachment_contract::EVENT_MARKER;
 
 /// A hostile or misconfigured server must not be able to spend the daemon's
-/// memory on one attachment. `nmp-blossom` bounds its own response bodies for
-/// the same reason; this is that ceiling, applied to the one verb it does not
-/// yet own.
+/// memory on one attachment.
 const MAX_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) async fn download(

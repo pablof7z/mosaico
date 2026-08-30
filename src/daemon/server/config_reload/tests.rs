@@ -35,11 +35,11 @@ async fn wait_for(state: &Arc<DaemonState>, expected: CrossProjectBoundary) {
 
 async fn wait_for_relay_runtime(
     state: &Arc<DaemonState>,
-    previous: &Arc<crate::nmp_host::NmpHost>,
-) -> Arc<crate::nmp_host::NmpHost> {
+    previous: &Arc<crate::fava_host::FavaHost>,
+) -> Arc<crate::fava_host::FavaHost> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            let current = state.nmp();
+            let current = state.fava();
             if !Arc::ptr_eq(previous, &current) {
                 return current;
             }
@@ -47,7 +47,7 @@ async fn wait_for_relay_runtime(
         }
     })
     .await
-    .expect("relay change should replace the NMP runtime")
+    .expect("relay change should replace the Fava runtime")
 }
 
 #[tokio::test]
@@ -65,10 +65,10 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
     let initial = Config::load().unwrap();
     install_config(
         &state,
-        provider_for(state.nmp(), &initial, &state.store),
+        provider_for(state.fava(), &initial, &state.store),
         initial,
     );
-    let daemon_before = state.nmp();
+    let daemon_before = state.fava();
     let _watcher = watch(
         state.clone(),
         crate::daemon::storage_paths::StoragePaths::current(),
@@ -87,7 +87,7 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
         },
     )
     .await;
-    let daemon_after = state.nmp();
+    let daemon_after = state.fava();
     assert!(Arc::ptr_eq(&daemon_before, &daemon_after));
 
     let replacement_key = Keys::generate().secret_key().to_secret_hex();
@@ -110,7 +110,7 @@ async fn atomic_config_replacement_updates_runtime_without_daemon_restart() {
 
     replace(&path, "{");
     tokio::time::sleep(SETTLE * 2).await;
-    assert!(Arc::ptr_eq(&daemon_after, &state.nmp()));
+    assert!(Arc::ptr_eq(&daemon_after, &state.fava()));
     assert_eq!(
         state.config().cross_project_boundary,
         CrossProjectBoundary {
@@ -128,7 +128,7 @@ async fn managed_child_inherits_the_parents_desired_generation_without_roster_po
     let management = state.provider().management_pubkey().unwrap();
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("root")
                     .metadata("Root", "", "", 1)
                     .admins(vec![
@@ -170,7 +170,7 @@ async fn managed_child_of_an_external_group_inherits_the_observed_parent_admins(
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("external")
                     .metadata("External", "", "", 1)
                     .admins(vec![inherited.clone()]),

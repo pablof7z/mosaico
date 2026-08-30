@@ -5,10 +5,10 @@ use anyhow::Result;
 use nostr::key::Keys;
 
 impl Nip29Provider {
-    /// Publish a NIP-25 kind:7 reaction through NMP's group door, gating the
+    /// Publish a NIP-25 kind:7 reaction through Fava's group door, gating the
     /// channel exactly like chat.
     ///
-    /// Nothing is seeded locally. NMP injects an accepted row into the matching
+    /// Nothing is seeded locally. Fava injects an accepted row into the matching
     /// group observation, so local and remote reactions share one observed-row
     /// path.
     ///
@@ -27,7 +27,7 @@ impl Nip29Provider {
         self.verify_publish_scope(channel, &keys.public_key().to_hex(), true)
             .await?;
         Ok(self
-            .nmp
+            .fava
             .publish_group(channel, builder, keys.public_key())?
             .to_hex())
     }

@@ -52,7 +52,7 @@ $ MOSAICO=relay2 codex --yolo
 ```
 
 Each selection has its own config, relay connection, backend and agent
-identities, database, NMP store and cursors, socket, logs, sessions, and PTY
+identities, database, Fava store and cursors, socket, logs, sessions, and PTY
 metadata. A selected command or hook never connects to or falls back to another
 instance. Run lifecycle commands with the same selector, for example
 `MOSAICO=relay1 mosaico daemon stop`.

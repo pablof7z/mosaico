@@ -1,7 +1,7 @@
 //! Relay demux pipeline extracted from `server.rs` (issue #12, EPIC-server-001).
 //!
 //! One relay subscription feeds every hosted agent. `spawn_demux` drains the
-//! notification stream; incoming NMP rows are decoded once and derive
+//! notification stream; incoming Fava rows are decoded once and derive
 //! real-time `TailEvent`s via `derive_and_emit_tail_events`. The two
 //! async side-channels (`handle_offline_agent_mention`, `handle_orchestration`)
 //! are dispatched off the demux loop.
@@ -35,9 +35,9 @@ pub(in crate::daemon::server) fn dispatch_offline_mentions(
 
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     let mut transitions = state
-        .nmp()
+        .fava()
         .take_view_transitions()
-        .expect("NMP view transition stream has one daemon owner");
+        .expect("Fava view transition stream has one daemon owner");
     tokio::spawn(async move {
         while let Some(transition) = transitions.recv().await {
             apply_transition(&state, transition).await;
@@ -45,23 +45,23 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     });
 }
 
-/// Apply one NMP frame's row transition.
+/// Apply one Fava frame's row transition.
 ///
 /// **Removals first, additions second, always.** The frame is a set, not a
-/// sequence: NMP re-folds it through a `BTreeMap<EventId, _>` before delivery,
+/// sequence: Fava re-folds it through a `BTreeMap<EventId, _>` before delivery,
 /// so the order deltas arrive in is event-id ascending and says nothing about
 /// causality. A relay republishing an addressable event — which every NIP-29
 /// roster change is — sends `Removed(old)` and `Added(new)` in that one frame,
 /// and the view transition captures the departed Row before deindexing it.
-/// Acting on each NMP delta as it arrives can therefore blank a roster on
+/// Acting on each Fava delta as it arrives can therefore blank a roster on
 /// nothing but hex ordering.
 ///
-/// Removals-first is also what NMP's own coordinator does with the same
-/// problem (`nmp_nip65::observe_current_delta`: *"Removals are applied before
+/// Removals-first is also what Fava's own coordinator does with the same
+/// problem (`fava_nip65::observe_current_delta`: *"Removals are applied before
 /// additions irrespective of delivery order. This lets a replaceable winner's
 /// removal reveal an older current row in the same batch without emitting a
 /// transient absence."*).
-async fn apply_transition(state: &Arc<DaemonState>, transition: crate::nmp_views::RowTransition) {
+async fn apply_transition(state: &Arc<DaemonState>, transition: crate::fava_views::RowTransition) {
     for departed in transition.removed {
         apply_departure(state, departed);
     }
@@ -84,7 +84,7 @@ async fn apply_transition(state: &Arc<DaemonState>, transition: crate::nmp_views
 /// rather than from the observation id.
 fn apply_observation_entry(
     state: &Arc<DaemonState>,
-    entered: crate::nmp_views::EnteredRow,
+    entered: crate::fava_views::EnteredRow,
     hosted: &mut Option<Vec<String>>,
 ) {
     if entered.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
@@ -122,10 +122,10 @@ fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
 
 /// Turn a broad-`#h` status departure into an immediate peer leave, once per
 /// channel the departed status named that is no longer current. A replacement
-/// delivered in the same frame is already installed in the NMP view, so
+/// delivered in the same frame is already installed in the Fava view, so
 /// `get_status` suppresses a transient Leave for channels the agent still
 /// occupies without introducing a Mosaico freshness or expiry clock.
-fn apply_departure(state: &Arc<DaemonState>, departed: crate::nmp_views::DepartedRow) {
+fn apply_departure(state: &Arc<DaemonState>, departed: crate::fava_views::DepartedRow) {
     if departed.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
         return;
     }
@@ -169,7 +169,7 @@ fn finish_incoming(
     decoded: crate::fabric::ProductDecode,
     now: u64,
 ) {
-    // Each event reaches here exactly once. The NmpViews `transition.added`
+    // Each event reaches here exactly once. The FavaViews `transition.added`
     // set only carries rows newly added to the views, and under the single
     // broad `#h` observation (mosaico#837) there is no overlapping delivery to
     // re-add a row, so the per-process `first_sight` LRU that guarded this
@@ -209,7 +209,7 @@ fn finish_incoming(
                     Err(error) => tracing::error!(
                         event_id = %event.id,
                         %error,
-                        "direct mention routing failed; NMP row remains observed"
+                        "direct mention routing failed; Fava row remains observed"
                     ),
                 }
             }

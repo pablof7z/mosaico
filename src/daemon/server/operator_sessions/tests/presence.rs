@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("root").metadata("root", "", "", 1),
     ]));
     let pubkey = Keys::generate().public_key().to_hex();
@@ -35,7 +35,7 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
     status.last_seen = 100;
     status.updated_at = 100;
     store
-        .install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().statuses([status]));
+        .install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().statuses([status]));
     let rows = project_sessions(&store, "laptop", &HashMap::new()).unwrap();
     assert_eq!(rows[0]["state"], "suspended");
     assert_eq!(rows[0]["state_since"], 10);
@@ -44,7 +44,7 @@ fn projection_uses_lifecycle_transition_time_instead_of_lease_times() {
 #[test]
 fn native_failure_is_separate_from_canonical_presence() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
         crate::state::TestGroup::new("root").metadata("root", "", "", 1),
     ]));
     let pubkey = Keys::generate().public_key().to_hex();

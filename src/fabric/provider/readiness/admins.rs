@@ -50,7 +50,7 @@ pub(super) async fn apply(
         ChannelReadinessError::reason(format!("reading administrators failed: {error:#}"))
     })?;
     let snapshots = [snapshot];
-    let current = crate::nmp_views::GroupProjection::new(&snapshots)
+    let current = crate::fava_views::GroupProjection::new(&snapshots)
         .list_channel_members(channel)
         .into_iter()
         .filter(|member| member.role == "admin")
@@ -144,7 +144,7 @@ impl Nip29Provider {
             ChannelReadinessError::reason(format!("reading channel parent failed: {error:#}"))
         })?;
         let snapshots = [snapshot];
-        let parent = crate::nmp_views::GroupProjection::new(&snapshots).channel_parent(channel);
+        let parent = crate::fava_views::GroupProjection::new(&snapshots).channel_parent(channel);
         let Some(parent) = parent.filter(|parent| !parent.is_empty()) else {
             return Ok(Vec::new());
         };
@@ -154,7 +154,7 @@ impl Nip29Provider {
             ))
         })?;
         let snapshots = [parent_snapshot];
-        Ok(crate::nmp_views::GroupProjection::new(&snapshots)
+        Ok(crate::fava_views::GroupProjection::new(&snapshots)
             .list_channel_members(&parent)
             .into_iter()
             .filter(|member| member.role == "admin")

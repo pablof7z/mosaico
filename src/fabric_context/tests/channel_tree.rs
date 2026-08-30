@@ -4,7 +4,7 @@ use super::*;
 fn session_view_has_self_and_chatter_human_view_does_not() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
@@ -52,7 +52,7 @@ fn session_view_has_self_and_chatter_human_view_does_not() {
 fn cursor_delta_only_renders_changed_joined_channel() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles(seed_profiles()).events([
             chat("old-root", "root", 100, "old root message", "[]"),
             chat("new-task", TASK_H, 220, "new task message", "[]"),
@@ -71,7 +71,7 @@ fn cursor_delta_only_renders_changed_joined_channel() {
 fn presence_delta_does_not_repeat_unchanged_descendants() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([Status {
@@ -106,7 +106,7 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
 fn changed_descendant_metadata_renders_once_with_its_canonical_ref() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group_with_metadata("Updated task room", 250),
     ]));
@@ -132,7 +132,7 @@ fn changed_descendant_metadata_renders_once_with_its_canonical_ref() {
 #[test]
 fn full_snapshot_nests_multilevel_channels_by_slash_reference() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("leaf-h").metadata("leaf", "Leaf room", TASK_H, 2),
@@ -165,7 +165,7 @@ fn full_snapshot_nests_multilevel_channels_by_slash_reference() {
 #[test]
 fn joined_root_expands_every_descendant_even_when_the_session_did_not_join_them() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group(),
         task_group(),
         TestGroup::new("other-h").metadata("other", "Unjoined sibling", "root", 2),

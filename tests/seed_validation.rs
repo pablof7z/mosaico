@@ -37,10 +37,10 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-async fn connect(keys: Keys, relay: &str) -> NmpRelayClient {
-    NmpRelayClient::connect(keys, relay)
+async fn connect(keys: Keys, relay: &str) -> FavaRelayClient {
+    FavaRelayClient::connect(keys, relay)
         .await
-        .expect("connect NMP relay client")
+        .expect("connect Fava relay client")
 }
 
 /// Build a signed event from a domain event through the real codec, stamping an
@@ -54,7 +54,7 @@ async fn sign_domain(keys: &Keys, ev: &DomainEvent, created_at: u64) -> Event {
     builder.finalize(keys).expect("sign")
 }
 
-async fn publish(client: &NmpRelayClient, signed: &Event, label: &str) {
+async fn publish(client: &FavaRelayClient, signed: &Event, label: &str) {
     match client.send_event(signed).await {
         Ok(out) => eprintln!(
             "[seed] {label}: id={} success={:?} failed={:?}",
@@ -204,7 +204,7 @@ async fn seed_session_with_thread_root_link() {
     agent_c.disconnect().await;
     user_c.disconnect().await;
 }
-#[path = "common/nmp_client.rs"]
-mod nmp_client;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 
-use nmp_client::NmpRelayClient;
+use fava_client::FavaRelayClient;

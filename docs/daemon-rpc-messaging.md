@@ -21,7 +21,7 @@ stream: {"item": {"event_id": "hex", "from_slug": "agent",
 
 Normal history reads use the shared 100-word render limit and set
 `truncated=true` when content is shortened. Exact `id` reads return the complete
-message body. Both read from the current NMP-delivered message view; Mosaico has
+message body. Both read from the current Fava-delivered message view; Mosaico has
 no persisted message history to fall back to. Explicit history reads are
 deliberate inspection and are not subject to automatic-context join cutoffs.
 `since` accepts a Unix timestamp or a relative duration with `s`, `m`, `h`, or
@@ -46,7 +46,7 @@ result: {
 }
 ```
 
-Search is a one-shot query over the current rows delivered by the retained NMP
+Search is a one-shot query over the current rows delivered by the retained Fava
 observation. It does not open a separate relay query, backfill from SQLite, or
 retain removed messages. An empty `channels` list and `["#"]` both search every
 currently observed channel. Any narrower channel includes its descendants.
@@ -80,7 +80,7 @@ result: {"event_id": "hex", "channel": "#root/child",
 Publishes a kind:9 event signed by the caller's session key and succeeds only
 after checked relay acceptance. That acceptance is a write outcome, not an
 inbound event: it creates no message row, recipient edge, inbox item, or route.
-Destination selection never changes session membership. If the retained NMP
+Destination selection never changes session membership. If the retained Fava
 observation later delivers the message, explicit p-tags to identities owned by
 this daemon are durably parked under the exact recipient pubkey whether the
 executor is running, stopped, route-less, or revoked. Locality selects the
@@ -98,7 +98,7 @@ upload. The daemon leaves `[label]` markers in content, appends missing markers
 as trailing lines, uploads each file, and adds `["attachment", URL, LABEL]` to
 the signed kind:9. Duplicate labels, unsafe relative labels, and failed uploads
 abort without publishing. Mosaico may persist the verified host-local directory
-for downloaded or authored files, keyed by event id; NMP owns the message and
+for downloaded or authored files, keyed by event id; Fava owns the message and
 all attachment tags, URLs, and metadata.
 
 ## `channel_wait`
@@ -113,8 +113,8 @@ result: {"outcome": "message", "waited_secs": 4,
          "channels": ["#root/child"]}
 ```
 
-Wait captures the durable NMP arrival cursor and the caller's local
-joined-channel set before subscribing to the current NMP-delivered view.
+Wait captures the durable Fava arrival cursor and the caller's local
+joined-channel set before subscribing to the current Fava-delivered view.
 Repeated `channels` entries may only narrow that set. An omitted list means all
 joined channels, including an empty set. `from` narrows the author. A correlated
 send-wait additionally requires a native reply tag pointing to the observed
@@ -142,7 +142,7 @@ result: {"event_id": "hex", "reply_to": "hex",
 
 Publishes a threaded NIP-10 reply in the original message's channel and targets
 its author. The original message and return address must be present in the
-current NMP-delivered view; there is no SQLite message fallback. The caller
+current Fava-delivered view; there is no SQLite message fallback. The caller
 must belong to that channel. Attachment handling matches `channel_send`.
 
 ## Automatic ambient cutoff
@@ -159,4 +159,4 @@ with count, time window, and authors, plus a pointer to the coordination skill
 for deliberate history navigation. Direct inbox rows do not use this cutoff:
 they belong to an exact local recipient because an observed event explicitly
 p-tagged that pubkey, and remain claimable across route and runtime changes.
-Only event id and arrival order are durable; event content remains in NMP.
+Only event id and arrival order are durable; event content remains in Fava.

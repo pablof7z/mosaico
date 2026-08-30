@@ -29,8 +29,8 @@
 //! Hard asserts: id honored, lock enforces membership (non-member write blocked),
 //! and non-member read stays open. Other answers are reported via eprintln.
 
-#[path = "common/nmp_client.rs"]
-mod nmp_client;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 #[path = "nip29_probe/support.rs"]
 mod support;
 

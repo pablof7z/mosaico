@@ -10,7 +10,7 @@ impl Nip29Provider {
     async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
         use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
         let read = self
-            .nmp
+            .fava
             .fetch_group_records(parent_h, 10, Duration::from_secs(5))
             .await?;
         super::group_state::require_proven_projection(&read, "reading parent relationships")?;

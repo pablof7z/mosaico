@@ -2,8 +2,8 @@
 
 Status: implemented. Replaces the **per-session process** with
 [**one daemon per selected instance**](daemon-instances.md), owning `state.db`,
-NMP observation lifetimes, publication, local delivery, presence, and pruning.
-NMP solely owns relay state; none of it is copied to SQLite.
+Fava observation lifetimes, publication, local delivery, presence, and pruning.
+Fava solely owns relay state; none of it is copied to SQLite.
 
 ## 1. Why
 
@@ -34,7 +34,7 @@ Claude channel adapter shell out to these verbs and parse their stdout).
    `busy_timeout=5000`.
 2. The UDS daemon owns startup locking, socket reclamation, the version
    handshake, and one `Store`; CLI verbs are thin RPC clients.
-3. Per-session engines run as daemon-owned async tasks. The daemon's NMP host
+3. Per-session engines run as daemon-owned async tasks. The daemon's Fava host
    owns relay acquisition and group publication; `session_start` spawns an
    in-process `SessionTask`.
 
@@ -47,10 +47,10 @@ Claude channel adapter shell out to these verbs and parse their stdout).
   CLI    ───▶ │   │ thin client │ ───────▶ │  mosaico daemon (single proc) │  │
  (one-shot)   │   │ (CLI verb)  │ ◀─────── │                                  │  │
               │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
-              │                            │  • owns NMP reads + writes ──────┼──┼──▶ relays
+              │                            │  • owns Fava reads + writes ──────┼──┼──▶ relays
               │                            │  • per-session async tasks       │  │
               │                            │  • local delivery / lifecycle    │  │
-              │                            │  • retained NMP observations     │  │
+              │                            │  • retained Fava observations     │  │
               │                            └──────────────────────────────────┘  │
               └───────────────────────────────────────────────────────────────────┘
 ```
@@ -58,8 +58,8 @@ Claude channel adapter shell out to these verbs and parse their stdout).
 - The daemon is a normal `mosaico` invocation: `mosaico daemon`.
 - The daemon runs the **tokio multi-thread runtime** (already how `main` builds
   it). It holds exactly one `Store` (single SQLite connection → one writer by
-  construction) and one NMP engine for acquisition, account signing, and every
-  runtime/profile write. Those writes enter NMP through the durable
+  construction) and one Fava engine for acquisition, account signing, and every
+  runtime/profile write. Those writes enter Fava through the durable
   publish queue, which owns routing, receipts, and retries. Bounded
   resolution reads use that same engine; the daemon has no second relay client.
 - Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
@@ -112,8 +112,8 @@ recovery authority.
 
 Membership intents are serialized with lifecycle reconciliation. A stale or
 failed admission keeps only the local standing/cleanup obligation needed to
-retry through NMP; it never persists a relay member row. Membership comes only
-from the retained NMP group observation. An observed message explicitly
+retry through Fava; it never persists a relay member row. Membership comes only
+from the retained Fava group observation. An observed message explicitly
 p-tagging a daemon-owned pubkey is parked before execution selection; publish
 acceptance creates no inbox work. A stopped recoverable identity resumes its
 native harness or fresh-launches under the same pubkey. An unlaunchable target
@@ -243,13 +243,13 @@ Walking each verb's true I/O shape:
 | `turn_end`         | one-shot             | flip turn state                                      |
 | `channel_send`       | one-shot             | daemon publishes kind:9 chat event on the relay      |
 | `channel_read`        | one-shot             | daemon returns chat history for the session/project  |
-| `channel_search`      | one-shot             | daemon searches the current NMP-delivered message view |
+| `channel_search`      | one-shot             | daemon searches the current Fava-delivered message view |
 | `who`              | one-shot             | snapshot rows                                        |
 | `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
 | `tail`             | **stream**           | daemon pushes decoded fabric events until disconnect |
 
 `tail` forces the protocol beyond simple req/resp: the client cannot open its own relay
-  observation anymore (the daemon owns NMP acquisition), so the
+  observation anymore (the daemon owns Fava acquisition), so the
   daemon must stream decoded events to the client as they arrive, indefinitely,
   until the client disconnects (Ctrl-C). This is what makes the `item`*/`end`
   streaming shape mandatory rather than optional.
@@ -267,7 +267,7 @@ The `session_start` RPC makes the daemon spawn a tokio task running
 
 - It uses the daemon's **shared** `Store` through the ownership model in §8.
 - It declares per-session and per-channel live-query demand through the daemon's
-  shared NMP host. NMP owns relay planning, connection repair, deduplication,
+  shared Fava host. Fava owns relay planning, connection repair, deduplication,
   replacement selection, source evidence, removal, and observation lifetimes.
   Complete snapshots and row deltas update process-local views; no relay-derived
   group, profile, status, event, message, recipient, or reaction reaches SQLite.
@@ -278,15 +278,15 @@ The `session_start` RPC makes the daemon spawn a tokio task running
 - Profile publication, presence-lease renewal, and `watch_pid` death detection
   run in the per-session task. Managed lifecycle edges directly reconcile the
   generation-owned presence publication; there is no periodic semantic-state
-  poll. The corresponding current status is shown only after NMP observes it.
+  poll. The corresponding current status is shown only after Fava observes it.
   One non-blocking worker keeps first-pending order across pubkeys and
   only the latest queued full state per pubkey, so a stalled relay cannot delay
   lifecycle RPCs or form a renewal FIFO. Every runtime and kind:0 profile write
-  is signed and accepted through the shared NMP host's durable publish queue.
+  is signed and accepted through the shared Fava host's durable publish queue.
 - Peer-staleness pruning is a single daemon-level periodic task.
 
 `EngineParams` is reused largely as-is, minus `store_path` (the task gets the
-shared store) and with the daemon provider/NMP host injected.
+shared store) and with the daemon provider/Fava host injected.
 
 ## 8. State ownership & the single-writer guarantee
 
@@ -306,7 +306,7 @@ construction — that is the whole point. Concurrency model inside the daemon:
   from today's code and already guarantees one writer. Revisit the actor shape
   only if lock contention shows up (unlikely at this call frequency).
 
-- The NMP engine owns live queries, relay acquisition, current relay state,
+- The Fava engine owns live queries, relay acquisition, current relay state,
   local account capabilities, and the durable publish queue for all runtime and
   profile writes. Its retained observations are the only group, profile, status,
   event, message, recipient, and reaction source. The daemon owns process-local
@@ -318,23 +318,23 @@ defense-in-depth + a small perf win).
 
 ## 8a. Multi-agent relay ownership
 
-The daemon hosts one-pubkey identities, each with at most one active runtime. NMP
+The daemon hosts one-pubkey identities, each with at most one active runtime. Fava
 observes their shared demand publicly because Mosaico-created groups are public
 and closed: anyone may read them, while only admitted members may write. Each author
 registers a signer plus exact-account AUTH policy. Per-write identity overrides
 authenticate as the frozen author; account changes never retarget another session's
-accepted write. Relay sessions belong to NMP, never to an agent runtime.
+accepted write. Relay sessions belong to Fava, never to an agent runtime.
 
 1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
    *does* receive events p-tagged to a different agent B. The relay does **not**
    scope ordinary public event delivery to the connection's authed identity.
-   Mosaico pins one shared public read demand to configured hosts; NIP-42 protected reads remain an NMP capability, not the product acquisition path for public groups.
-2. **Multi-key publish.** NMP freezes the draft author at acceptance, selects the
+   Mosaico pins one shared public read demand to configured hosts; NIP-42 protected reads remain an Fava capability, not the product acquisition path for public groups.
+2. **Multi-key publish.** Fava freezes the draft author at acceptance, selects the
    exact registered capability named by the write override, validates the signed
    result, authenticates the relay session as that author when challenged, and
    routes it to the NIP-29 host. Paths that immediately seed an exact local
-   read-model row use NMP's serialized sign-only operation first, then hand that
-   same signed event back to NMP as the durable payload.
+   read-model row use Fava's serialized sign-only operation first, then hand that
+   same signed event back to Fava as the durable payload.
 
 ## 8b. Demux + routing for multiple local agents (correctness)
 
@@ -345,9 +345,9 @@ Inside the daemon, "me" is the **set** of daemon-owned agent pubkeys:
 - An observed direct p-tag routes by exact pubkey. The daemon first parks one
   inbox fact for every owned target, then selects an executor if one is
   available. Pending delivery remains with that pubkey across route removal,
-  revocation, and runtime replacement; recipients remain in NMP's message view.
+  revocation, and runtime replacement; recipients remain in Fava's message view.
 - Current profile/presence/status from peers (non-local pubkeys) comes directly
-  from NMP observations. Retraction removes it; there is no SQLite fallback.
+  from Fava observations. Retraction removes it; there is no SQLite fallback.
 
 Test (added): a chat mention to A must land only in A's inbox, never B's; if A's
 runtime is replaced before delivery, the replacement claims the same pending row.
@@ -364,7 +364,7 @@ reconciles each running row:
 - else → atomically stop that generation while preserving its channel memberships.
 
 Restart restores only local session, route, join-fence, inbox/claim, and
-attachment-directory facts. Relay views repopulate only from NMP observations;
+attachment-directory facts. Relay views repopulate only from Fava observations;
 local standing never fills that gap.
 
 ## 8d. Clientful-but-sessionless connections
@@ -378,7 +378,7 @@ the daemon already persists independently until an explicit stop or re-exec.
 Agents may run in different working directories or git worktrees on the same
 backend. Presence/status therefore carries `rel_cwd`, computed relative to the
 workspace root, so peers can distinguish `worktree1` from `worktree2` without
-publishing an absolute home-directory path. NMP's current status observation
+publishing an absolute home-directory path. Fava's current status observation
 supplies it to `who` and `my session`; Mosaico persists no status row.
 
 - The wire tag is `["rel-cwd", <rel>]` and is omitted for an empty value.
@@ -399,8 +399,8 @@ per-node deltas while preserving the same schema, values, nesting, and escaping.
   (it already runs in `main` before dispatch; `daemon` goes through `main`).
 - **Identical standard-Nostr wire output** — the codec seam
   (`fabric::nip29::wire`) remains the event-shape authority; group writes route
-  through NMP.
-- **One NMP relay plane** serves standing observations, bounded resolution
+  through Fava.
+- **One Fava relay plane** serves standing observations, bounded resolution
   reads, and every runtime or profile write. Writes are durably accepted into
   the publish queue; no direct client,
   parallel relay pool, or SQLite relay cache may be reintroduced.

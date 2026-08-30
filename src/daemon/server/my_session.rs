@@ -58,7 +58,7 @@ mod tests {
     async fn briefing_is_read_only_and_expands_only_the_exact_sessions_workspaces() {
         let state = DaemonState::new_for_test().await;
         let pubkey = state.with_store(|s| {
-            s.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            s.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("alpha")
                     .metadata("alpha", "Alpha", "", 1)
                     .admins(Vec::new())
@@ -68,7 +68,7 @@ mod tests {
                     .admins(Vec::new())
                     .members(vec!["pk".into()]),
             ]));
-            s.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
+            s.install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
                 crate::state::Profile {
                     pubkey: "pk".into(),
                     name: "codex".into(),

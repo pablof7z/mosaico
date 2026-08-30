@@ -5,7 +5,7 @@ async fn resumable_sessions_expose_only_full_public_channel_paths() {
     let state = DaemonState::new_for_test().await;
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("root").metadata("general", "", "", 1),
                 crate::state::TestGroup::new("opaque-child").metadata("development", "", "root", 2),
             ]));

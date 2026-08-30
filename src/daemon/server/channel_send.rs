@@ -183,7 +183,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         crate::attachment::upload_all(
             &p.attachments,
             relays,
-            &state.nmp(),
+            &state.fava(),
             chat_signing_keys.public_key(),
         )
             .await?;
@@ -217,7 +217,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         }
     };
     // Publish acceptance is not observation. Keep only the product-local file
-    // path here; the NMP Added row is the sole trigger for message routing.
+    // path here; the Fava Added row is the sole trigger for message routing.
     persist_attachment_directory(&event_id, || match local_directory.as_ref() {
         Some(directory) => {
             state.with_store(|store| store.set_message_attachment_dir(&event_id, directory))

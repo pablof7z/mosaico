@@ -105,7 +105,7 @@ mod tests {
         let pubkey = prepared.identity.pubkey.clone();
         let actor_key = "mcp1_redacted_actor_key_1234567890";
         state.with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("mosaico")
                     .metadata("mosaico", "", "", 1)
                     .members(vec![pubkey.clone()]),

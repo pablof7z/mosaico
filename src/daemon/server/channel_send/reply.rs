@@ -47,7 +47,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         crate::attachment::upload_all(
             &p.attachments,
             &state.config().relays,
-            &state.nmp(),
+            &state.fava(),
             keys.public_key(),
         )
             .await?;
@@ -81,7 +81,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             None
         }
     };
-    // The accepted write is not routed optimistically. Its NMP Added row will
+    // The accepted write is not routed optimistically. Its Fava Added row will
     // drive the same observed-event path as every remote reply.
     super::persist_attachment_directory(&published.event_id, || match local_directory.as_ref() {
         Some(directory) => state

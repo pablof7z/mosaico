@@ -128,7 +128,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         expect_member,
         parent_hint: Some(&parent),
         // Operator-chosen name rides on the create publish; the relay's
-        // kind:39000 echo reaches NMP's retained observation (no local fabrication).
+        // kind:39000 echo reaches Fava's retained observation (no local fabrication).
         name: Some(&name),
     });
     let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
@@ -160,13 +160,13 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     drop(standing_lane);
     let _ = ensure_subscription(state, &child_h).await;
 
-    // Publish the durable `about` as kind:9002 edit-metadata. NMP's terminal
+    // Publish the durable `about` as kind:9002 edit-metadata. Fava's terminal
     // result is the command boundary; the retained group observation will
     // project the resulting kind:39000 independently when it arrives.
     if !p.about.trim().is_empty() {
         let edit = MetadataEdit { about: Some(p.about.clone()), ..Default::default() };
         state
-            .nmp()
+            .fava()
             .publish_metadata_edit_and_wait(&child_h, &edit, mgmt_keys.public_key())
             .await
             .context("publishing the new channel description")?;
@@ -182,16 +182,16 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     } else {
         let prose = generate_orchestration_prose(&adds);
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
-        // Durable acceptance is the reporting boundary: NMP has taken custody
+        // Durable acceptance is the reporting boundary: Fava has taken custody
         // of the add-agents directive and will keep delivering it. Whether each
         // relay took it is settlement, which is deliberately never awaited here.
         //
         // The directive reaches THIS backend's own orchestration listener the
-        // same way a peer's does: NMP injects the accepted row into the group
-        // subscription and `demux::chat_ops` routes it (NMP #1182). There is no
+        // same way a peer's does: Fava injects the accepted row into the group
+        // subscription and `demux::chat_ops` routes it. There is no
         // local fast-path, because there is no longer anything for it to fix.
         state
-            .nmp()
+            .fava()
             .publish_group(&parent, builder, mgmt_keys.public_key())?
             .to_hex()
     };

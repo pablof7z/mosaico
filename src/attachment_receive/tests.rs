@@ -21,7 +21,7 @@ async fn downloads_nested_labels_and_reuses_redelivery_directory() {
     let attachments = vec![ChatAttachment {
         url,
         label: "images/diagram.png".into(),
-        sha256: nmp_asset::Sha256Hash::of(b"diagram").to_hex(),
+        sha256: crate::asset_hash::Sha256Hash::of(b"diagram").to_hex(),
     }];
 
     let first = download(root.path(), "abcdef111111", &attachments)
@@ -66,7 +66,7 @@ async fn reserved_marker_labels_are_rejected_before_receive_storage() {
             &[ChatAttachment {
                 url: "https://example.invalid/file".into(),
                 label: label.into(),
-                sha256: nmp_asset::Sha256Hash::of(b"whatever").to_hex(),
+                sha256: crate::asset_hash::Sha256Hash::of(b"whatever").to_hex(),
             }],
         )
         .await
@@ -109,7 +109,7 @@ async fn bytes_that_do_not_match_the_declared_hash_never_reach_the_disk() {
         &[ChatAttachment {
             url,
             label: "images/diagram.png".into(),
-            sha256: nmp_asset::Sha256Hash::of(b"what the sender actually sent").to_hex(),
+            sha256: crate::asset_hash::Sha256Hash::of(b"what the sender actually sent").to_hex(),
         }],
     )
     .await

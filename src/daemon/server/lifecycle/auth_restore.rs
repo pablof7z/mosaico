@@ -53,7 +53,7 @@ pub(in crate::daemon::server) fn restore(state: &Arc<DaemonState>) -> Result<()>
 }
 
 fn register(state: &Arc<DaemonState>, keys: &Keys, identity_kind: &'static str) -> Result<()> {
-    state.nmp().register_signer(keys).with_context(|| {
+    state.fava().register_signer(keys).with_context(|| {
         format!(
             "registering {identity_kind} Fava signer {}",
             keys.public_key()

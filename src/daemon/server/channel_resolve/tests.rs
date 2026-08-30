@@ -9,7 +9,7 @@ use crate::state::{Store, TestGroup, TestGroupDelivery};
 mod selectors;
 
 fn channels(store: &Store, groups: &[(&str, &str, &str)]) {
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new(
+    store.install_test_fava_group_delivery(TestGroupDelivery::new(
         groups
             .iter()
             .map(|(id, name, parent)| TestGroup::new(id).metadata(name, "", parent, 1)),
@@ -164,13 +164,13 @@ fn resolution_is_global_across_workspaces() {
     channels(
         &store,
         &[
-            ("nmp", "nmp", ""),
+            ("fava", "fava", ""),
             ("other", "other", ""),
             ("h-child", "qa", "other"),
         ],
     );
 
-    // A session "belonging" to /nmp can still resolve a path into /other
+    // A session "belonging" to /fava can still resolve a path into /other
     // directly — there is no caller-scoped workspace restriction.
     assert!(matches!(
         resolve_absolute_channel_ref(&store, "#other/qa"),

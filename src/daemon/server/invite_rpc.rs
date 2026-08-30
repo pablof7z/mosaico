@@ -255,10 +255,10 @@ async fn publish_invite_orchestration(
         &prose,
     )?;
     // The directive reaches this backend's own orchestration listener through
-    // the group subscription NMP injects the accepted row into (#1182), the
+    // the group subscription Fava injects the accepted row into (#1182), the
     // same path a peer's directive takes.
     Ok(state
-        .nmp()
+        .fava()
         .publish_group(channel_h, builder, keys.public_key())?
         .to_hex())
 }

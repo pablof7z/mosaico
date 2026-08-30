@@ -252,14 +252,14 @@ async fn enqueue_status(
     };
     match result {
         Ok(event_id) => {
-            tracing::debug!(event_id = %event_id.to_hex(), source_ref, "status accepted by NMP");
+            tracing::debug!(event_id = %event_id.to_hex(), source_ref, "status accepted by Fava");
             Some(event_id.to_hex())
         }
         Err(error) => {
             tracing::error!(
                 error = %format!("{error:#}"),
                 source_ref,
-                "status submission to NMP failed"
+                "status submission to Fava failed"
             );
             None
         }

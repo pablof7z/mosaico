@@ -1,6 +1,6 @@
-//! Local group-record vocabulary, replacing `nmp::nip29` types.
+//! Local group-record vocabulary, replacing `fava::nip29` types.
 //!
-//! These types mirror the NMP shape so callers need only import-path changes.
+//! These types mirror the Fava shape so callers need only import-path changes.
 //! They are built from fava `QuerySnapshot` rows decoded via `fava_simple_groups`.
 
 use std::collections::BTreeSet;
@@ -13,7 +13,7 @@ use nostr::key::PublicKey;
 
 /// Whether relay-authoritative group records are currently available.
 ///
-/// Mirrors `nmp::nip29::GroupAvailability` so call sites need only re-import.
+/// Mirrors `fava::nip29::GroupAvailability` so call sites need only re-import.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GroupAvailability {
     /// Relay-live records arrived; the snapshot reflects current relay state.
@@ -30,7 +30,7 @@ pub enum GroupAvailability {
 
 /// One relay-signed admin or member entry.
 ///
-/// Mirrors `nmp::nip29::ListedSubject`.
+/// Mirrors `fava::nip29::ListedSubject`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListedSubject {
     pub pubkey: PublicKey,
@@ -47,7 +47,7 @@ impl ListedSubject {
 
 /// Relay-signed kind:39000 metadata for one group.
 ///
-/// Mirrors `nmp::nip29::GroupMetadata`.
+/// Mirrors `fava::nip29::GroupMetadata`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupMetadata {
     pub name: Option<String>,
@@ -87,7 +87,7 @@ fn tag_value<'a>(event: &'a Event, name: &str) -> Option<&'a str> {
 
 /// Complete relay-signed state for one group at one instant.
 ///
-/// Mirrors `nmp::nip29::GroupSnapshot`. The `id` is the `d` tag value.
+/// Mirrors `fava::nip29::GroupSnapshot`. The `id` is the `d` tag value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GroupSnapshot {
     pub id: String,

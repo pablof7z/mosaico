@@ -1,14 +1,14 @@
-//! End-to-end coverage for Nostr codec and NMP acquisition boundaries.
+//! End-to-end coverage for Nostr codec and Fava acquisition boundaries.
 
 #[path = "common/mod.rs"]
 mod common;
-#[path = "common/nmp_client.rs"]
-mod nmp_client;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 
 use common::TestRelay;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
-use nmp_client::NmpRelayClient;
+use fava_client::FavaRelayClient;
 use nostr::event::{EventBuilder, Kind, Tag};
 use nostr::filter::Filter;
 use nostr::key::Keys;
@@ -88,7 +88,7 @@ async fn publishes_and_decodes_all_event_types() {
 }
 
 #[tokio::test]
-async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
+async fn fava_acquires_from_an_explicitly_allowed_local_relay() {
     use fava::RelayUrl;
     use fava_query::Query;
 
@@ -134,7 +134,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
 
     let writer = relay_client(&relay.url, author).await;
     writer
-        .send_event_builder(EventBuilder::new(Kind::TextNote, "hello from NMP"))
+        .send_event_builder(EventBuilder::new(Kind::TextNote, "hello from Fava"))
         .await
         .expect("publish");
 
@@ -146,7 +146,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
             Ok(Ok(snapshot)) => {
                 found = snapshot.events.iter().any(|rec| {
                     if let fava::EventValue::Signed(e) = rec.event() {
-                        e.content == "hello from NMP"
+                        e.content == "hello from Fava"
                     } else {
                         false
                     }
@@ -160,7 +160,7 @@ async fn nmp_acquires_from_an_explicitly_allowed_local_relay() {
 }
 
 #[tokio::test]
-async fn bounded_nmp_read_accepts_an_active_empty_acquisition() {
+async fn bounded_fava_read_accepts_an_active_empty_acquisition() {
     let relay = TestRelay::start();
     let client = relay_client(&relay.url, Keys::generate()).await;
     let events = client
@@ -169,7 +169,7 @@ async fn bounded_nmp_read_accepts_an_active_empty_acquisition() {
             Duration::from_secs(5),
         )
         .await
-        .expect("empty NMP read should complete with acquisition evidence");
+        .expect("empty Fava read should complete with acquisition evidence");
     assert!(events.is_empty());
 }
 
@@ -279,8 +279,8 @@ fn p_tag(pubkey: &str) -> Tag {
     Tag::custom("p", [pubkey])
 }
 
-async fn relay_client(relay: &str, keys: Keys) -> NmpRelayClient {
-    NmpRelayClient::connect(keys, relay)
+async fn relay_client(relay: &str, keys: Keys) -> FavaRelayClient {
+    FavaRelayClient::connect(keys, relay)
         .await
-        .expect("connect NMP relay client")
+        .expect("connect Fava relay client")
 }

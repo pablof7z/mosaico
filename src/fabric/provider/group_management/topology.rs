@@ -11,7 +11,7 @@ impl Nip29Provider {
             name: Some(name.to_string()),
             ..Default::default()
         };
-        self.nmp
+        self.fava
             .publish_metadata_edit_and_wait(group, &edit, mgmt_keys.public_key())
             .await
             .is_ok()
@@ -25,7 +25,7 @@ impl Nip29Provider {
             return configuration_failure("9007 create-group");
         };
         if let Err(e) = self
-            .nmp
+            .fava
             .publish_create_group_and_wait(group, keys.public_key())
             .await
         {
@@ -37,7 +37,7 @@ impl Nip29Provider {
         }
         let edit = lifecycle::group_lock_closed(group, group);
         match self
-            .nmp
+            .fava
             .publish_metadata_edit_and_wait(group, &edit, keys.public_key())
             .await
         {
@@ -69,7 +69,7 @@ impl Nip29Provider {
             return configuration_failure("9007 create-subgroup");
         };
         if let Err(e) = self
-            .nmp
+            .fava
             .publish_create_subgroup_and_wait(child, parent, keys.public_key())
             .await
         {
@@ -81,7 +81,7 @@ impl Nip29Provider {
         }
         let edit = lifecycle::group_lock_closed(child, name);
         match self
-            .nmp
+            .fava
             .publish_metadata_edit_and_wait(child, &edit, keys.public_key())
             .await
         {

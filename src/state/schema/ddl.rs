@@ -86,13 +86,13 @@ CREATE TABLE IF NOT EXISTS session_channels (
 CREATE INDEX IF NOT EXISTS idx_session_channels_channel
     ON session_channels(channel_h, pubkey);
 
--- Minimal durable cursor: event contents remain exclusively in NMP.
-CREATE TABLE IF NOT EXISTS nmp_event_arrivals (
+-- Minimal durable cursor: event contents remain exclusively in Fava.
+CREATE TABLE IF NOT EXISTS fava_event_arrivals (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL UNIQUE
 );
 
--- NMP owns the event and attachment metadata. Mosaico retains only the
+-- Fava owns the event and attachment metadata. Mosaico retains only the
 -- verified directory containing host-local downloaded files.
 CREATE TABLE IF NOT EXISTS message_attachments (
     event_id  TEXT PRIMARY KEY,

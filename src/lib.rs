@@ -5,7 +5,7 @@
 //! hosts integrate from the outside via the CLI, hooks, and a skill.
 //!
 //! Layering, each knowing only what is below it:
-//!   cli -> runtime -> { domain, codec, NMP, state }
+//!   cli -> runtime -> { domain, codec, Fava, state }
 //!   config / identity / channel are leaf utilities.
 
 mod agent_about;
@@ -16,6 +16,7 @@ pub(crate) mod agent_xml;
 mod attachment;
 mod attachment_contract;
 mod attachment_receive;
+mod asset_hash;
 mod channel_about;
 mod channel_name;
 mod channel_nudge;
@@ -38,8 +39,8 @@ pub mod instrument;
 pub(crate) mod liveness;
 pub mod logging;
 mod group_snapshot;
-mod nmp_host;
-mod nmp_views;
+mod fava_host;
+mod fava_views;
 mod row;
 pub mod profile;
 #[allow(dead_code)]

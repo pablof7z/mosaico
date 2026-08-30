@@ -7,7 +7,7 @@
 //! carried a `CASE WHEN messages.direction='outbound'` latch whose whole job
 //! was to keep the two from overwriting each other.
 //!
-//! The optimistic mirror is gone -- NMP injects the accepted write into the
+//! The optimistic mirror is gone -- Fava injects the accepted write into the
 //! subscription Mosaico already holds (#1182), so there is exactly one writer
 //! again. And the column was never load-bearing anyway: its only reader,
 //! `should_render_reply_nudge`, filters `author_pubkey=?1` in the same

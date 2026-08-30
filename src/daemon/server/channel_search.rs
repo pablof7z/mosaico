@@ -157,7 +157,7 @@ fn resolve_identities(store: &Store, selectors: &[String]) -> Result<Vec<String>
 }
 
 fn resolve_channel_scopes(store: &Store, selectors: &[String]) -> Result<Vec<String>> {
-    // Bare `#` means every channel in the current retained NMP view.
+    // Bare `#` means every channel in the current retained Fava view.
     if selectors.is_empty() || selectors.iter().any(|selector| selector.trim() == "#") {
         return Ok(Vec::new());
     }

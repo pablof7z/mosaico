@@ -2,7 +2,7 @@
 //!
 //! Nothing in this module composes a wire row. It states what Mosaico wants —
 //! the avatar URL, the visibility a workspace has — and produces a
-//! `MetadataEdit` for the caller to publish via `NmpHost`.
+//! `MetadataEdit` for the caller to publish via `FavaHost`.
 
 use fava_simple_groups::{GroupAccess, MetadataEdit};
 

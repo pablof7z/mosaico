@@ -1,5 +1,5 @@
 use super::*;
-use crate::nmp_client::NmpRelayClient;
+use crate::fava_client::FavaRelayClient;
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
 use nostr::key::Keys;
@@ -144,9 +144,9 @@ fn start_channel(home: &Home, channel: &str, work_dir: &Path) {
 
 async fn publish_management_command(channel: &str, body: &str) {
     let keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = NmpRelayClient::connect(keys.clone(), &shared_nip29_relay_url())
+    let client = FavaRelayClient::connect(keys.clone(), &shared_nip29_relay_url())
         .await
-        .expect("connect NMP relay client");
+        .expect("connect Fava relay client");
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), ""),
         channel: channel.to_string(),

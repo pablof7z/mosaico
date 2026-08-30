@@ -11,7 +11,7 @@ fn hooks_fail_open_without_spawning_daemon() {
         "precondition: daemon must be stopped"
     );
     // Keep this a hook-path latency assertion rather than a macOS debug-binary
-    // cold-page-fault assertion. NMP materially increases the debug executable;
+    // cold-page-fault assertion. Fava materially increases the debug executable;
     // one non-hook process warms the image without creating the daemon.
     let warm = run_cli(&home, &["--help"]);
     assert!(warm.status.success(), "debug binary warmup failed");

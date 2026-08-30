@@ -130,7 +130,7 @@ pub(in crate::daemon::server) fn tail_event_matches_channel(
     ev_channel == pr
 }
 
-/// Build the backfill event list from the current retained NMP rows plus local
+/// Build the backfill event list from the current retained Fava rows plus local
 /// session state.
 ///
 /// Returns recent chat lines as `Msg` events plus a status snapshot for peers
@@ -144,7 +144,7 @@ pub(in crate::daemon::server) fn build_backfill(
     let mut events: Vec<TailEvent> = Vec::new();
     let cap = limit.min(u32::MAX as u64) as u32;
 
-    // ── Recent chat lines from NMP rows ──────────────────────────────────────
+    // ── Recent chat lines from Fava rows ──────────────────────────────────────
     let chat_rows: Vec<Message> = state.with_store(|s| match channel {
         Some(pr) => s
             .chat_messages_for_channel(pr, since, cap)
@@ -245,7 +245,7 @@ mod tests {
     async fn public_tail_events_replace_internal_channel_ids_with_full_paths() {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root-h").metadata("root", "", "", 1),
                 TestGroup::new("child-h").metadata("review", "", "root-h", 2),
             ]));

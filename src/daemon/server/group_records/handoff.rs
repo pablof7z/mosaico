@@ -1,13 +1,13 @@
-//! Lossless ownership transfer between two NMP group observations.
+//! Lossless ownership transfer between two Fava group observations.
 //!
 //! Mosaico never merges their rows. It keeps the predecessor live and visible
 //! until the replacement's own complete delivery establishes every predecessor
-//! group that the new predicate still requires, then swaps the NMP handles.
+//! group that the new predicate still requires, then swaps the Fava handles.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use nmp_nip29::{GroupAvailability, GroupObservation, GroupSnapshot};
+use fava_nip29::{GroupAvailability, GroupObservation, GroupSnapshot};
 
 use super::{DaemonState, GroupRecordsCoverage, GroupRecordsWatch};
 
@@ -70,7 +70,7 @@ pub(super) fn activate_if_ready(
     }
 
     state
-        .nmp()
+        .fava()
         .views()
         .set_group_observation(Some(candidate.clone()));
     let predecessor = watch.published_observation.replace(candidate.clone());

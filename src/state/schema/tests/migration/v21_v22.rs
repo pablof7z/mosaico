@@ -52,10 +52,10 @@ fn schema_twenty_one_extracts_local_satellites_and_drops_all_relay_state() {
     drop(conn);
 
     let store = Store::open(&path).expect("schema twenty-one upgrades to current");
-    assert_eq!(store.record_nmp_arrival("next-event").unwrap(), 2);
+    assert_eq!(store.record_fava_arrival("next-event").unwrap(), 2);
     drop(store);
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 24);
+    assert_eq!(version(&conn), 25);
     for table in REMOVED {
         assert!(!fixture::table_exists(&conn, table), "{table} removed");
     }
@@ -64,7 +64,7 @@ fn schema_twenty_one_extracts_local_satellites_and_drops_all_relay_state() {
     assert_eq!(count(&conn, "session_channels"), 1);
     assert_eq!(
         conn.query_row(
-            "SELECT event_id FROM nmp_event_arrivals WHERE sequence=1",
+            "SELECT event_id FROM fava_event_arrivals WHERE sequence=1",
             [],
             |row| row.get::<_, String>(0),
         )
@@ -73,7 +73,7 @@ fn schema_twenty_one_extracts_local_satellites_and_drops_all_relay_state() {
     );
     assert_eq!(
         conn.query_row(
-            "SELECT event_id FROM nmp_event_arrivals WHERE sequence=2",
+            "SELECT event_id FROM fava_event_arrivals WHERE sequence=2",
             [],
             |row| row.get::<_, String>(0),
         )
@@ -107,7 +107,7 @@ fn noncanonical_relay_cache_shapes_are_destroyed_instead_of_preserved() {
 
     drop(Store::open(&path).expect("obsolete group cache shape is disposable"));
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 24);
+    assert_eq!(version(&conn), 25);
     for table in REMOVED {
         assert!(!fixture::table_exists(&conn, table), "{table} removed");
     }

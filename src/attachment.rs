@@ -1,10 +1,10 @@
 //! Sending a file with a chat message.
 //!
-//! Blossom itself is `nmp-blossom`'s: the kind:24242 BUD-11 authorization, its
+//! Fava signs the kind:24242 BUD-11 authorization; this module owns its
 //! `t`/`x`/`expiration` rows, the `Nostr <base64url>` header encoding, the
 //! `PUT /upload`, the response-size ceiling, the descriptor parse, and the
 //! integrity gate that refuses a descriptor whose sha256 does not match the
-//! bytes actually sent. Exact-byte identity is `nmp-asset`'s.
+//! bytes actually sent. Exact-byte identity is local SHA-256.
 //!
 //! What stays here is product policy: which local files a message carries,
 //! what a `[label]` may look like, and the operator assumption that a group
@@ -13,7 +13,7 @@
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
 use base64::engine::{general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use nmp_asset::Sha256Hash;
+use crate::asset_hash::Sha256Hash;
 use nostr::event::Tag;
 use nostr::key::PublicKey;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
 
-use crate::nmp_host::NmpHost;
+use crate::fava_host::FavaHost;
 
 const AUTH_LIFETIME_SECS: u64 = 5 * 60;
 
@@ -128,7 +128,7 @@ pub(crate) fn prepare_message(message: &str, attachments: &[Attachment]) -> Resu
 pub(crate) async fn upload_all(
     attachments: &[Attachment],
     relays: &[String],
-    nmp: &Arc<NmpHost>,
+    fava: &Arc<FavaHost>,
     author: PublicKey,
 ) -> Result<Vec<ChatAttachment>> {
     validate(attachments)?;
@@ -139,7 +139,7 @@ pub(crate) async fn upload_all(
     let server = blossom_server(relays)?;
     // Guard local/private-network destinations the same way the relay engine
     // does: only allowed if the operator opted that exact host in.
-    let allowed_local = nmp.allowed_local_hosts();
+    let allowed_local = fava.allowed_local_hosts();
     if is_local_url(&server) {
         let host = server.host_str().unwrap_or_default().to_string();
         if !allowed_local.contains(&host) {
@@ -152,7 +152,7 @@ pub(crate) async fn upload_all(
 
     let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
-        let descriptor = upload(&server, attachment, nmp, author).await?;
+        let descriptor = upload(&server, attachment, fava, author).await?;
         uploaded.push(ChatAttachment {
             url: descriptor.url,
             label: attachment.label.clone(),
@@ -202,7 +202,7 @@ fn blossom_server(relays: &[String]) -> Result<Url> {
 async fn upload(
     server: &Url,
     attachment: &Attachment,
-    nmp: &Arc<NmpHost>,
+    fava: &Arc<FavaHost>,
     author: PublicKey,
 ) -> Result<BlossomDescriptor> {
     let bytes = tokio::fs::read(&attachment.path).await.with_context(|| {
@@ -213,7 +213,7 @@ async fn upload(
         )
     })?;
     let hash = Sha256Hash::of(&bytes);
-    let auth_token = authorization(nmp, author, &hash).await?;
+    let auth_token = authorization(fava, author, &hash).await?;
     let content_type = mime_guess::from_path(&attachment.path).first_or_octet_stream();
     let upload_url = server
         .join("upload")
@@ -284,7 +284,7 @@ async fn upload(
 
 /// Compose a BUD-11 kind:24242 authorization and have Fava sign it with the
 /// registered author signer before returning the base64url-encoded JSON.
-async fn authorization(nmp: &Arc<NmpHost>, author: PublicKey, hash: &Sha256Hash) -> Result<String> {
+async fn authorization(fava: &Arc<FavaHost>, author: PublicKey, hash: &Sha256Hash) -> Result<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -301,7 +301,7 @@ async fn authorization(nmp: &Arc<NmpHost>, author: PublicKey, hash: &Sha256Hash)
         .by(author)
         .build()
         .map_err(anyhow::Error::from)?;
-    let signed = nmp
+    let signed = fava
         .fava
         .sign(unsigned)
         .await

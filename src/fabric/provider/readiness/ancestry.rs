@@ -63,7 +63,7 @@ pub(super) async fn ensure_parent(
         ChannelReadinessError::reason(format!("reading parent roster failed: {error:#}"))
     })?;
     Ok(
-        crate::nmp_views::GroupProjection::new(std::slice::from_ref(&snapshot))
+        crate::fava_views::GroupProjection::new(std::slice::from_ref(&snapshot))
             .list_channel_members(parent)
             .into_iter()
             .filter(|member| member.role == "admin")

@@ -2,7 +2,7 @@ use super::*;
 use crate::reconcile::StatusReconciler;
 pub(super) mod auth_restore;
 mod host_profile_bootstrap;
-pub(super) mod nmp_open;
+pub(super) mod fava_open;
 mod reconcile;
 mod shutdown;
 
@@ -23,7 +23,7 @@ pub async fn run() -> Result<()> {
         config = %storage.config_path.display(),
         socket = %storage.socket_path.display(),
         state_db = %storage.state_db_path.display(),
-        nmp_store = %storage.nmp_store_path.display(),
+        fava_store = %storage.fava_store_path.display(),
         daemon_log = %storage.daemon_log_path.display(),
         lock = %storage.lock_path.display(),
         mosaico_home_set = storage.mosaico_home_set,
@@ -34,24 +34,24 @@ pub async fn run() -> Result<()> {
     let (cfg, backend_keys) = auth_restore::load_backend()?;
     let mut store = Store::open(&store_path())?;
     reconcile::leftover_startup_state(&store)?;
-    let nmp = Arc::new(nmp_open::open(&cfg, &storage, &backend_keys)?);
-    store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
+    let fava = Arc::new(fava_open::open(&cfg, &storage, &backend_keys)?);
+    store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
     let store = Arc::new(Mutex::new(store));
     let provider = Arc::new(Nip29Provider::new(
-        nmp.clone(),
+        fava.clone(),
         store.clone(),
         cfg.management_nsec().cloned(),
         cfg.user_nsec().cloned(),
         cfg.whitelisted_pubkeys.clone(),
     ));
     let provider = Arc::new(std::sync::RwLock::new(provider));
-    let nmp = Arc::new(std::sync::RwLock::new(nmp));
+    let fava = Arc::new(std::sync::RwLock::new(fava));
     let presence_publisher =
         crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
     let state = Arc::new(DaemonState {
         store,
         provider,
-        nmp,
+        fava,
         cfg: std::sync::RwLock::new(cfg),
         config_reload: Mutex::new(()),
         agent_config: AgentConfigState::new(),
@@ -103,7 +103,7 @@ pub async fn run() -> Result<()> {
     // Relay startup runs off the accept path, so store-only RPCs respond immediately.
     let relay_state = state.clone();
     tokio::spawn(async move {
-        tracing::info!("opening NMP subscriptions");
+        tracing::info!("opening Fava subscriptions");
         super::agent_discovery::start_monitor(relay_state.clone());
 
         host_profile_bootstrap::publish_startup_profile(&relay_state).await;
@@ -115,7 +115,7 @@ pub async fn run() -> Result<()> {
             tracing::warn!(error = %e, "initial subscription sync failed");
         }
         super::config_reload::reconcile_managed_admins(&relay_state);
-        // Revive sessions a previous daemon left behind and reconcile their NMP
+        // Revive sessions a previous daemon left behind and reconcile their Fava
         // observations.
         reconcile_sessions(&relay_state, startup_sessions).await;
         // Re-adopted sessions may already have inbox rows from before the daemon
@@ -139,7 +139,7 @@ pub async fn run() -> Result<()> {
     // Mosaico owns the group-records observation, so Mosaico withdraws it —
     // before the engine goes down under it.
     super::group_records::shutdown(&state);
-    state.nmp().shutdown();
+    state.fava().shutdown();
     drop(lock);
     Ok(())
 }

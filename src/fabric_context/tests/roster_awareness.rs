@@ -66,7 +66,7 @@ fn member_rows(xml: &str) -> Vec<&str> {
 #[test]
 fn message_activity_surfaces_a_member_the_heartbeat_never_reported() {
     let store = seed_store();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([said("msg-1", OTHER_PK, "root", 40)]),
@@ -90,7 +90,7 @@ fn message_activity_surfaces_a_member_the_heartbeat_never_reported() {
 #[test]
 fn a_live_heartbeat_owns_the_state_label_and_its_own_since() {
     let store = seed_store();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([heartbeat(OTHER_PK, "reviewer", 95)])
@@ -117,12 +117,12 @@ fn a_live_heartbeat_owns_the_state_label_and_its_own_since() {
 #[test]
 fn an_unnameable_member_is_withheld_until_a_profile_row_arrives() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, OTHER_PK, GHOST_PK], &[]),
         task_group(),
     ]));
     let ghost_message = said("msg-1", GHOST_PK, "root", 40);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([ghost_message.clone()]),
@@ -147,7 +147,7 @@ fn an_unnameable_member_is_withheld_until_a_profile_row_arrives() {
     let mut ghost = profile(GHOST_PK, "ghost", "ghost", "ghost", "laptop", false);
     ghost.updated_at = 3;
     profiles.push(ghost);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
             .events([ghost_message]),
@@ -164,11 +164,11 @@ fn an_unnameable_member_is_withheld_until_a_profile_row_arrives() {
 #[test]
 fn a_status_slug_names_a_member_whose_profile_has_not_arrived() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, GHOST_PK], &[]),
         task_group(),
     ]));
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([heartbeat(GHOST_PK, "amber-ghost", 95)]),
@@ -184,7 +184,7 @@ fn a_status_slug_names_a_member_whose_profile_has_not_arrived() {
 #[test]
 fn a_blank_slug_does_not_count_as_a_handle() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, GHOST_PK], &[]),
         task_group(),
     ]));
@@ -192,7 +192,7 @@ fn a_blank_slug_does_not_count_as_a_handle() {
     let mut ghost = profile(GHOST_PK, "Ghost", "   ", "", "laptop", false);
     ghost.updated_at = 2;
     profiles.push(ghost);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
             .events([said("msg-1", GHOST_PK, "root", 40)]),
@@ -208,11 +208,11 @@ fn a_blank_slug_does_not_count_as_a_handle() {
 #[test]
 fn the_full_session_briefing_withholds_an_unnameable_member() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, GHOST_PK], &[]),
         task_group(),
     ]));
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([said("msg-1", GHOST_PK, "root", 40)]),

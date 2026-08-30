@@ -401,7 +401,7 @@ mod tests {
     use super::*;
     use crate::state::RegisterSession;
     #[test]
-    fn enriches_local_session_identity_without_reconstructing_nmp_channel_state() {
+    fn enriches_local_session_identity_without_reconstructing_fava_channel_state() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state.db");
         let store = crate::state::Store::open(&path).unwrap();

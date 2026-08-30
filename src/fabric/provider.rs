@@ -17,7 +17,7 @@ use crate::domain::DomainEvent;
 use crate::fabric::nip29::readiness::ChannelReadiness;
 use crate::fabric::nip29::wire::Nip29WireCodec;
 use crate::fabric::{NostrEventCodec, RawEnvelope};
-use crate::nmp_host::NmpHost;
+use crate::fava_host::FavaHost;
 use crate::state::Store;
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
@@ -39,8 +39,8 @@ pub struct Nip29Provider {
     pub wire: Nip29WireCodec,
     /// Shared store Arc — same handle as `DaemonState.store`. No new Connection.
     pub store: Arc<Mutex<Store>>,
-    /// NMP owns every relay read and write, signer selection, routing, and receipt.
-    pub(crate) nmp: Arc<NmpHost>,
+    /// Fava owns every relay read and write, signer selection, routing, and receipt.
+    pub(crate) fava: Arc<FavaHost>,
     /// Backend management signing key (`mosaicoPrivateKey`). Missing keys are
     /// generated and persisted by the shared readiness/provisioning path.
     management_nsec: Mutex<Option<String>>,
@@ -54,7 +54,7 @@ pub struct Nip29Provider {
 
 impl Nip29Provider {
     pub(crate) fn new(
-        nmp: Arc<NmpHost>,
+        fava: Arc<FavaHost>,
         store: Arc<Mutex<Store>>,
         management_nsec: Option<String>,
         user_nsec: Option<String>,
@@ -64,7 +64,7 @@ impl Nip29Provider {
         Self {
             wire,
             store,
-            nmp,
+            fava,
             management_nsec: Mutex::new(management_nsec),
             user_nsec,
             whitelisted_pubkeys,
@@ -87,7 +87,7 @@ impl Nip29Provider {
     }
 
     /// Encode, sign, and durably enqueue one domain event. Relay delivery is
-    /// always owned by NMP after this local acceptance boundary.
+    /// always owned by Fava after this local acceptance boundary.
     pub async fn enqueue(
         &self,
         ev: &DomainEvent,
@@ -102,7 +102,7 @@ impl Nip29Provider {
         }
     }
 
-    /// Enqueue one status immediately after NMP returned a terminal group
+    /// Enqueue one status immediately after Fava returned a terminal group
     /// mutation result for one of its channels. Other channels still require
     /// current retained-observation evidence.
     pub(crate) async fn enqueue_status_after_confirmed_scope(
@@ -154,7 +154,7 @@ impl Nip29Provider {
         // profiles land, never where other kinds are published.
         if matches!(ev, DomainEvent::Profile(_)) {
             let builder = self.wire.encode(ev)?;
-            return self.nmp.enqueue_profile(builder, keys.public_key());
+            return self.fava.enqueue_profile(builder, keys.public_key());
         }
         let signer = keys.public_key().to_hex();
         match ev {
@@ -183,18 +183,18 @@ impl Nip29Provider {
         match ev {
             // The several-group write: one kind:30315 replaceable coordinate,
             // one `h` row per channel the session occupies. `nip29::Groups`
-            // mints every row (NMP #1281); publishing once per channel would
+            // mints every row; publishing once per channel would
             // have each copy replace the last.
             DomainEvent::Status(status) => {
-                self.nmp
+                self.fava
                     .publish_groups(status.channels.iter().cloned(), builder, keys.public_key())
             }
             DomainEvent::ChatMessage(message) => {
-                self.nmp
+                self.fava
                     .publish_group(&message.channel, builder, keys.public_key())
             }
             DomainEvent::Reaction(reaction) => {
-                self.nmp
+                self.fava
                     .publish_group(&reaction.channel, builder, keys.public_key())
             }
             DomainEvent::Profile(_) => unreachable!("profiles return above"),

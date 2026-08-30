@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn full_channel_ref_walks_to_workspace_root() {
         let store = Store::open_memory().unwrap();
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root-h").metadata("workspace", "", "", 1),
             TestGroup::new("child-h").metadata("channel", "", "root-h", 2),
             TestGroup::new("qa-h").metadata("qa", "", "child-h", 3),
@@ -95,7 +95,7 @@ mod tests {
     fn workspace_is_the_root_channel() {
         let store = Store::open_memory().unwrap();
         store
-            .install_test_nmp_group_delivery(TestGroupDelivery::new([
+            .install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("workspace").metadata("workspace", "", "", 1)
             ]));
 

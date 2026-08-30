@@ -28,7 +28,7 @@ pub(in crate::daemon::server) fn recorded_channels(
 }
 
 /// Explicit operator destruction has no grace window. Attempt every recorded
-/// channel even when the observed roster is stale, and await NMP's terminal
+/// channel even when the observed roster is stale, and await Fava's terminal
 /// publication result.
 pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
     state: &Arc<DaemonState>,
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn cleanup_failure_labels_never_expose_internal_channel_ids() {
         let store = crate::state::Store::open_memory().unwrap();
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("root").metadata("general", "", "", 1),
             crate::state::TestGroup::new("opaque-child").metadata("review", "", "root", 2),
         ]));

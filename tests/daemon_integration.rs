@@ -16,8 +16,8 @@ mod daemon_harness;
 mod messaging;
 #[path = "daemon_integration/my_session.rs"]
 mod my_session;
-#[path = "common/nmp_client.rs"]
-mod nmp_client;
+#[path = "common/fava_client.rs"]
+mod fava_client;
 #[path = "daemon_integration/process.rs"]
 mod process;
 #[path = "daemon_integration/search.rs"]

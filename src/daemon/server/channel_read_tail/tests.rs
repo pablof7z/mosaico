@@ -84,7 +84,7 @@ fn chat_log_json_exposes_the_materialized_attachment_directory() {
 #[test]
 fn root_channel_read_backfill_and_live_scopes_include_nested_descendants() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("root").metadata("channel", "", "", 1),
         TestGroup::new("task").metadata("Task", "", "root", 2),
         TestGroup::new("deep").metadata("Deep", "", "task", 3),
@@ -145,7 +145,7 @@ async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
 
     let state = DaemonState::new_for_test().await;
     state.with_store(|s| {
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile(
             TARGET_PK,
             "target@laptop",
             "target",
@@ -163,7 +163,7 @@ async fn chat_row_to_json_rewrites_nostr_mentions_in_body() {
 #[test]
 fn is_backend_row_true_when_author_is_flagged_backend() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile(
         BACKEND_PK,
         "laptop (mosaico)",
         "hub",
@@ -180,7 +180,7 @@ fn is_backend_row_true_when_author_is_flagged_backend() {
 fn is_backend_row_true_when_recipient_is_flagged_backend() {
     let store = Store::open_memory().unwrap();
     let msg = row("list agents".to_string());
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([profile(
                 BACKEND_PK,

@@ -4,9 +4,9 @@ const CHANNEL_MEMBER_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 // ── root_channels ────────────────────────────────────────────────────────────
 
-/// List the NIP-29 root channels currently delivered by the retained NMP group
+/// List the NIP-29 root channels currently delivered by the retained Fava group
 /// observation. Asking the relay again on every call would create a second
-/// acquisition path for state NMP already owns.
+/// acquisition path for state Fava already owns.
 pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
     let channels: Vec<serde_json::Value> = state
         .with_store(|s| s.list_root_channels())
@@ -25,7 +25,7 @@ pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> 
 
 // ── channel_members ──────────────────────────────────────────────────────────
 
-/// Return the membership roster currently delivered by NMP for a channel.
+/// Return the membership roster currently delivered by Fava for a channel.
 pub async fn rpc_channel_members(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -77,7 +77,7 @@ pub async fn rpc_channel_members(
 /// a channel. Resolves its full path globally to the internal group id, ensures
 /// the channel is ready (management is admin), then publishes an explicit
 /// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), then
-/// waits for NMP's terminal per-relay publication result.
+/// waits for Fava's terminal per-relay publication result.
 pub async fn rpc_channel_add_member(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -138,7 +138,7 @@ pub async fn rpc_channel_add_member(
     ))?;
 
     // Explicit grant of the requested role. `ensure_channel_ready` above only
-    // guarantees the management key is admin. NMP's terminal result answers
+    // guarantees the management key is admin. Fava's terminal result answers
     // publication; the retained group observation alone updates the roster.
     let outcome = if p.admin {
         state

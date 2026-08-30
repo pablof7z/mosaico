@@ -8,7 +8,7 @@ impl Nip29Provider {
     /// The current record-bearing value from the daemon's retained group
     /// observation. An id-only Acquiring seed is not treated as group state.
     pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<GroupSnapshot> {
-        self.nmp
+        self.fava
             .views()
             .group_snapshots()
             .into_iter()
@@ -40,7 +40,7 @@ impl Nip29Provider {
     /// Read one complete group value from fava. Nothing is copied into SQLite.
     pub(crate) async fn group_snapshot(&self, group: &str) -> Result<GroupSnapshot> {
         #[cfg(test)]
-        if let Some(scripted) = self.nmp.take_scripted_group_snapshot(group) {
+        if let Some(scripted) = self.fava.take_scripted_group_snapshot(group) {
             return scripted.context("reading scripted group snapshot");
         }
 
@@ -55,7 +55,7 @@ impl Nip29Provider {
         }
 
         let mut observation = self
-            .nmp
+            .fava
             .open_one_group_records_observation(group)
             .await
             .with_context(|| format!("opening group observation for {group}"))?;
@@ -145,12 +145,12 @@ fn settled_group_snapshot(
 }
 
 pub(super) fn require_proven_projection(
-    read: &crate::nmp_host::read::BoundedRead,
+    read: &crate::fava_host::read::BoundedRead,
     action: &str,
 ) -> Result<()> {
     if matches!(
         read.termination,
-        crate::nmp_host::read::BoundedReadTermination::RelaySettled
+        crate::fava_host::read::BoundedReadTermination::RelaySettled
     ) {
         return Ok(());
     }
@@ -163,7 +163,7 @@ pub(super) fn require_proven_projection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nmp_host::read::{BoundedRead, BoundedReadTermination};
+    use crate::fava_host::read::{BoundedRead, BoundedReadTermination};
 
     fn read(termination: BoundedReadTermination) -> BoundedRead {
         BoundedRead {

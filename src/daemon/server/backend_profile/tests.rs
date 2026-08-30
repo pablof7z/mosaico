@@ -41,7 +41,7 @@ async fn snapshot_owns_agents_and_workspaces_independently() {
     state.with_store(|store| {
         // Observed but not administered: cached because the relay describes it,
         // never this backend's to advertise.
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root-a")
                 .metadata("root-a", "", "", 1)
                 .admins(vec![management.clone()]),

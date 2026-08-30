@@ -94,7 +94,7 @@ impl ResetPlan {
         for target in files
             .iter()
             .chain(&directories)
-            .chain(std::iter::once(&storage.nmp_store_path))
+            .chain(std::iter::once(&storage.fava_store_path))
         {
             paths::audit_internal_target(target, &selected_home)?;
         }
@@ -115,7 +115,7 @@ impl ResetPlan {
             .iter()
             .chain(&controls)
             .chain(&directories)
-            .chain(std::iter::once(&storage.nmp_store_path))
+            .chain(std::iter::once(&storage.fava_store_path))
             .chain(std::iter::once(&attachment_directory))
         {
             paths::audit_target(target, &storage, &protected)?;
@@ -136,9 +136,9 @@ impl ResetPlan {
         for path in &self.directories {
             remove_directory(path)?;
         }
-        // NMP is last: a preceding filesystem failure must never leave old
-        // SQLite/session state pointing at an already-empty NMP store.
-        crate::nmp_host::store::reset(&self.storage.nmp_store_path)
+        // Fava is last: a preceding filesystem failure must never leave old
+        // SQLite/session state pointing at an already-empty Fava store.
+        crate::fava_host::store::reset(&self.storage.fava_store_path)
     }
 }
 

@@ -109,14 +109,14 @@ mod tests {
     fn search_arrays_are_typed_and_times_accept_unix_values() {
         let args = json!({
             "from": ["@Pablo", "@reviewer"],
-            "channels": ["#nmp", "#"],
+            "channels": ["#fava", "#"],
             "since": 1785348600,
         });
         assert_eq!(
             string_array(&args, "from").unwrap(),
             ["@Pablo", "@reviewer"]
         );
-        assert_eq!(string_array(&args, "channels").unwrap(), ["#nmp", "#"]);
+        assert_eq!(string_array(&args, "channels").unwrap(), ["#fava", "#"]);
         assert_eq!(time_arg(&args, "since").unwrap(), Some(1_785_348_600));
     }
 
@@ -148,7 +148,7 @@ mod tests {
     fn tool_text_is_the_same_xml_as_the_cli_and_structured_content_is_preserved() {
         let structured = json!({
             "channels": [{
-                "ref": "#nmp/research",
+                "ref": "#fava/research",
                 "messages": [{
                     "event_id": "4e91c0b7f2de",
                     "from": "Pablo",

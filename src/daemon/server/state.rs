@@ -75,7 +75,7 @@ pub(super) struct SubscriptionState {
     pub(super) reconciler: Mutex<SubscriptionReconciler>,
     pub(super) sync: tokio::sync::Mutex<()>,
     /// The one retained NIP-29 group-records observation. Mosaico owns this
-    /// handle and its lifetime; NMP caches no observation on its behalf.
+    /// handle and its lifetime; Fava caches no observation on its behalf.
     pub(super) group_records: Mutex<super::group_records::GroupRecordsWatch>,
 }
 

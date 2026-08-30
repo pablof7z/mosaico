@@ -85,7 +85,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "mosaico.channel_search",
-        description: "Search messages in the daemon's current NMP view, newest first.",
+        description: "Search messages in the daemon's current Fava view, newest first.",
         props: &[
             Prop::new("from", "array", "Author identities; matches any value."),
             Prop::new(

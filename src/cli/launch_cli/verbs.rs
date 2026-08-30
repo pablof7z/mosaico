@@ -224,9 +224,9 @@ mod tests {
     #[test]
     fn named_launch_channel_uses_channel_resolve_contract() {
         assert_eq!(
-            channel_resolve_params("nmp", "forensic", "codex"),
+            channel_resolve_params("fava", "forensic", "codex"),
             serde_json::json!({
-                "channel": "nmp",
+                "channel": "fava",
                 "name": "forensic",
                 "agent": "codex",
                 "create_if_absent": true,
@@ -238,10 +238,10 @@ mod tests {
     fn picker_collects_only_public_nested_paths() {
         let children = serde_json::json!([
             {
-                "path": "#nmp/review",
+                "path": "#fava/review",
                 "about": "Reviews",
                 "children": [{
-                    "path": "#nmp/review/deep",
+                    "path": "#fava/review/deep",
                     "about": "Deep reviews",
                 }],
             }
@@ -255,11 +255,11 @@ mod tests {
             paths,
             vec![
                 None,
-                Some("#nmp/review".into()),
-                Some("#nmp/review/deep".into())
+                Some("#fava/review".into()),
+                Some("#fava/review/deep".into())
             ]
         );
-        assert_eq!(labels, ["create", "#nmp/review", "  #nmp/review/deep"]);
+        assert_eq!(labels, ["create", "#fava/review", "  #fava/review/deep"]);
     }
 
     #[tokio::test]

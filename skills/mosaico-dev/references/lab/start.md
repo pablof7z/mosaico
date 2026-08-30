@@ -80,7 +80,7 @@ Each profile receives:
 ```
 
 The writer resets profile-local Mosaico state by default, including `state.db*`,
-the daemon socket/logs, sessions, and `nmp.redb`. It preserves provider home and
+the daemon socket/logs, sessions, and `fava.redb`. It preserves provider home and
 build caches.
 
 The device config uses the relay owner as `userNsec`, includes every generated

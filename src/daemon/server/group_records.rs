@@ -2,7 +2,7 @@
 //!
 //! Kinds 39000/39001/39002 are watched through a single fava `Observation`.
 //! Each fava snapshot is decoded client-side into `Vec<GroupSnapshot>` and
-//! pushed into `NmpViews` for all downstream consumers. Coverage filtering
+//! pushed into `FavaViews` for all downstream consumers. Coverage filtering
 //! happens client-side; no relay-side predicate is used.
 
 use std::collections::BTreeSet;
@@ -80,11 +80,11 @@ pub(in crate::daemon::server) fn sync(
         drain.abort();
     }
     if coverage.is_empty() {
-        state.nmp().views().set_group_snapshots(Vec::new());
+        state.fava().views().set_group_snapshots(Vec::new());
         watch.coverage = Some(coverage);
         return Ok(());
     }
-    let observation = state.nmp().open_group_records_observation()?;
+    let observation = state.fava().open_group_records_observation()?;
     let known_ids = coverage.ids.clone();
     // Observation is moved into the task; aborting the task closes it via Drop.
     watch.drain = Some(tokio::spawn(drain(
@@ -107,7 +107,7 @@ pub(in crate::daemon::server) fn shutdown(state: &DaemonState) {
     if let Some(drain) = watch.drain.take() {
         drain.abort(); // dropping Observation inside task → close()
     }
-    state.nmp().views().set_group_snapshots(Vec::new());
+    state.fava().views().set_group_snapshots(Vec::new());
     watch.coverage = None;
 }
 
@@ -118,7 +118,7 @@ async fn drain(
     mut known_ids: BTreeSet<String>,
 ) {
     let mut renamed: BTreeSet<String> = BTreeSet::new();
-    let mut advertised = managed_roots(&state, &state.nmp().views().group_snapshots());
+    let mut advertised = managed_roots(&state, &state.fava().views().group_snapshots());
     apply_snapshot(
         &state,
         &observation.current(),
@@ -154,7 +154,7 @@ fn apply_snapshot(
     let av = group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
     let all_snapshots = group_snapshot::decode_snapshots(fava_snapshot, &BTreeSet::new(), av);
     let relevant = filter_for_coverage(&all_snapshots, coverage);
-    state.nmp().views().set_group_snapshots(relevant.clone());
+    state.fava().views().set_group_snapshots(relevant.clone());
 
     let discovered = record_discoveries(known_ids, &relevant);
     root_names::repair_delivered(state, &relevant, renamed);

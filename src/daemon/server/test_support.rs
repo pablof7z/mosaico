@@ -37,22 +37,22 @@ impl DaemonState {
             cross_project_boundary: crate::config::CrossProjectBoundary::default(),
             attachment_receive_directory,
         };
-        let nmp = Arc::new(
-            crate::nmp_host::NmpHost::open(&relays, None, None, &backend_keys)
-                .expect("in-memory NMP engine"),
+        let fava = Arc::new(
+            crate::fava_host::FavaHost::open(&relays, None, None, &backend_keys)
+                .expect("in-memory Fava engine"),
         );
         let mut store = Store::open_memory().expect("in-memory store");
-        store.bind_nmp_views_and_feed(nmp.views_handle(), nmp.clone());
+        store.bind_fava_views_and_feed(fava.views_handle(), fava.clone());
         let store = Arc::new(Mutex::new(store));
         let provider = Arc::new(Nip29Provider::new(
-            nmp.clone(),
+            fava.clone(),
             store.clone(),
             Some(backend_key),
             None,
             whitelisted_pubkeys,
         ));
         let provider = Arc::new(std::sync::RwLock::new(provider));
-        let nmp = Arc::new(std::sync::RwLock::new(nmp));
+        let fava = Arc::new(std::sync::RwLock::new(fava));
         let presence_publisher =
             crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
         let catalog = CatalogState::new();
@@ -60,7 +60,7 @@ impl DaemonState {
         Arc::new(DaemonState {
             store,
             provider,
-            nmp,
+            fava,
             cfg: std::sync::RwLock::new(cfg),
             config_reload: Mutex::new(()),
             agent_config: AgentConfigState::new(),

@@ -85,7 +85,7 @@ impl DaemonState {
 /// kind:39001 admin list names the management key.
 ///
 /// This is the local reading of "to which groups does my management key belong
-/// on this relay as an admin?" — the question the retained NMP group observation
+/// on this relay as an admin?" — the question the retained Fava group observation
 /// answers. It is deliberately not "every root channel this daemon has heard
 /// of": advertising observed metadata as the backend's own workspace would
 /// claim hosting it cannot provide. Consumers

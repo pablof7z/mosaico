@@ -63,19 +63,19 @@ pub(super) async fn rpc_dispatch(
         &prose,
     )?;
     let keys = state.session_signing_keys(&caller.pubkey)?;
-    // The id exists once NMP has taken custody, so the ACK observation opens
+    // The id exists once Fava has taken custody, so the ACK observation opens
     // after the publish rather than before it. That is not a lost-ack race:
     // `observe` is cache-then-live, so an ACK that lands in the gap is replayed
     // from the store when the subscription opens.
     //
     // The dispatch reaches this backend's own session-dispatch listener through
-    // the same group subscription (NMP #1182), so nothing is driven inline.
+    // the same group subscription, so nothing is driven inline.
     let dispatch_event_id = state
-        .nmp()
+        .fava()
         .publish_group(&route_channel, builder, keys.public_key())?
         .to_hex();
     let ack_observation = state
-        .nmp()
+        .fava()
         .observe(&dispatch_ack_query(&dispatch_event_id))?;
 
     let ack = wait_dispatch_ack(ack_observation, dispatch_event_id.clone()).await?;

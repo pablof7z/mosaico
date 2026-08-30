@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("workspace").metadata("workspace", "", "", 1)
     ]));
     let humans = [
@@ -25,7 +25,7 @@ fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
             updated_at: 100,
         })
         .collect::<Vec<_>>();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles));
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles));
     let rows = humans
         .iter()
         .enumerate()
@@ -67,7 +67,7 @@ fn multiple_whitelisted_humans_render_as_distinct_named_senders() {
 #[test]
 fn multi_message_prompt_has_one_full_guide_and_one_compact_affordance_each() {
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("workspace").metadata("workspace", "", "", 1)
     ]));
     let rows = ["event-one", "event-two"]

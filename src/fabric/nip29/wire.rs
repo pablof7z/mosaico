@@ -152,7 +152,7 @@ impl Nip29WireCodec {
                 ];
                 // No `h` rows. `channels` names the groups this status is
                 // published INTO, and `nip29::Groups` mints one context row
-                // per group before the bytes are signed (NMP #1281).
+                // per group before Fava signs the bytes.
                 let _ = channels;
                 if !rel_cwd.is_empty() {
                     tags.push(tag(&["rel-cwd", rel_cwd])?);
@@ -177,7 +177,7 @@ impl Nip29WireCodec {
             }) => {
                 crate::attachment_contract::validate_attachments(attachments)?;
                 // No `h` row. `channel` names the group this draft is published
-                // INTO, and the context tag is NMP's group door to mint, before
+                // INTO, and the context tag is Fava's group door to mint, before
                 // the bytes are signed.
                 let mut tags = Vec::new();
                 for pk in mentioned_pubkeys {
@@ -202,7 +202,7 @@ impl Nip29WireCodec {
             }) => {
                 // NIP-25 reaction: content = emoji, `e` = target message id. The
                 // group scoping that gets it admitted and attributed is the `h`
-                // row NMP's group door mints; `channel` selects which door.
+                // row Fava's group door mints; `channel` selects which door.
                 let tags = vec![tag(&["e", target_event_id])?];
                 EventBuilder::new(kind(KIND_REACTION), emoji.clone()).tags(tags)
             }
@@ -238,7 +238,7 @@ impl Nip29WireCodec {
             }
             KIND_CHAT => Some(DomainEvent::ChatMessage(ChatMessage {
                 // Slug is not on the wire; product decoding resolves it from
-                // the current NMP profile view.
+                // the current Fava profile view.
                 from: AgentRef::new(pubkey, String::new()),
                 channel: channel_from_tags(event)?,
                 body: event.content.clone(),

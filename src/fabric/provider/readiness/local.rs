@@ -30,7 +30,7 @@ pub(super) fn snapshot_ready(
     required_admins: &[String],
     managed: bool,
 ) -> bool {
-    let groups = crate::nmp_views::GroupProjection::new(std::slice::from_ref(snapshot));
+    let groups = crate::fava_views::GroupProjection::new(std::slice::from_ref(snapshot));
     if groups.get_channel(ctx.channel).is_none() {
         return false;
     }

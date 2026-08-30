@@ -106,7 +106,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
         String::from_utf8_lossy(&out.stderr)
     );
     // Publication acceptance is not product delivery. Wait until the daemon's
-    // retained NMP observation exposes the message through the public reader.
+    // retained Fava observation exposes the message through the public reader.
     let mut original = None;
     assert!(
         wait_until(Duration::from_secs(10), || {
@@ -179,7 +179,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
             &reply_event_id
         )
         .is_some()),
-        "accepted reply was never observed through NMP"
+        "accepted reply was never observed through Fava"
     );
     let reply_store = Store::open(&home.store_path()).unwrap();
     assert!(!reply_store

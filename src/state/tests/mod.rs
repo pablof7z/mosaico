@@ -1,5 +1,5 @@
 //! Persistence-foundation tests: canonical session identity and host-local
-//! channel, delivery, and runtime facts. NMP owns relay event semantics.
+//! channel, delivery, and runtime facts. Fava owns relay event semantics.
 //!
 //! Split by theme into sibling files to stay under the repo's per-file LOC
 //! ceiling; shared fixtures live here.

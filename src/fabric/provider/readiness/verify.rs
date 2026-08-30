@@ -6,7 +6,7 @@ pub(super) struct Outcome {
     pub(super) degraded: Option<ChannelReadinessError>,
 }
 
-/// Complete the known initial roster after NMP reports terminal success for a
+/// Complete the known initial roster after Fava reports terminal success for a
 /// create+lock operation. The relay makes the creator an administrator, so the
 /// remaining desired administrators and optional member can be expressed as
 /// at most two typed, batched mutations without reading a projected echo back.
@@ -47,7 +47,7 @@ pub(super) async fn initialize_created_group(
 
 /// Bring the relay's roster up to the invariants a ready channel must satisfy.
 ///
-/// Every membership question is asked of NMP's complete group snapshot. "Is an
+/// Every membership question is asked of Fava's complete group snapshot. "Is an
 /// admin" means named by kind:39001, not that a record used a free-form role
 /// string.
 pub(super) async fn ensure_invariants(

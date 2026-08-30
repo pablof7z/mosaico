@@ -1,5 +1,5 @@
 use crate::daemon_harness::*;
-use crate::nmp_client::NmpRelayClient;
+use crate::fava_client::FavaRelayClient;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 
@@ -104,7 +104,7 @@ fn wait_for_channel_metadata(home: &Home, channel: &str) {
         wait_until(std::time::Duration::from_secs(10), || {
             observed_channel_members(&path).is_some()
         }),
-        "channel metadata for {channel:?} was not delivered through NMP; daemon_log={}",
+        "channel metadata for {channel:?} was not delivered through Fava; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
 }
@@ -133,9 +133,9 @@ async fn precreate_channel_group_as_user(channel: &str) {
     let relay_str = shared_nip29_relay_url();
     let relay_url = fava::RelayUrl::parse(&relay_str).expect("parse relay url");
     let user_keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = NmpRelayClient::connect(user_keys.clone(), &relay_str)
+    let client = FavaRelayClient::connect(user_keys.clone(), &relay_str)
         .await
-        .expect("connect NMP relay client");
+        .expect("connect Fava relay client");
 
     let sg = SimpleGroup::new(channel, vec![relay_url]).expect("build SimpleGroup");
     let lock_edit = mosaico::fabric::nip29::lifecycle::group_lock_closed(channel, channel);

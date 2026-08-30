@@ -64,8 +64,8 @@ result: {"event_id": "hex", "channel": "#root/child", "about": "…",
 
 Updates an existing channel's durable description. Signed by the management key;
 works from an agent session or an operator (non-agent) invocation. `confirmed`
-means NMP received the terminal publication result from every configured group
-relay. The updated description appears in reads only after NMP's retained group
+means Fava received the terminal publication result from every configured group
+relay. The updated description appears in reads only after Fava's retained group
 observation delivers it; the write path does not fabricate or poll that view.
 
 ## `channel_members`
@@ -86,7 +86,7 @@ result: {"channel": "#root/child", "pubkey": "hex", "role": "member",
          "published": true}
 ```
 
-Adds or removes one human or agent pubkey. Success means NMP received the
+Adds or removes one human or agent pubkey. Success means Fava received the
 terminal publication result from every configured group relay. The observed
 NIP-29 group records remain the only source of roster state.
 
@@ -101,8 +101,8 @@ result: {"channel": "#root/parent/child", "joined": true,
 The parent must already exist. Creation mints exactly the named leaf; it never
 creates missing ancestors. The creator joins the leaf additively. `joined`
 describes that admission and never implies switching or leaving another
-channel. Creation, description, and membership writes use NMP's terminal
-publication result. The channel list changes only when the retained NMP group
+channel. Creation, description, and membership writes use Fava's terminal
+publication result. The channel list changes only when the retained Fava group
 observation delivers the new state; the command does not poll or patch that
 view.
 
@@ -143,7 +143,7 @@ leave result: {"channel": "#root/child", "left": true|false}
 
 All three require an existing full path. Join is additive and never creates.
 Leave is explicit and may leave the joined set empty. Archive updates metadata
-and removes all non-admin members in one event after NMP reports publication.
+and removes all non-admin members in one event after Fava reports publication.
 
 ## `channel_delete`
 

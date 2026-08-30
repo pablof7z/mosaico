@@ -57,7 +57,7 @@ impl Fixture {
     }
 
     fn refresh(&self) {
-        self.store.install_test_nmp_relay_delivery(
+        self.store.install_test_fava_relay_delivery(
             TestRelayDelivery::new()
                 .profiles(self.profiles.clone())
                 .events(self.events.borrow().clone()),
@@ -94,7 +94,7 @@ fn ids(page: &MessageSearchPage) -> Vec<&str> {
 }
 
 #[test]
-fn filter_dimensions_apply_to_the_nmp_projection() {
+fn filter_dimensions_apply_to_the_fava_projection() {
     let f = Fixture::new();
     f.message("a", "root", &f.alice, "Land the Commit", 10);
     f.message("b", "child", &f.bob, "review the patch", 20);
@@ -149,7 +149,7 @@ fn ordering_limit_and_cursor_are_stable_for_equal_timestamps() {
 }
 
 #[test]
-fn identity_resolution_uses_nmp_profiles() {
+fn identity_resolution_uses_fava_profiles() {
     let f = Fixture::new();
     assert_eq!(
         f.store.resolve_message_search_identity("@Pablo").unwrap(),

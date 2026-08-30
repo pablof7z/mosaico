@@ -14,7 +14,7 @@ fn inbox_mention_surfaces_in_turn_context() {
     {
         let s = m.lock().unwrap();
         let mention = mention_event(&s, "ev-mention-1", ch, 110, "hey do the thing");
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([mention]));
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([mention]));
     }
     let rec = m.lock().unwrap().get_session(&sid).unwrap().unwrap();
     let ctx =
@@ -39,7 +39,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
     };
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([chat_event(
             ch,
             OTHER_PK,
             now + 10,
@@ -49,7 +49,7 @@ fn ambient_and_mention_both_in_first_turn_context() {
     {
         let s = m.lock().unwrap();
         let mention = mention_event(&s, "ev-dm-1", ch, now + 15, "start working on X");
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
             chat_event(ch, OTHER_PK, now + 10, "ambient-background-chat"),
             mention,
         ]));

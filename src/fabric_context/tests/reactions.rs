@@ -31,7 +31,7 @@ fn event(
 fn reaction_on_own_message_renders_once_then_is_silent() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles(seed_profiles()).events([
             event(
                 "mymsg",
@@ -84,7 +84,7 @@ fn backend_reactor_is_not_surfaced() {
     profiles.push(profile(BACKEND_PK, "daemon", "daemon", "", "laptop", true));
     let rec = session(&store);
     // A daemon 👁 receipt on my message must never appear in awareness.
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
         event("mymsg", 9, SELF_PK, "root", 100, "shipped it", "[]"),
         event(
             "rx-eye",

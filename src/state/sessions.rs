@@ -90,7 +90,7 @@ impl Store {
             anyhow::bail!("session pubkey must not be empty");
         }
         validate_runtime_facts(r, facts)?;
-        let joined_event_seq = self.latest_nmp_arrival_sequence()?;
+        let joined_event_seq = self.latest_fava_arrival_sequence()?;
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let previous = tx
             .query_row(

@@ -15,7 +15,7 @@ const OTHER_PK: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
     if store.get_channel(channel).unwrap().is_none() {
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([
             TestGroup::new(channel).metadata(channel, "", "", now)
         ]));
     }
@@ -34,10 +34,10 @@ fn register(store: &Store, pk: &str, channel: &str, now: u64) -> String {
 }
 
 fn materialize_channel(store: &Store, channel: &str) {
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new(channel)
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new(channel)
         .metadata(channel, "", "", 1)
         .members([SELF_PK.to_string()])]));
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([Profile {
         pubkey: SELF_PK.into(),
         name: "test-agent".into(),
         slug: "test-agent".into(),
@@ -93,7 +93,7 @@ fn first_turn_pre_join_history_compact_notice() {
     let ch = "ch-notice";
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
             chat_event(ch, OTHER_PK, 10, "ancient msg 1"),
             chat_event(ch, OTHER_PK, 20, "ancient msg 2"),
             chat_event(ch, OTHER_PK, 30, "ancient msg 3"),
@@ -131,7 +131,7 @@ fn first_turn_post_join_chat_shown_as_ambient() {
     };
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([chat_event(
             ch,
             OTHER_PK,
             now + 10,
@@ -179,7 +179,7 @@ fn first_turn_self_authored_pre_join_events_count_for_notice() {
     let ch = "ch-self-pre";
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([chat_event(
             ch,
             SELF_PK,
             5,
@@ -213,7 +213,7 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     // Event before session start — surfaces as pre-join notice on first turn.
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([chat_event(
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([chat_event(
             ch,
             OTHER_PK,
             50,
@@ -235,7 +235,7 @@ fn second_turn_ambient_gates_on_seen_cursor() {
     // Event after the cursor — should appear in the second turn.
     {
         let s = m.lock().unwrap();
-        s.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+        s.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
             chat_event(ch, OTHER_PK, 50, "pre-join-event"),
             chat_event(ch, OTHER_PK, 160, "second-turn-event"),
         ]));

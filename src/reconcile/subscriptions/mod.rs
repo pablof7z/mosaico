@@ -2,13 +2,13 @@
 //!
 //! The daemon supplies a complete coverage snapshot. This module computes the
 //! desired broad `#h` observation and returns the required Open/Replace/Close
-//! effects. NMP owns relay work behind the host seam.
+//! effects. Fava owns relay work behind the host seam.
 //!
 //! (mosaico#837) The N per-channel content observations collapsed into ONE broad
 //! windowed `GroupContentsMulti` `#h` over all known channels. The global
 //! kind:39000 group-metadata observation moved to the retained `group_records`
 //! observation, and per-author kind:0 profiles moved to the retained
-//! [`ProfileFeed`](crate::nmp_host::ProfileFeed). What remains here is the broad
+//! [`ProfileFeed`](crate::fava_host::ProfileFeed). What remains here is the broad
 //! `#h` alone — every other live query is a retained observation owned elsewhere.
 
 #[cfg(test)]
@@ -23,12 +23,12 @@ use serde::{Deserialize, Serialize};
 /// The distinction between the NIP-29 variants and the rest is not cosmetic.
 /// A NIP-29 question is answered by a RELAY, not by the network: the `h` tag
 /// is a label and two relays hosting the same group id are two independent
-/// groups. NMP mints those reads itself
-/// (`nmp_nip29::Group::read` / `nmp_nip29::groups_where_at`) precisely so
+/// groups. Fava mints those reads itself
+/// (`fava_nip29::Group::read` / `fava_nip29::groups_where_at`) precisely so
 /// both host-scoping axes get stamped — `ReadRouting::Explicit` for which
 /// relays are ASKED and `CacheMode::Strict` for which cached rows may ANSWER.
 /// Naming the group here rather than carrying a raw `('h', value)` tag is
-/// what lets `NmpHost` route each variant to the door that owns it; NMP's own
+/// what lets `FavaHost` route each variant to the door that owns it; Fava's own
 /// door REFUSES a caller-supplied `#h` constraint, so a raw tag could not be
 /// handed to it at all.
 #[derive(Clone, Debug, PartialEq, Eq)]

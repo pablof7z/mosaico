@@ -21,8 +21,8 @@ impl Store {
         Ok(managed != 0)
     }
 
-    /// NMP-observed groups whose local root binding or child-resolution intent
-    /// proves Mosaico ownership. Pending intents without NMP metadata are
+    /// Fava-observed groups whose local root binding or child-resolution intent
+    /// proves Mosaico ownership. Pending intents without Fava metadata are
     /// excluded: configuration reconciliation must never fabricate a group
     /// merely because creation was once attempted.
     pub fn list_managed_channels(&self) -> Result<Vec<Channel>> {
@@ -34,7 +34,7 @@ impl Store {
         let managed = statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<BTreeSet<_>>>()?;
-        Ok(self.nmp_views.with_groups(|groups| {
+        Ok(self.fava_views.with_groups(|groups| {
             groups
                 .list_channels()
                 .into_iter()

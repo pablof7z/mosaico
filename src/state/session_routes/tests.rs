@@ -239,7 +239,7 @@ fn automatic_body_eligibility_requires_arrival_and_signed_time_fences() {
 }
 
 #[test]
-fn persisted_join_fence_survives_restart_and_nmp_view_rebuild() {
+fn persisted_join_fence_survives_restart_and_fava_view_rebuild() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("state.db");
     {
@@ -282,7 +282,7 @@ fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
 
 fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> RelayEvent {
     let mut events = store
-        .nmp_views
+        .fava_views
         .recent_rows()
         .events_by_kind(crate::fabric::nip29::wire::KIND_CHAT, u32::MAX);
     events.retain(|event| event.id != id);
@@ -297,6 +297,6 @@ fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> Rel
         tags_json: "[]".into(),
     };
     events.push(event.clone());
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events(events));
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events(events));
     event
 }

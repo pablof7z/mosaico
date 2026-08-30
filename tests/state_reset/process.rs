@@ -249,8 +249,8 @@ fn full_reset_stops_only_the_selected_live_daemon_and_supervisor() {
     assert!(!selected_socket.exists(), "selected PTY socket survived");
     assert!(!home.join("state.db").exists(), "selected SQLite survived");
     assert!(
-        !home.join("nmp.redb").exists(),
-        "selected NMP store survived"
+        !home.join("fava.redb").exists(),
+        "selected Fava store survived"
     );
     assert!(
         !home.join("sessions").exists(),

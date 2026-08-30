@@ -2,7 +2,7 @@
 //!
 //! Drives the daemon's real coverage refresh (`sync_subscriptions`) with live
 //! group state, delivers a member's kind:0 through a real in-process relay +
-//! the NMP engine, and asserts `Store::get_profile` — the production read,
+//! the Fava engine, and asserts `Store::get_profile` — the production read,
 //! NOT the `install_test_profiles` seam — resolves it.
 
 use std::time::{Duration, Instant};
@@ -13,7 +13,7 @@ use nostr::key::Keys;
 use crate::daemon::server::DaemonState;
 use crate::domain::{AgentRef, DomainEvent, Profile as DomainProfile};
 use crate::fabric::nip29::wire::Nip29WireCodec;
-use crate::nmp_host::PlainRelay;
+use crate::fava_host::PlainRelay;
 use crate::state::{Store, TestGroup, TestGroupDelivery};
 
 use super::sync_subscriptions;
@@ -41,7 +41,7 @@ fn kind0_event(keys: &Keys, name: &str, host: &str, created_at: u64) -> nostr::e
 /// The production path: group state drives `set_members`, the feed's retained
 /// `authors:[members]` observation drains a real kind:0, and `Store::get_profile`
 /// returns it. No `install_test_profiles` is used — the feed is populated by the
-/// live NMP delivery alone.
+/// live Fava delivery alone.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_get_profile_reads_the_live_feed_driven_by_membership() {
     let member = Keys::generate();
@@ -54,7 +54,7 @@ async fn production_get_profile_reads_the_live_feed_driven_by_membership() {
     // `build_coverage_snapshot` sees the member in `profile_pubkeys` and
     // `sync_subscriptions` calls `profile_feed.set_members({backend, member})`.
     state.with_store(|store: &Store| {
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
             .metadata("room", "", "", 1)
             .members([pk.clone()])]));
     });

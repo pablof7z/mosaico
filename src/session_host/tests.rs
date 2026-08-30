@@ -77,10 +77,10 @@ fn pending_message_prompt_contains_the_actual_message_body() {
     // No whitelist → the sender is treated as another agent. With no cached slug
     // the name falls back to the short sender pubkey ("pk-sende").
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1)
     ]));
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         relay_event("abcdef123456", 9, "pk-sender", "proj", &row.body, 100, "[]"),
         relay_event(
             "rx-1",
@@ -126,7 +126,7 @@ fn bounded_sender_name_is_carried_into_the_same_prompt_render() {
         attachment_dir: String::new(),
     };
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1)
     ]));
     let resolved_names = std::collections::BTreeMap::from([(
@@ -159,7 +159,7 @@ fn attachment_prompt_uses_one_directory_attribute_and_ordinary_bracket_labels() 
         attachment_dir: "/tmp/mosaico-files/abcdef".into(),
     };
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1)
     ]));
 
@@ -193,11 +193,11 @@ fn whitelisted_human_mention_renders_bare_with_provenance() {
         attachment_dir: String::new(),
     };
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("mosaico").metadata("mosaico", "", "", 1),
         TestGroup::new("channel-writer-test").metadata("writer-test", "", "mosaico", 100),
     ]));
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         relay_event(
             "ev-human",
             9,
@@ -253,7 +253,7 @@ fn pending_mention_prompt_shows_coordination_guide_nudge() {
     };
 
     let store = crate::state::Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("proj").metadata("proj", "", "", 1)
     ]));
     let prompt = crate::injection::render_terminal_mention(

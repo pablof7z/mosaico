@@ -121,7 +121,7 @@ fn validate_state_home(path: &Path) -> Result<()> {
     }
     if path.is_dir()
         && path.file_name().and_then(|name| name.to_str()) != Some(".mosaico")
-        && !["config.json", "state.db", "nmp.redb", "daemon.log", "relay"]
+        && !["config.json", "state.db", "fava.redb", "daemon.log", "relay"]
             .into_iter()
             .any(|marker| path.join(marker).exists())
     {

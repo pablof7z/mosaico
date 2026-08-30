@@ -36,7 +36,7 @@ pub(in crate::state::schema::tests) fn restore_relay_derived_tables(conn: &Conne
     restore_relay_group_tables(conn);
     conn.execute_batch(
         r#"
-        DROP TABLE IF EXISTS nmp_event_arrivals;
+        DROP TABLE IF EXISTS fava_event_arrivals;
         DROP TABLE IF EXISTS message_attachments;
         CREATE TABLE IF NOT EXISTS relay_profiles (
             pubkey TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '',

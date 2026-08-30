@@ -50,7 +50,7 @@ async fn test_server(
                     hash: headers["x-sha-256"].to_str().unwrap().to_string(),
                     body: bytes.clone(),
                 };
-                // A complete BUD-02 descriptor. NMP parses strictly and gates
+                // A complete BUD-02 descriptor. Fava parses strictly and gates
                 // the returned sha256 against the bytes it actually sent.
                 (
                     StatusCode::CREATED,
@@ -69,14 +69,14 @@ async fn test_server(
 
 /// A host that admits the loopback Blossom server, exactly as a daemon
 /// configured against a local relay does.
-fn local_host(relay: &str) -> Arc<NmpHost> {
-    Arc::new(NmpHost::open(&[relay.to_string()], None, None, &Keys::generate()).unwrap())
+fn local_host(relay: &str) -> Arc<FavaHost> {
+    Arc::new(FavaHost::open(&[relay.to_string()], None, None, &Keys::generate()).unwrap())
 }
 
-// ── mosaico#742: the upload is nmp-blossom's ─────────────────────────────────
+// ── mosaico#742: the upload has Fava-signed authorization ─────────────────────
 
 #[tokio::test]
-async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
+async fn uploads_with_fava_signed_authorization_and_returns_a_verified_hash() {
     let bytes = b"\x89PNG\r\nattachment";
     let (relay, capture, server) = test_server("blob.png").await;
     let dir = tempfile::tempdir().unwrap();
@@ -114,7 +114,7 @@ async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
     assert_eq!(request.content_type, "image/png");
     assert_eq!(request.hash, Sha256Hash::of(bytes).to_hex());
 
-    // BUD-11 on the wire, composed and encoded by NMP: `Nostr <base64url,
+    // BUD-11 on the wire, composed and encoded by Fava: `Nostr <base64url,
     // no padding>` — not the standard-alphabet base64 the hand-rolled client
     // emitted.
     let encoded = request.authorization.strip_prefix("Nostr ").unwrap();
@@ -138,7 +138,7 @@ async fn uploads_through_nmp_blossom_and_returns_a_verified_hash() {
 /// The whole reason to adopt the crate rather than keep the local client: the
 /// grant is signed through Fava's registered signer, never with raw `Keys`.
 #[tokio::test]
-async fn the_authorization_is_signed_through_nmp_not_with_raw_keys() {
+async fn the_authorization_is_signed_through_fava_not_with_raw_keys() {
     let (relay, capture, server) = test_server("blob.bin").await;
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("trace.bin");
@@ -249,7 +249,7 @@ async fn surfaces_server_error_with_its_reason() {
     .await
     .unwrap_err()
     .to_string();
-    // NMP separates an authorization refusal from an ordinary server refusal.
+    // Fava separates an authorization refusal from an ordinary server refusal.
     // 403 is the former; the reason it reports is the BUD-01 `X-Reason` header
     // rather than an arbitrary body, which this fixture does not send.
     assert!(error.contains("403"), "{error}");
@@ -257,7 +257,7 @@ async fn surfaces_server_error_with_its_reason() {
     server.abort();
 }
 
-/// A descriptor missing a mandatory BUD-02 field is refused by NMP's strict
+/// A descriptor missing a mandatory BUD-02 field is refused by Fava's strict
 /// parser. The hand-rolled client accepted any JSON carrying a `url`.
 #[tokio::test]
 async fn rejects_an_incomplete_success_descriptor() {

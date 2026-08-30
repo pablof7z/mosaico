@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-const NMP_OWNED_TABLES: &[&str] = &[
+const FAVA_OWNED_TABLES: &[&str] = &[
     "relay_channels",
     "relay_channel_members",
     "relay_channel_member_sets",
@@ -30,7 +30,7 @@ fn production_sources_do_not_reintroduce_relay_sql_authority() {
             .collect::<Vec<_>>()
             .join("\n")
             .to_ascii_lowercase();
-        for table in NMP_OWNED_TABLES {
+        for table in FAVA_OWNED_TABLES {
             for sql in [
                 format!("create table {table}"),
                 format!("create table if not exists {table}"),
@@ -42,7 +42,7 @@ fn production_sources_do_not_reintroduce_relay_sql_authority() {
             ] {
                 assert!(
                     !source.contains(&sql),
-                    "{} restored NMP-owned SQL `{sql}`",
+                    "{} restored Fava-owned SQL `{sql}`",
                     path.display()
                 );
             }

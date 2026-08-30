@@ -166,7 +166,7 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
             rec.runtime_generation,
             "channel_left",
             Some(
-                crate::fabric::provider::ConfirmedGroupScope::from_nmp_removal(
+                crate::fabric::provider::ConfirmedGroupScope::from_fava_removal(
                     &channel,
                     &rec.pubkey,
                 ),
@@ -188,7 +188,7 @@ mod tests {
         let state = DaemonState::new_for_test().await;
         state.with_store(|store| {
             store
-                .install_test_nmp_group_delivery(TestGroupDelivery::new([
+                .install_test_fava_group_delivery(TestGroupDelivery::new([
                     TestGroup::new("root-h").metadata("project", "", "", 1)
                 ]))
         });

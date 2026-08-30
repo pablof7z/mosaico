@@ -4,7 +4,7 @@ use crate::fabric::{ProductDecode, RawEnvelope};
 use crate::state::Store;
 
 impl Nip29Provider {
-    /// Decode one already NMP-delivered envelope for product presentation.
+    /// Decode one already Fava-delivered envelope for product presentation.
     pub fn decode_product_event(&self, env: &RawEnvelope, store: &Store) -> ProductDecode {
         let decoded = crate::fabric::decode_product_event(env, store);
         if let Some(channel) = roster_snapshot_channel(env) {

@@ -22,7 +22,7 @@ pub(super) async fn missing_group(
         GroupPublishOutcome::Published => Ok(true),
         GroupPublishOutcome::Failed(error) => {
             // A concurrent creator may have won after our initial snapshot.
-            // One current NMP read distinguishes that race from a real failed
+            // One current Fava read distinguishes that race from a real failed
             // mutation; Mosaico never retries the publication or polls its
             // derived projection.
             match provider.fetch_channel(ctx.channel).await {

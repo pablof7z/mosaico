@@ -20,7 +20,7 @@ impl Nip29Provider {
     }
 
     /// Publish every missing administrator in one kind:9000 event and await
-    /// NMP's one terminal receipt result. No local roster polling and no
+    /// Fava's one terminal receipt result. No local roster polling and no
     /// repeated publication are part of this contract.
     pub(crate) async fn grant_admins_published(
         &self,

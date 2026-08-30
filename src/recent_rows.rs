@@ -1,11 +1,11 @@
 //! Bounded sync-readable recent-rows store — the replacement for the
-//! `NmpViews` row mirror's `OwnedRow`/index layer.
+//! `FavaViews` row mirror's `OwnedRow`/index layer.
 //!
 //! The daemon retains the recent activity per channel (chat, reactions,
 //! status — every `#h`-bearing row the live observations deliver) and exposes
 //! it synchronously to the `state/` read layer. Rows beyond the per-channel cap
 //! are evicted oldest-first; a miss here means "older than the retained
-//! window," and a caller that needs it fetches from NMP on demand. This is not
+//! window," and a caller that needs it fetches from Fava on demand. This is not
 //! the O(history) mirror: there is no boot replay of the whole store — only
 //! the bounded recent set the live drain maintains.
 //!
@@ -26,7 +26,7 @@ use crate::state::RelayEvent;
 
 /// Recent rows retained per channel. Covers the hot read paths (channel tail,
 /// ambient chat, reply-nudge, capture activity) without holding unbounded
-/// history. Older rows are an on-demand NMP fetch, not a mirror.
+/// history. Older rows are an on-demand Fava fetch, not a mirror.
 const CAP_PER_CHANNEL: usize = 10_000;
 
 pub(crate) struct RecentRows {

@@ -149,7 +149,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
                 child = observed_channel_h(&root, name);
                 child.is_some()
             }),
-            "NMP did not deliver child {name:?} under #{root}"
+            "Fava did not deliver child {name:?} under #{root}"
         );
         child_ids.push(child.expect("asserted above"));
     }

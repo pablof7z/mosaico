@@ -36,7 +36,7 @@ fn profile(pubkey: &str, handle: &str, agent_slug: &str, is_backend: bool) -> Pr
 
 fn store_with_members() -> Store {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
         .metadata("Room", "", "", 1)
         .members(vec![
             "self-pk".into(),
@@ -45,7 +45,7 @@ fn store_with_members() -> Store {
             "human-pk".into(),
             "backend-pk".into(),
         ])]));
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([
                 profile("drift-pk", "drift-codex", "codex", false),
@@ -112,7 +112,7 @@ fn ambiguous_prefix_lists_candidates_without_guessing() {
 #[test]
 fn exact_handle_wins_over_longer_prefix_matches() {
     let store = store_with_members();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([
                 profile("drift-pk", "drift-codex", "codex", false),
@@ -127,7 +127,7 @@ fn exact_handle_wins_over_longer_prefix_matches() {
                 status("short-pk", "dr", SessionState::Working),
             ]),
     );
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
         .metadata("Room", "", "", 1)
         .members(vec![
             "self-pk".into(),
@@ -166,7 +166,7 @@ fn only_a_single_leading_token_and_colon_is_considered() {
 #[test]
 fn local_self_is_not_a_candidate() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
         .metadata("Room", "", "", 1)
         .members(vec!["self-pk".into()])]));
     store

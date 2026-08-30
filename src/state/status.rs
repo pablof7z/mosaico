@@ -1,15 +1,15 @@
-//! Session-status reads projected from the current NMP row delivery.
+//! Session-status reads projected from the current Fava row delivery.
 //!
 //! The slug comes from the status event's own `slug` tag. A session that omitted
 //! it is enriched from its kind:0 profile via the retained profile feed (mosaico#837):
-//! the enrichment moved here from `NmpViews::state_status` so NmpViews no longer
+//! the enrichment moved here from `FavaViews::state_status` so FavaViews no longer
 //! reads kind:0 from the mirror.
 
 use super::*;
 
 impl Store {
     pub fn get_status(&self, pubkey: &str, channel_h: &str) -> Result<Option<Status>> {
-        let mut status = self.nmp_views.status(pubkey, channel_h);
+        let mut status = self.fava_views.status(pubkey, channel_h);
         if let Some(status) = status.as_mut() {
             self.enrich_status_slug(status);
         }
@@ -17,7 +17,7 @@ impl Store {
     }
 
     pub fn statuses_in_channel(&self, channel_h: &str) -> Result<Vec<Status>> {
-        let mut statuses = self.nmp_views.statuses_in_channel(channel_h);
+        let mut statuses = self.fava_views.statuses_in_channel(channel_h);
         for status in statuses.iter_mut() {
             self.enrich_status_slug(status);
         }
@@ -29,7 +29,7 @@ impl Store {
         agent: Option<&str>,
         since: Option<u64>,
     ) -> Result<Vec<Status>> {
-        let mut statuses = self.nmp_views.statuses(agent, since);
+        let mut statuses = self.fava_views.statuses(agent, since);
         for status in statuses.iter_mut() {
             self.enrich_status_slug(status);
         }
@@ -37,7 +37,7 @@ impl Store {
     }
 
     /// Fill a status's slug from its kind:0 profile when the status event omitted
-    /// the `slug` tag. Replaces the `NmpViews::state_status` profile fallback that
+    /// the `slug` tag. Replaces the `FavaViews::state_status` profile fallback that
     /// read the mirror; the retained profile feed is the single kind:0 source.
     fn enrich_status_slug(&self, status: &mut Status) {
         if status.slug.is_empty() {

@@ -4,8 +4,8 @@ use crate::state::Store;
 use std::sync::{Arc, Mutex};
 
 async fn offline_provider() -> Nip29Provider {
-    let nmp = Arc::new(
-        crate::nmp_host::NmpHost::open(
+    let fava = Arc::new(
+        crate::fava_host::FavaHost::open(
             &["wss://relay.example.com".into()],
             None,
             None,
@@ -15,7 +15,7 @@ async fn offline_provider() -> Nip29Provider {
     );
     let store = Arc::new(Mutex::new(Store::open_memory().unwrap()));
     let mgmt = Keys::generate().secret_key().to_secret_hex();
-    Nip29Provider::new(nmp, store, Some(mgmt), None, Vec::new())
+    Nip29Provider::new(fava, store, Some(mgmt), None, Vec::new())
 }
 
 fn chat() -> ChatMessage {
@@ -35,7 +35,7 @@ fn addressed_chat(recipient: &str) -> ChatMessage {
     }
 }
 
-/// The draft is inspected unsigned because that is all Mosaico ever holds: NMP
+/// The draft is inspected unsigned because that is all Mosaico ever holds: Fava
 /// signs inside its own publish door and hands back an id, never an event.
 fn draft_tags(builder: nostr::event::EventBuilder) -> Vec<Vec<String>> {
     use nostr::event::FinalizeUnsignedEvent;
@@ -93,7 +93,7 @@ async fn no_reply_leaves_no_e_tag() {
     );
 }
 
-/// The context row belongs to NMP's group door, which appends it before the
+/// The context row belongs to Fava's group door, which appends it before the
 /// bytes are signed and REFUSES a draft that supplies its own. A chat draft
 /// that wrote an `h` would therefore never publish at all.
 #[tokio::test]
@@ -111,7 +111,7 @@ async fn a_chat_draft_never_writes_its_own_group_context_row() {
 }
 
 /// Publishing writes nothing to the local store. A message becomes visible
-/// only after NMP delivers the observed row through the group subscription.
+/// only after Fava delivers the observed row through the group subscription.
 #[tokio::test]
 async fn publishing_a_chat_seeds_no_local_row() {
     use crate::state::{TestGroup, TestGroupDelivery};
@@ -120,7 +120,7 @@ async fn publishing_a_chat_seeds_no_local_row() {
     let keys = Keys::generate();
     let author = keys.public_key().to_hex();
     provider.with_store(|store| {
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .admins(vec![author.clone()])
             .members(vec![author.clone()])]));
@@ -148,7 +148,7 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
     let keys = Keys::generate();
     let author = keys.public_key().to_hex();
     provider.with_store(|store| {
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
             .members(vec![author])
             .availability(crate::group_snapshot::GroupAvailability::SourceUnavailable)]));

@@ -122,8 +122,8 @@ pub(super) fn schedule_replay_chat(state: Arc<DaemonState>, channel: String) {
 mod tests {
     use super::*;
 
-    // Scripted future-classified receipt matching newer NMP behavior. The
-    // pinned NMP revision cannot originate this classification itself.
+    // Scripted future-classified receipt matching newer Fava behavior. The
+    // pinned Fava revision cannot originate this classification itself.
     const SCRIPTED_CLASSIFIED_FAILURE: &str =
         "fault=latched durability=absent reopen=required: Previous I/O error occurred";
 
@@ -143,12 +143,12 @@ mod tests {
             DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
         for _ in 0..4 {
             state
-                .nmp()
+                .fava()
                 .script_group_snapshot(absent_group_snapshot("missing-root"));
         }
         state
-            .nmp()
-            .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
+            .fava()
+            .script_write_error("scripted Fava publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
         let error = channel_ready::verify_start_channel_ready(
             &state,
@@ -167,7 +167,7 @@ mod tests {
             "{rendered}"
         );
         assert!(
-            rendered.contains("9007 create-group NMP publish failed"),
+            rendered.contains("9007 create-group Fava publish failed"),
             "{rendered}"
         );
     }

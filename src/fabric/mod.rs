@@ -1,10 +1,10 @@
-//! Fabric abstraction layer around NMP I/O and product event decoding.
+//! Fabric abstraction layer around Fava I/O and product event decoding.
 //!
 //! Layering intent:
-//!   Acquisition + all durable writes ← NMP
-//!   Profile indexer + bounded reads  ← NMP
+//!   Acquisition + all durable writes ← Fava
+//!   Profile indexer + bounded reads  ← Fava
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
-//!   Process-local presentation views  ← NMP deliveries
+//!   Process-local presentation views  ← Fava deliveries
 
 pub(crate) mod group_management;
 pub mod nip29;
@@ -41,9 +41,9 @@ pub struct ProductDecode {
 
 // ── Top-level dispatcher ──────────────────────────────────────────────────────
 
-/// Decode one NMP-delivered envelope for product side effects.
+/// Decode one Fava-delivered envelope for product side effects.
 ///
-/// Relay-derived state remains in NMP's delivered view. This function may read
+/// Relay-derived state remains in Fava's delivered view. This function may read
 /// that view to enrich a display value, but it never persists a second copy.
 pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> ProductDecode {
     use crate::domain::DomainEvent;
@@ -51,7 +51,7 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
 
     let RawEnvelope::Nostr(event) = env;
 
-    // Group records are projected by NMP's GroupObservation, not decoded into
+    // Group records are projected by Fava's GroupObservation, not decoded into
     // product events here.
     if matches!(event.kind.as_u16(), 39000..=39002) {
         return ProductDecode::default();
@@ -84,7 +84,7 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
             }
         }
 
-        // Reactions (kind:7) are passive awareness read from the NMP reaction
+        // Reactions (kind:7) are passive awareness read from the Fava reaction
         // projection, so they never enter direct-mention routing,
         // wake an idle agent, or inject mid-turn. No tail (nothing live-delivers).
         DomainEvent::Reaction(_) => {
@@ -164,20 +164,20 @@ mod tests {
 
         register(&store, &sender_pk, "mychannel", "sender-ext");
         register(&store, &receiver_pk, "mychannel", "receiver-ext");
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new(
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new(
             "mychannel",
         )
         .admins(Vec::new())
         .members(vec![sender_pk.clone(), receiver_pk.clone()])]));
 
-        // Ambient message (no p-tag): observed by NMP, inbox stays empty.
+        // Ambient message (no p-tag): observed by Fava, inbox stays empty.
         let ambient = build_event(
             &sender_keys,
             9,
             "heads up: I pushed the parser fix",
             vec![make_tag(&["h", "mychannel"])],
         );
-        store.install_test_nmp_relay_delivery(
+        store.install_test_fava_relay_delivery(
             crate::state::TestRelayDelivery::new().events([relay_event(&ambient)]),
         );
         decode_product_event(&RawEnvelope::Nostr(ambient.clone()), &store);
@@ -199,7 +199,7 @@ mod tests {
                 make_tag(&["p", &receiver_pk]),
             ],
         );
-        store.install_test_nmp_relay_delivery(
+        store.install_test_fava_relay_delivery(
             crate::state::TestRelayDelivery::new()
                 .events([relay_event(&ambient), relay_event(&mention)]),
         );
@@ -240,7 +240,7 @@ mod tests {
             "👍",
             vec![make_tag(&["e", &target_id]), make_tag(&["h", "c"])],
         );
-        store.install_test_nmp_relay_delivery(
+        store.install_test_fava_relay_delivery(
             crate::state::TestRelayDelivery::new()
                 .events([relay_event(&chat), relay_event(&reaction)]),
         );

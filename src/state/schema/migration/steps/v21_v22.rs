@@ -1,6 +1,6 @@
 //! Schema 22: all relay-derived state leaves Mosaico persistence.
 //!
-//! NMP owns current groups, profiles, statuses, events, messages, recipients,
+//! Fava owns current groups, profiles, statuses, events, messages, recipients,
 //! reactions, replacement selection, source evidence, and removal. This
 //! migration retains only host-local arrival order and downloaded paths.
 
@@ -16,11 +16,11 @@ pub(in crate::state::schema::migration) fn migrate(
     let tx = conn.transaction().context("starting schema-22 migration")?;
     tx.execute_batch(
         r#"
-        CREATE TABLE nmp_event_arrivals (
+        CREATE TABLE fava_event_arrivals (
             sequence INTEGER PRIMARY KEY AUTOINCREMENT,
             event_id TEXT NOT NULL UNIQUE
         );
-        INSERT INTO nmp_event_arrivals (sequence, event_id)
+        INSERT INTO fava_event_arrivals (sequence, event_id)
         SELECT rowid, id FROM relay_events ORDER BY rowid;
 
         CREATE TABLE message_attachments (

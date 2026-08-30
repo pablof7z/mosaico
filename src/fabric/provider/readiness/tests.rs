@@ -39,7 +39,7 @@ fn context<'a>(expect_member: &'a str, parent_hint: Option<&'a str>) -> ChannelC
 }
 
 #[test]
-fn nmp_snapshot_proves_existing_member_ready() {
+fn fava_snapshot_proves_existing_member_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[admin], &[member]);
@@ -53,7 +53,7 @@ fn nmp_snapshot_proves_existing_member_ready() {
 }
 
 #[test]
-fn nmp_snapshot_does_not_prove_missing_member_ready() {
+fn fava_snapshot_does_not_prove_missing_member_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let other = nostr::key::Keys::generate().public_key();
@@ -68,7 +68,7 @@ fn nmp_snapshot_does_not_prove_missing_member_ready() {
 }
 
 #[test]
-fn nmp_snapshot_does_not_prove_missing_admin_ready() {
+fn fava_snapshot_does_not_prove_missing_admin_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let other_admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
@@ -83,7 +83,7 @@ fn nmp_snapshot_does_not_prove_missing_admin_ready() {
 }
 
 #[test]
-fn managed_nmp_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
+fn managed_fava_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
     let admin = nostr::key::Keys::generate().public_key();
     let obsolete = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
@@ -98,7 +98,7 @@ fn managed_nmp_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
 }
 
 #[test]
-fn nmp_subgroup_needs_relay_parent_consent_check() {
+fn fava_subgroup_needs_relay_parent_consent_check() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("parent", &[admin], &[member]);
@@ -144,7 +144,7 @@ fn cold_nested_resolution_intents_preserve_every_ancestor() {
         )
         .unwrap(),
         None,
-        "NMP root metadata must suppress a stale pending ancestor"
+        "Fava root metadata must suppress a stale pending ancestor"
     );
 }
 
@@ -171,7 +171,7 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
         )
         .unwrap(),
         None,
-        "NMP root truth arriving before execution must suppress the captured hint"
+        "Fava root truth arriving before execution must suppress the captured hint"
     );
 
     assert_eq!(
@@ -187,7 +187,7 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
 }
 
 #[tokio::test]
-async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roster_patch() {
+async fn managed_admin_removal_returns_the_exact_fava_failure_without_local_roster_patch() {
     use crate::state::{TestGroup, TestGroupDelivery};
 
     let configured = nostr::key::Keys::generate().public_key().to_hex();
@@ -206,11 +206,11 @@ async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roste
         &[],
     );
     for _ in 0..2 {
-        state.nmp().script_group_snapshot(snapshot.clone());
+        state.fava().script_group_snapshot(snapshot.clone());
     }
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
                 .metadata("Room", "", "", 1)
                 .admins(vec![management, configured, removed.clone()])
                 .members(Vec::new())]));
@@ -219,7 +219,7 @@ async fn managed_admin_removal_returns_the_exact_nmp_failure_without_local_roste
         })
         .unwrap();
     state
-        .nmp()
+        .fava()
         .script_write_error("terminal receipt", "relay explicitly rejected removal");
 
     let error = state

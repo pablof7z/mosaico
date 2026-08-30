@@ -55,7 +55,7 @@ fn status(pubkey: &str, slug: &str, expiration: u64) -> Status {
 #[test]
 fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("root").metadata("channel", "", "", 1),
         TestGroup::new("task-a").metadata("Task A", "", "root", 2),
         TestGroup::new("leaf-a").metadata("Leaf A", "", "task-a", 3),
@@ -74,7 +74,7 @@ fn mention_label_resolution_treats_nested_channels_under_same_root_as_same_root(
 #[test]
 fn host_qualified_ordinal_mention_resolves_remote_profile() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile(
         "remote-pk",
         "developer1@remoteBackend",
         "",
@@ -96,7 +96,7 @@ fn host_qualified_ordinal_mention_resolves_remote_profile() {
 #[test]
 fn host_qualified_mention_tolerates_stale_qualified_slug_cache() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile(
         "remote-pk",
         "developer1@remoteBackend",
         "",
@@ -137,7 +137,7 @@ fn dashed_session_handle_resolves_live_session_and_validates_agent() {
 #[test]
 fn dashed_session_handle_resolves_current_profile_row() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([profile(
                 "remote-pk",
@@ -162,7 +162,7 @@ fn dashed_session_handle_resolves_current_profile_row() {
 #[test]
 fn current_profile_name_resolves_without_a_status_gate() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([profile(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([profile(
         "remote-pk",
         "codex-willow-echo-042",
         "codex",
@@ -179,7 +179,7 @@ fn current_profile_name_resolves_without_a_status_gate() {
 #[test]
 fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([
                 profile("old-pk", "shared-codex", "codex", "remote"),
@@ -198,7 +198,7 @@ fn duplicate_reclaim_profiles_never_route_to_old_status_owner() {
 #[test]
 fn untyped_profile_with_status_is_not_a_session_handle() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([profile("human-pk", "shared-name", "", "remote")])
             .statuses([status("human-pk", "shared-name", 1)]),

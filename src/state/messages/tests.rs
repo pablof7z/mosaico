@@ -15,7 +15,7 @@ fn event(id: &str, author: &str, channel: &str, body: &str, at: u64) -> RelayEve
 }
 
 #[test]
-fn attachment_can_arrive_before_nmp_observes_the_message() {
+fn attachment_can_arrive_before_fava_observes_the_message() {
     let store = Store::open_memory().unwrap();
     assert!(store
         .set_message_attachment_dir(
@@ -31,7 +31,7 @@ fn attachment_can_arrive_before_nmp_observes_the_message() {
         )
         .unwrap());
 
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([event(
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([event(
         "event-files",
         "author",
         "chan",
@@ -49,9 +49,9 @@ fn attachment_can_arrive_before_nmp_observes_the_message() {
 }
 
 #[test]
-fn message_reads_and_channel_activity_follow_the_current_nmp_delivery() {
+fn message_reads_and_channel_activity_follow_the_current_fava_delivery() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("old", "author", "chan", "old", 10),
         event("middle", "author", "chan", "middle", 20),
         event("new", "author", "chan", "new", 30),
@@ -68,7 +68,7 @@ fn message_reads_and_channel_activity_follow_the_current_nmp_delivery() {
     );
     assert_eq!(store.latest_message_at_by_channel().unwrap()["chan"], 30);
 
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new());
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new());
     assert!(store.get_message("new").unwrap().is_none());
     assert!(store.latest_message_at_by_channel().unwrap().is_empty());
 }
@@ -78,7 +78,7 @@ fn p_tags_are_the_recipient_projection() {
     let store = Store::open_memory().unwrap();
     let mut mentioned = event("event", "author", "chan", "hello", 10);
     mentioned.tags_json = r#"[["p","z"],["p","a"],["p","z"]]"#.to_string();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([mentioned]));
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([mentioned]));
 
     let recipients = store.message_recipients("event").unwrap();
     assert_eq!(
@@ -93,7 +93,7 @@ fn p_tags_are_the_recipient_projection() {
 #[test]
 fn reply_check_uses_only_observed_authorship() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("other", "other", "chan", "other", 101),
         event("old", "author", "chan", "old", 99),
     ]));
@@ -101,7 +101,7 @@ fn reply_check_uses_only_observed_authorship() {
         .pubkey_has_own_message_after_in_channel("author", "chan", 100)
         .unwrap());
 
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("other", "other", "chan", "other", 101),
         event("mine", "author", "chan", "mine", 101),
     ]));
@@ -113,7 +113,7 @@ fn reply_check_uses_only_observed_authorship() {
 #[test]
 fn get_message_by_prefix_resolves_unique_and_rejects_ambiguous() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("mine", "author", "chan", "m", 10),
         event("middle", "author", "chan", "m", 20),
     ]));
@@ -138,7 +138,7 @@ fn get_message_by_prefix_resolves_unique_and_rejects_ambiguous() {
 #[test]
 fn chat_messages_for_channel_filters_and_orders_ascending() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("m1", "a", "chan", "x", 10),
         event("m2", "a", "chan", "x", 20),
         event("o", "a", "other", "x", 15),
@@ -179,7 +179,7 @@ fn chat_messages_for_channel_filters_and_orders_ascending() {
 #[test]
 fn chat_messages_for_channel_after_uses_created_at_then_id_cursor() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("a", "x", "chan", "x", 10),
         event("b", "x", "chan", "x", 20),
         event("c", "x", "chan", "x", 20), // same second as b, id "c" > "b"
@@ -209,7 +209,7 @@ fn chat_messages_for_channel_after_uses_created_at_then_id_cursor() {
 #[test]
 fn recent_chat_messages_is_global_recent_first() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("a", "x", "chan1", "x", 10),
         event("b", "x", "chan2", "x", 20),
     ]));
@@ -233,7 +233,7 @@ fn recent_chat_messages_is_global_recent_first() {
 fn should_render_reply_nudge_requires_no_self_reaction_and_no_followup() {
     let store = Store::open_memory().unwrap();
     // msg by A at t10; A follows up with later at t20; no self-reaction.
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         event("msg", "A", "chan", "q", 10),
         event("later", "A", "chan", "followup", 20),
     ]));
@@ -244,7 +244,7 @@ fn should_render_reply_nudge_requires_no_self_reaction_and_no_followup() {
 
     // Fresh store: msg by A, no follow-up, no self-reaction → nudge.
     let store2 = Store::open_memory().unwrap();
-    store2.install_test_nmp_relay_delivery(
+    store2.install_test_fava_relay_delivery(
         TestRelayDelivery::new().events([event("msg", "A", "chan", "q", 10)]),
     );
     assert!(store2
@@ -253,7 +253,7 @@ fn should_render_reply_nudge_requires_no_self_reaction_and_no_followup() {
 
     // Self-reaction by A on its own msg suppresses the nudge even with no follow-up.
     let store3 = Store::open_memory().unwrap();
-    store3.install_test_nmp_relay_delivery(TestRelayDelivery::new().events([
+    store3.install_test_fava_relay_delivery(TestRelayDelivery::new().events([
         RelayEvent {
             id: "msg".into(),
             kind: crate::fabric::nip29::wire::KIND_CHAT as u32,

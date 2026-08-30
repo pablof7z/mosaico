@@ -39,7 +39,7 @@ pub(super) fn install_relay_delivery(
     statuses: impl IntoIterator<Item = Status>,
     events: impl IntoIterator<Item = RelayEvent>,
 ) {
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([Profile {
                 pubkey: "pk-coder".into(),
@@ -57,7 +57,7 @@ pub(super) fn install_relay_delivery(
     );
 }
 
-/// Install the `proj` group and a complete empty NMP row delivery.
+/// Install the `proj` group and a complete empty Fava row delivery.
 pub(super) fn seed_channel(store: &Store) {
     // Opaque id "proj" with a distinct human name "main" (production ids are random, never the name).
     install_channel_delivery(store, ["pk-coder".to_string()]);
@@ -76,7 +76,7 @@ pub(super) fn seed_channel(store: &Store) {
 }
 
 pub(super) fn install_channel_delivery(store: &Store, members: impl IntoIterator<Item = String>) {
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([TestGroup::new("proj")
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([TestGroup::new("proj")
         .metadata("main", "", "", 1)
         .admins(Vec::new())
         .members(members)]));

@@ -16,7 +16,7 @@ const Z_CHANNEL: &str = "z-h";
 fn seed_session(state: &Arc<DaemonState>) -> Session {
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root").metadata("root", "", "", 1),
                 TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
                 TestGroup::new(Y_CHANNEL).metadata("y", "", "root", 3),
@@ -62,7 +62,7 @@ fn deliver_chat(
                 content: body.into(),
                 tags_json: tags,
             });
-            store.install_test_nmp_relay_delivery(TestRelayDelivery::new().events(events));
+            store.install_test_fava_relay_delivery(TestRelayDelivery::new().events(events));
             Ok::<(), anyhow::Error>(())
         })
         .unwrap();
@@ -94,7 +94,7 @@ async fn explicit_channel_filters_resolve_across_every_joined_workspace() {
     let rec = seed_session(&state);
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root").metadata("root", "", "", 1),
                 TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
                 TestGroup::new(Y_CHANNEL).metadata("y", "", "root", 3),
@@ -203,7 +203,7 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
     seed_session(&state);
     state
         .with_store(|store| {
-            store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles([Profile {
+            store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles([Profile {
                 pubkey: "human-pk".into(),
                 name: "pablo".into(),
                 slug: "pablo".into(),
@@ -214,7 +214,7 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
                 workspaces: Vec::new(),
                 updated_at: 1,
             }]));
-            store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(TestGroupDelivery::new([
                 TestGroup::new("root").metadata("root", "", "", 1),
                 TestGroup::new(X_CHANNEL).metadata("x", "", "root", 2),
                 TestGroup::new(Y_CHANNEL)

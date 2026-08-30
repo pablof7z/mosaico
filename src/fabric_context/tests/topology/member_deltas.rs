@@ -5,7 +5,7 @@ use crate::reconcile::HookContextState;
 fn membership_delta_uses_the_same_members_block_with_plain_departure_prose() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([crate::state::Status {
@@ -27,7 +27,7 @@ fn membership_delta_uses_the_same_members_block_with_plain_departure_prose() {
     let mut hook = HookContextState::default();
     hook.render_context(&rec.pubkey, "turn_start", 0, 100, before);
 
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK], &[]),
         task_group(),
     ]));
@@ -52,7 +52,7 @@ fn a_late_status_behind_the_cursor_still_emits_a_member_delta() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([crate::state::Status {
@@ -100,7 +100,7 @@ fn a_late_status_behind_the_cursor_still_emits_a_member_delta() {
 #[test]
 fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK], &[]),
         task_group(),
     ]));
@@ -109,7 +109,7 @@ fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([root_group(), task_group()]));
     let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     let delta = hook
         .render_context(&rec.pubkey, "turn_start", 200, 300, after)
@@ -131,7 +131,7 @@ fn an_unjoined_descendant_never_emits_typed_member_detail() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([crate::state::Status {
@@ -175,7 +175,7 @@ fn a_status_without_confirmed_roster_membership_cannot_manufacture_a_member() {
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
     hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
 
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([crate::state::Status {

@@ -83,11 +83,11 @@ fn managed_channel_proof_survives_restart_without_relay_group_rows() {
 #[cfg(test)]
 mod group_hierarchy_tests {
     use super::*;
-    use crate::nmp_views::{TestGroup, TestGroupDelivery};
+    use crate::fava_views::{TestGroup, TestGroupDelivery};
 
     fn hierarchy_store() -> Store {
         let store = Store::open_memory().unwrap();
-        store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(TestGroupDelivery::new([
             TestGroup::new("root").metadata("general", "", "", 1),
             TestGroup::new("root/task").metadata("task", "", "root", 2),
             TestGroup::new("root/task/sub").metadata("sub", "", "root/task", 3),

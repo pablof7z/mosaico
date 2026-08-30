@@ -18,9 +18,9 @@ pub(crate) async fn publish_addressed_chat(
     target_pubkey: &str,
 ) -> String {
     let keys = Keys::parse(operator_nsec).expect("operator keys");
-    let client = crate::nmp_client::NmpRelayClient::connect(keys.clone(), relay)
+    let client = crate::fava_client::FavaRelayClient::connect(keys.clone(), relay)
         .await
-        .expect("connect independent NMP relay client");
+        .expect("connect independent Fava relay client");
     let chat = ChatMessage {
         from: AgentRef::new(keys.public_key().to_hex(), ""),
         channel: channel.to_string(),

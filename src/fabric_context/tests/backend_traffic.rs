@@ -9,16 +9,16 @@ use super::{
 };
 
 /// The daemon's own management pubkey is excluded from the roster by identity,
-/// even when its kind:0 profile is absent from the current NMP view.
+/// even when its kind:0 profile is absent from the current Fava view.
 #[test]
 fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
     const MGMT_PK: &str = "backend-mgmt-pubkey";
     let store = seed_store();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         root_group_with_roster(&[SELF_PK, OTHER_PK, MGMT_PK], &[]),
         task_group(),
     ]));
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .statuses([
@@ -118,7 +118,7 @@ fn backend_traffic_excluded_from_chatter() {
             &format!("[[\"p\",\"{MGMT_PK}\"]]"),
         ),
     ];
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles(profiles).events(events),
     );
 

@@ -129,7 +129,7 @@ pub(crate) fn capture_inputs(
         }
     }
     // Exclude this daemon's own management key by identity, independent of whether
-    // its kind:0 is present in the retained NMP view. On a cold observation the
+    // its kind:0 is present in the retained Fava view. On a cold observation the
     // profile is absent, so `resolve_pubkey`'s is_backend flag alone would let the
     // management key leak into the roster.
     if !input.backend_pubkey.is_empty() {

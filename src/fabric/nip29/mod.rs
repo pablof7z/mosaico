@@ -6,13 +6,13 @@ pub mod readiness;
 pub mod session_dispatch;
 pub mod wire;
 
-/// Compose the exact bytes NMP's group door would sign, for a fixture.
+/// Compose the exact bytes Fava's group door would sign, for a fixture.
 ///
-/// Test-only, and it calls NMP's own contextualizer rather than restating the
+/// Test-only, and it calls Fava's own contextualizer rather than restating the
 /// rule: a fixture that wrote its own `h` row would be modelling a shape the
 /// product cannot publish, because `nip29::Groups::publish` refuses a
 /// caller-supplied context row. Product code never composes a group event --
-/// it hands NMP a draft and gets back an id.
+/// it hands Fava a draft and gets back an id.
 #[cfg(test)]
 pub(crate) fn signed_into_groups(
     groups: &[&str],

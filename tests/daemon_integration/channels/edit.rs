@@ -106,7 +106,7 @@ fn channel_edit_updates_about_from_relay_truth() {
             .as_deref()
                 == Some("new about")
         }),
-        "NMP's delivered channel view did not reach the edited about"
+        "Fava's delivered channel view did not reach the edited about"
     );
 
     stop_daemon(&home);

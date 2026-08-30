@@ -2362,7 +2362,6 @@ dependencies = [
  "libc",
  "mime_guess",
  "nix 0.29.0",
- "nmp-asset",
  "nostr",
  "notify",
  "owo-colors",
@@ -2411,14 +2410,6 @@ dependencies = [
  "cfg-if",
  "cfg_aliases 0.2.2",
  "libc",
-]
-
-[[package]]
-name = "nmp-asset"
-version = "0.1.0"
-source = "git+https://github.com/pablof7z/nmp.git?rev=b6f95ee725106fd404fe4904b071f8aee3197b09#b6f95ee725106fd404fe4904b071f8aee3197b09"
-dependencies = [
- "sha2",
 ]
 
 [[package]]

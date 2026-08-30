@@ -39,7 +39,7 @@ impl Nip29Provider {
         .await
     }
 
-    /// kind:9000 put-user, composed and contextualized by NMP's
+    /// kind:9000 put-user, composed and contextualized by Fava's
     /// group door. `role` is `None` for a plain member and `Some(label)` for an
     /// elevated one; the label rides on the `p` row, which is NIP-29's shape
     /// and not Mosaico's to decide.
@@ -72,7 +72,7 @@ impl Nip29Provider {
             Self::log_group_role_decision(channel, pubkey, role_log, "add role");
         }
         match self
-            .nmp
+            .fava
             .add_group_users_and_wait(channel, users, mgmt_keys.public_key())
             .await
         {
@@ -112,7 +112,7 @@ impl Nip29Provider {
             Self::log_group_role_decision(channel, pubkey, "member", "remove member");
         }
         match self
-            .nmp
+            .fava
             .remove_group_users_and_wait(channel, subjects, mgmt_keys.public_key())
             .await
         {
@@ -139,7 +139,7 @@ fn group_pubkeys(pubkeys: &[String]) -> anyhow::Result<Vec<PublicKey>> {
 pub(super) fn group_users(
     pubkeys: &[String],
     role: Option<String>,
-) -> anyhow::Result<Vec<crate::nmp_host::write::GroupUser>> {
+) -> anyhow::Result<Vec<crate::fava_host::write::GroupUser>> {
     if pubkeys.is_empty() {
         anyhow::bail!("a group role change must name at least one user");
     }
@@ -147,7 +147,7 @@ pub(super) fn group_users(
         .iter()
         .map(|pubkey| {
             PublicKey::parse(pubkey)
-                .map(|pubkey| crate::nmp_host::write::GroupUser {
+                .map(|pubkey| crate::fava_host::write::GroupUser {
                     pubkey,
                     roles: role.iter().cloned().collect(),
                 })

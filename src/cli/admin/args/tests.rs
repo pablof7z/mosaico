@@ -249,7 +249,7 @@ fn channel_search_parses_repeatable_filters() {
         "--contains",
         "commit",
         "--channel",
-        "#nmp/research",
+        "#fava/research",
         "--channel",
         "#",
         "--since",
@@ -268,7 +268,7 @@ fn channel_search_parses_repeatable_filters() {
             assert_eq!(args.from, ["@Pablo", "@reviewer"]);
             assert_eq!(args.to, ["@chief-of-staff"]);
             assert_eq!(args.contains, ["commit"]);
-            assert_eq!(args.channel, ["#nmp/research", "#"]);
+            assert_eq!(args.channel, ["#fava/research", "#"]);
             assert_eq!(args.since, Some(1_785_348_600));
             assert_eq!(args.until, Some(1_785_404_520));
             assert_eq!(args.limit, Some(40));
@@ -292,18 +292,18 @@ fn channel_search_parses_repeatable_filters() {
 #[test]
 fn channel_args_reject_slash_prefixed_paths() {
     for args in [
-        &["mosaico", "channel", "join", "/nmp"][..],
-        &["mosaico", "channel", "archive", "/nmp/old"][..],
-        &["mosaico", "channel", "create", "/nmp/child", "--about", "x"][..],
-        &["mosaico", "channel", "search", "--channel", "/nmp"][..],
+        &["mosaico", "channel", "join", "/fava"][..],
+        &["mosaico", "channel", "archive", "/fava/old"][..],
+        &["mosaico", "channel", "create", "/fava/child", "--about", "x"][..],
+        &["mosaico", "channel", "search", "--channel", "/fava"][..],
         &[
             "mosaico",
             "dispatch",
             "codex@laptop",
             "--workspace",
-            "nmp",
+            "fava",
             "--channel",
-            "/nmp",
+            "/fava",
         ][..],
     ] {
         let err = parse_err(args);
@@ -317,7 +317,7 @@ fn channel_args_reject_slash_prefixed_paths() {
 
 #[test]
 fn channel_search_rejects_invalid_channel_and_cursor_filters() {
-    let channel = parse_err(&["mosaico", "channel", "search", "--channel", "nmp"]);
+    let channel = parse_err(&["mosaico", "channel", "search", "--channel", "fava"]);
     assert_eq!(channel.kind(), ErrorKind::ValueValidation);
 
     let cursor_with_filter = parse_err(&[

@@ -86,7 +86,7 @@ fn channel_add_session_pulls_live_pty_without_resuming() {
     });
     assert_eq!(created["channel"], side_path);
     assert_eq!(created["joined"].as_bool(), Some(false));
-    let side = observed_channel_h(&root, "side").expect("NMP-observed side channel id");
+    let side = observed_channel_h(&root, "side").expect("Fava-observed side channel id");
     let pty_count = mosaico::pty::read_all_metadata().len();
     let before_invite = Store::open(&home.store_path())
         .unwrap()

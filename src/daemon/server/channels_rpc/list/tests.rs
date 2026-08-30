@@ -25,7 +25,7 @@ fn topology_with_records(
             .members(members)
             .availability(crate::group_snapshot::GroupAvailability::Acquiring);
     }
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         own,
         alpha,
         TestGroup::new("deep-h").metadata("deep", "Deep work", "alpha-h", 3),
@@ -126,9 +126,9 @@ fn counts_named_agents_only_when_group_state_is_available() {
         ]),
         Some(vec!["agent-pk".into()]),
     );
-    // NMP reports the child group as still acquiring, so its member count is
+    // Fava reports the child group as still acquiring, so its member count is
     // not yet a complete product fact.
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles([
                 Profile {
@@ -193,7 +193,7 @@ fn counts_named_agents_only_when_group_state_is_available() {
 #[test]
 fn compact_empty_root_has_no_zero_subchannel_suffix() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_group_delivery(TestGroupDelivery::new([
+    store.install_test_fava_group_delivery(TestGroupDelivery::new([
         TestGroup::new("solo").metadata("general", "No children", "", 1)
     ]));
     let view = build(&store, ListMode::All, 10, "").unwrap();

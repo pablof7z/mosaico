@@ -53,7 +53,7 @@ coordination overhead.
 - Treat the launch workspace as execution context and its root channel as an
   ordinary channel. Canonical channel names are absolute hash paths:
   `#<root>` and `#<root>/reviews`. Always quote them in the shell
-  (`'#nmp/reviews'`) so `#…` is not treated as a comment.
+  (`'#fava/reviews'`) so `#…` is not treated as a comment.
 - Read [Identity And Agent Capabilities](references/identity-and-capabilities.md)
   when identity, installed-agent discovery, backend availability, or a
   secret-bearing environment affects the work.

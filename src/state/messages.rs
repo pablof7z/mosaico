@@ -1,6 +1,6 @@
-//! Kind:9 chat projection read through the active NMP view.
+//! Kind:9 chat projection read through the active Fava view.
 //!
-//! Message identity, content, ordering, and `p`-tag recipients belong to NMP.
+//! Message identity, content, ordering, and `p`-tag recipients belong to Fava.
 //! SQLite retains only the independently keyed local attachment directory.
 
 use super::observed_decode::{decode_message, MessageProjection};
@@ -16,7 +16,7 @@ impl Store {
     /// from the bounded recent-rows window. The mirror's `messages()` is
     /// retired; this is its sync successor.
     pub(super) fn message_projections(&self) -> Vec<MessageProjection> {
-        self.nmp_views
+        self.fava_views
             .recent_rows()
             .events_by_kind(KIND_CHAT, u32::MAX)
             .into_iter()
@@ -27,7 +27,7 @@ impl Store {
     /// One chat projection by id, or `None` if the id is absent or not a chat
     /// row in the retained window.
     pub(super) fn message_projection_by_id(&self, message_id: &str) -> Option<MessageProjection> {
-        self.nmp_views
+        self.fava_views
             .recent_rows()
             .event(message_id)
             .filter(|event| event.kind == KIND_CHAT as u32)

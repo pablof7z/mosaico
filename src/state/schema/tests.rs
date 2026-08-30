@@ -40,15 +40,15 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 24);
+    assert_eq!(version, 25);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
     assert!(!table_exists(&conn, "identities"));
     assert!(!table_exists(&conn, "durable_agent_sessions"));
-    assert!(table_exists(&conn, "nmp_event_arrivals"));
+    assert!(table_exists(&conn, "fava_event_arrivals"));
     assert!(table_exists(&conn, "message_attachments"));
-    for nmp_owned in [
+    for fava_owned in [
         "relay_channels",
         "relay_channel_members",
         "relay_channel_member_sets",
@@ -61,8 +61,8 @@ fn fresh_file_db_uses_only_canonical_schema() {
         "message_recipients",
     ] {
         assert!(
-            !table_exists(&conn, nmp_owned),
-            "{nmp_owned} must stay NMP-owned"
+            !table_exists(&conn, fava_owned),
+            "{fava_owned} must stay Fava-owned"
         );
     }
     assert!(!table_exists(&conn, "project_roots"));
@@ -116,7 +116,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     );
 
     assert_eq!(
-        columns(&conn, "nmp_event_arrivals"),
+        columns(&conn, "fava_event_arrivals"),
         ["sequence", "event_id"]
     );
     assert_eq!(

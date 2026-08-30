@@ -1,6 +1,6 @@
 use super::*;
 
-/// Ambient channel chat is delta-gated off the NMP delivery: a row newer than
+/// Ambient channel chat is delta-gated off the Fava delivery: a row newer than
 /// the cursor surfaces, an older one does not re-emit on the next tool call.
 #[test]
 fn turn_check_chat_shown_once_not_per_tool_call() {

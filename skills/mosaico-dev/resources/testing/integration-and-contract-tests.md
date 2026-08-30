@@ -14,7 +14,7 @@ Use integration evidence for:
 
 - daemon client and Unix-socket behavior;
 - store plus domain policy;
-- NMP acquisition plus Mosaico materialization;
+- Fava acquisition plus Mosaico materialization;
 - session lifecycle plus harness adapter;
 - concurrency, restart, and failure recovery;
 - CLI/RPC behavior that needs the real binary but is too technical for
@@ -23,7 +23,7 @@ Use integration evidence for:
 Current targets include:
 
 - `tests/daemon_mechanics.rs` for spawn, socket, race, and version mechanics;
-- `tests/e2e_transport.rs` for Nostr codec and NMP acquisition boundaries;
+- `tests/e2e_transport.rs` for Nostr codec and Fava acquisition boundaries;
 - `tests/daemon_integration.rs` for daemon, messaging, channel, signer, and
   harness composition;
 - `tests/help.rs` and `tests/install_standalone.rs` for hermetic real-binary

@@ -1,7 +1,7 @@
 # State schema and upgrades
 
 `state.db` is daemon-owned local persistence. It is not a cache or replica of
-Nostr. NMP retained observations are the sole authority for current groups,
+Nostr. Fava retained observations are the sole authority for current groups,
 profiles, statuses, events, messages, recipients, and reactions.
 
 Installing a newer binary must not create an operator-visible database step.
@@ -28,21 +28,21 @@ Schema 22 removes all relay-derived persistence:
 - `messages` and `message_recipients`.
 
 The current schema validator requires those tables to be absent. Mosaico does
-not rebuild them after startup. Relay views repopulate only from active NMP
-observations and disappear when NMP removes them or their observation closes.
+not rebuild them after startup. Relay views repopulate only from active Fava
+observations and disappear when Fava removes them or their observation closes.
 
 The migration preserves exactly two small satellites from the former event and
 message tables:
 
 | Table | Durable local fact | Explicitly does not store |
 |---|---|---|
-| `nmp_event_arrivals` | Event id plus host-local monotonically increasing arrival sequence | Event kind, author, tags, content, timestamp, sources, or replacement state |
+| `fava_event_arrivals` | Event id plus host-local monotonically increasing arrival sequence | Event kind, author, tags, content, timestamp, sources, or replacement state |
 | `message_attachments` | Event id plus verified directory containing downloaded files on this host | Message content, recipients, attachment tags, URLs, or relay metadata |
 
 The arrival sequence is a local route fence. It lets automatic ambient context
 distinguish events observed before and after a session joined without copying
 the event. The attachment directory is a local filesystem binding joined onto
-an NMP-owned message while that message is present.
+an Fava-owned message while that message is present.
 
 The remaining tables are product-local authority:
 
@@ -56,7 +56,7 @@ The remaining tables are product-local authority:
 `session_channels` stores durable channel affinity plus signed-time and
 arrival-sequence join fences. `session_standing` stores local desired standing
 and cleanup progress. Neither table is evidence of current relay membership;
-that comes only from the current NMP group observation.
+that comes only from the current Fava group observation.
 
 The `inbox` is exact-recipient delivery state, not ambient history. Only an
 observed message explicitly p-tagging a daemon-owned pubkey may create a pending
@@ -65,9 +65,9 @@ when it predates registration or its route is later removed because local
 delivery belongs to the exact identity, independently of ambient membership.
 
 Completed offline-mention claims are compact durable tombstones keyed by event
-and exact recipient. They do not expire: NMP may redeliver an event after
+and exact recipient. They do not expire: Fava may redeliver an event after
 reconnection, and recovery or process launch must remain idempotent. The
-tombstone does not keep the relay event current or make it readable after NMP
+tombstone does not keep the relay event current or make it readable after Fava
 removes it.
 
 Runtime endpoint locators carry their owning generation. PTY supervisor
@@ -103,7 +103,7 @@ current read contracts.
   projection.
 - **Schema 17** moved host capability and workspace discovery into complete
   kind:0 profile snapshots. The historical profile cache is removed by schema
-  22; current profile state is read from NMP.
+  22; current profile state is read from Fava.
 - **Schema 16** removed transcript paths and the explicit-chat publication
   marker after transcript auto-publication was removed.
 - **Schema 15** added cumulative working time to session lifecycle state.
@@ -130,6 +130,6 @@ The schema-8-to-9 migration renamed `harness` to `observed_harness`, left
 locators and remained explicit about facts the old schema could not preserve.
 
 The older schema-7 ownership handoff used an fsynced sidecar so accepted local
-write obligations could move into NMP's durable queue before superseded tables
+write obligations could move into Fava's durable queue before superseded tables
 were dropped. That was a migration mechanism, not a current alternate write
 path.

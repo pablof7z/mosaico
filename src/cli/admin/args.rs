@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 /// (`#workspace/child`) — never a bare name or opaque channel id.
 /// Fast, same-process rejection instead of a daemon round trip.
 ///
-/// Always quote channel paths in the shell (`'#nmp/reviews'`) so `#…` is not
+/// Always quote channel paths in the shell (`'#fava/reviews'`) so `#…` is not
 /// treated as a comment. When the name is missing entirely, prefer
 /// [`crate::channel_ref::MISSING_CHANNEL_NAME_HINT`].
 pub(in crate::cli) fn parse_channel_path(raw: &str) -> Result<String, String> {
@@ -90,7 +90,7 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Search messages in the daemon's current NMP view.
+    /// Search messages in the daemon's current Fava view.
     Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {

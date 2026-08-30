@@ -131,9 +131,9 @@ While an agent is alive, only host log reads, croissant logs, `nak`, and
 `probe-lab` are safe. Same-profile `sessions`, `channel`, `debug explain`, and
 `debug hook-tail` must wait until the launch container stops.
 
-## Stale SQLite or NMP state
+## Stale SQLite or Fava state
 
-A fresh relay paired with old `state.db` or `nmp.redb` can retain obsolete
+A fresh relay paired with old `state.db` or `fava.redb` can retain obsolete
 workspace, membership, or acquisition state. For a disposable lab, rerun:
 
 ```bash
@@ -151,19 +151,19 @@ MOSAICO_HOME=.container-state/<profile>/mosaico mosaico daemon reset-state --yes
 Never delete these from a live or non-disposable profile without explicit
 authorization.
 
-## Daemon will not start and NMP refuses the store
+## Daemon will not start and Fava refuses the store
 
 Read the selected instance's `daemon.log`. A refused store is a daemon that
 exits before it can answer an RPC; its structured startup error carries the
 exact `condition`, `summary`, and `fix`:
 
-- `superseded-epoch` — the store is not this build's schema epoch. NMP migrates
+- `superseded-epoch` — the store is not this build's schema epoch. Fava migrates
   nothing across an epoch and reads **nothing** inside a store it refused, so no
   tool can tell you what the file holds; "no readable marker" means *not this
   epoch*, not *empty*. Run `mosaico daemon reset-state
   --yes-i-know-this-wipes-local-state`, then restart. This clears all runtime
   state for the selected instance while preserving configuration. The
-  relay-backed read cache re-acquires; any write NMP had accepted and not yet
+  relay-backed read cache re-acquires; any write Fava had accepted and not yet
   published is gone with the reset.
 - `unusable` — a refused lock, an unresolvable path, damaged current-epoch
   bytes. **Do not delete the store.** A fresh file fixes none of these and
@@ -173,13 +173,13 @@ exact `condition`, `summary`, and `fix`:
   first.
 
 The full reset is offered only for `superseded-epoch`. It stops and reaps the
-selected instance under its startup lock, uses NMP's reset API for `nmp.redb`,
+selected instance under its startup lock, uses Fava's reset API for `fava.redb`,
 clears SQLite/session/attachment runtime, and leaves configuration and native
 profiles intact. It refuses unsafe attachment targets such as root, HOME, or a
 path overlapping configuration.
 
 Never diagnose this by reading the refusal text. Mosaico branches on
-`nmp::EngineError`; a message that says "predates the schema marker" once meant
+`fava::EngineError`; a message that says "predates the schema marker" once meant
 both of the first two.
 
 ## Management key is not admin

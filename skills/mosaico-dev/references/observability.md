@@ -112,8 +112,8 @@ tail -n 200 .container-state/claude-acp/mosaico/daemon.log
 
 ## Outgoing writes
 
-There is no app-side log of them. NMP signs and publishes every group write, so
-Mosaico never holds the bytes; NMP's durable publish queue owns outstanding
+There is no app-side log of them. Fava signs and publishes every group write, so
+Mosaico never holds the bytes; Fava's durable publish queue owns outstanding
 delivery obligations.
 
 For an earlier failure, search the full file with timestamps. Keep logs until

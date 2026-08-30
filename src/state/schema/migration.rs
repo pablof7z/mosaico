@@ -20,6 +20,8 @@ mod v21_v22;
 mod v22_v23;
 #[path = "migration/steps/v23_v24.rs"]
 mod v23_v24;
+#[path = "migration/steps/v24_v25.rs"]
+mod v24_v25;
 
 const OLDEST_SUPPORTED_VERSION: u32 = 4;
 
@@ -113,6 +115,10 @@ const MIGRATIONS: [Migration; (version::SCHEMA_VERSION - OLDEST_SUPPORTED_VERSIO
     Migration {
         from: 23,
         apply: v23_v24::migrate,
+    },
+    Migration {
+        from: 24,
+        apply: v24_v25::migrate,
     },
 ];
 

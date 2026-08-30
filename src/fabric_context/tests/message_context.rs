@@ -23,13 +23,13 @@ fn automatic_context_requires_both_join_fences() {
         "future-dated prejoin body",
         "[]",
     );
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([future.clone()]),
     );
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles(seed_profiles()).events([
             future,
             chat(
@@ -59,7 +59,7 @@ fn mention_rows_are_marked_important_and_truncated_with_recovery_id() {
         .collect::<Vec<_>>()
         .join(" ");
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().profiles(seed_profiles()).events([
             chat("mention-long", "root", 210, &body, &tags),
             reaction("rx-mention-long", "mention-long", "root", SELF_PK, 211),
@@ -88,7 +88,7 @@ fn mention_rows_without_followup_show_compact_affordance() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([chat(
@@ -118,7 +118,7 @@ fn injected_mention_row_is_hidden_from_chatter() {
     let store = seed_store();
     let rec = session(&store);
     let tags = format!("[[\"p\",\"{SELF_PK}\"]]");
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([chat(
@@ -179,7 +179,7 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
     ));
     let npub = PublicKey::from_hex(TARGET_PK).unwrap().to_bech32().unwrap();
     let tags = format!("[[\"p\",\"{TARGET_PK}\"],[\"p\",\"{REMOTE_PK}\"]]");
-    store.install_test_nmp_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
+    store.install_test_fava_relay_delivery(TestRelayDelivery::new().profiles(profiles).events([
         chat(
             "mention-target",
             "root",
@@ -207,7 +207,7 @@ fn message_rows_show_p_tag_recipients_and_rewrite_nostr_mentions() {
 fn ambient_attachment_renders_the_canonical_directory_without_child_nodes() {
     let store = seed_store();
     let rec = session(&store);
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
             .events([chat(

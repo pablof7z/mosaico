@@ -12,7 +12,7 @@ fn attachment(url: &str, label: &str, bytes: &[u8]) -> crate::domain::ChatAttach
     crate::domain::ChatAttachment {
         url: url.to_string(),
         label: label.to_string(),
-        sha256: nmp_asset::Sha256Hash::of(bytes).to_hex(),
+        sha256: crate::asset_hash::Sha256Hash::of(bytes).to_hex(),
     }
 }
 
@@ -30,7 +30,7 @@ fn attachment_tag(url: &str, label: &str, bytes: &[u8]) -> Tag {
 fn register_receiver(state: &DaemonState, pubkey: &str) {
     state.with_store(|store| {
         register(store, pubkey, "reviewer", "room", "locator");
-        store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+        store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
             crate::state::TestGroup::new("room").metadata("room", "", "", 1),
         ]));
     });
@@ -120,7 +120,7 @@ async fn attachment_failure_still_routes_the_ordinary_message() {
 
 #[tokio::test]
 async fn slow_attachment_does_not_stall_demux() {
-    // Under the single broad `#h` observation (mosaico#837) the NmpViews
+    // Under the single broad `#h` observation (mosaico#837) the FavaViews
     // `transition.added` set dedups a row to one delivery, so `dispatch` runs
     // once per event — the per-process `first_sight` LRU that used to guard
     // duplicate in-flight attachment spawns is retired. This test now covers

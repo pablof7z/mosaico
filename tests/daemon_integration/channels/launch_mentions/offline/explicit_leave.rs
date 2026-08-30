@@ -44,10 +44,10 @@ fn owned_mention_resumes_routeless_session_without_restoring_explicit_leaves() {
             child_h = observed_channel_h(&root, &child_name);
             child_h.is_some()
         }),
-        "child {child_path} was not delivered by NMP; daemon_log={}",
+        "child {child_path} was not delivered by Fava; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
-    let child_h = child_h.expect("NMP-observed child channel id");
+    let child_h = child_h.expect("Fava-observed child channel id");
     wait_for_group_member(&home, &child_path, &original.pubkey);
 
     rt().block_on(async {

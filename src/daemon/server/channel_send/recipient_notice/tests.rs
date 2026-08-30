@@ -104,14 +104,14 @@ fn working_and_offline_local_recipients_do_not_get_reminders() {
 #[test]
 fn fresh_peer_state_controls_the_reminder() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().statuses([remote_status(SessionState::Suspended, 20)]),
     );
     assert!(suspension_reminder(&store, "remote-pk", "room", None)
         .unwrap()
         .is_some());
 
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().statuses([remote_status(SessionState::Idle, 30)]),
     );
     assert!(suspension_reminder(&store, "remote-pk", "room", None)
@@ -122,7 +122,7 @@ fn fresh_peer_state_controls_the_reminder() {
 #[test]
 fn current_peer_row_is_not_reinterpreted_by_a_second_expiry_clock() {
     let store = Store::open_memory().unwrap();
-    store.install_test_nmp_relay_delivery(
+    store.install_test_fava_relay_delivery(
         TestRelayDelivery::new().statuses([remote_status(SessionState::Suspended, 9)]),
     );
 

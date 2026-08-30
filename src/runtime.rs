@@ -1,6 +1,6 @@
 //! Daemon-hosted per-session engine: publishes identity/status and watches host
 //! liveness. Status effects flow
-//! exclusively through [`crate::reconcile::status`] and NMP's durable write plane.
+//! exclusively through [`crate::reconcile::status`] and Fava's durable write plane.
 
 use crate::domain::{DomainEvent, Profile};
 use crate::fabric::provider::Nip29Provider;

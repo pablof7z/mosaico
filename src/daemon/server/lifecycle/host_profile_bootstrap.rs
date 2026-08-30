@@ -5,7 +5,7 @@ use std::sync::Arc;
 ///
 /// Nothing is fetched first. The profile states which workspaces this backend
 /// manages, and that answer comes from the relay-signed admin lists the
-/// retained NMP group observation exposes directly. The observation triggers a
+/// retained Fava group observation exposes directly. The observation triggers a
 /// fresh profile publication whenever that current answer changes.
 pub(super) async fn publish_startup_profile(state: &Arc<DaemonState>) {
     match publish_backend_profile(state).await {

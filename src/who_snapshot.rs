@@ -154,7 +154,7 @@ pub(crate) fn build_who_snapshot(
         &mut other_agents,
     )?;
 
-    // ── peers: current NMP status rows, minus our own keys ────────────────────
+    // ── peers: current Fava status rows, minus our own keys ────────────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
     // become rows, root channels out of scope feed the other-workspaces summary.
     let mut channels: Vec<String> = aggregation

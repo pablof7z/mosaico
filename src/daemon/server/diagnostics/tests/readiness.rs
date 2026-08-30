@@ -43,7 +43,7 @@ fn absent_group_snapshot(group: &str) -> GroupSnapshot {
 fn register_caller(state: &Arc<DaemonState>, pubkey: &str) {
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project").metadata("project", "", "", 1),
             ]));
             store.reserve_hook_session_for_test(&RegisterSession {
@@ -68,7 +68,7 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     register_caller(&state, &caller);
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project")
                     .metadata("project", "", "", 1)
                     .admins(vec![management.clone()])
@@ -84,11 +84,11 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
         &[],
     );
     for _ in 0..5 {
-        state.nmp().script_group_snapshot(project.clone());
+        state.fava().script_group_snapshot(project.clone());
     }
     state
-        .nmp()
-        .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
+        .fava()
+        .script_write_error("scripted Fava publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
     let response = super::super::super::dispatch(
         &state,
@@ -108,7 +108,7 @@ async fn channel_member_readiness_failure_reaches_actual_rpc_response() {
     assert!(error.message.contains(SCRIPTED_CLASSIFIED_FAILURE));
     assert!(error
         .message
-        .contains("9000 put-user (session) NMP publish failed"));
+        .contains("9000 put-user (session) Fava publish failed"));
     assert!(!error.message.contains("member add for"));
     eprintln!(
         "CORPUS_CHANNEL_MEMBER_RPC={}",
@@ -122,7 +122,7 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
     let management = state.backend_pubkey().unwrap();
     state
         .with_store(|store| {
-            store.install_test_nmp_group_delivery(crate::state::TestGroupDelivery::new([
+            store.install_test_fava_group_delivery(crate::state::TestGroupDelivery::new([
                 crate::state::TestGroup::new("project")
                     .metadata("project", "", "", 1)
                     .admins(vec![management.clone()])
@@ -139,14 +139,14 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
         &[nostr::key::PublicKey::from_hex(&management).unwrap()],
         &[],
     );
-    state.nmp().script_group_snapshot(absent_child.clone());
+    state.fava().script_group_snapshot(absent_child.clone());
     for _ in 0..6 {
-        state.nmp().script_group_snapshot(project.clone());
+        state.fava().script_group_snapshot(project.clone());
     }
-    state.nmp().script_group_snapshot(absent_child);
+    state.fava().script_group_snapshot(absent_child);
     state
-        .nmp()
-        .script_write_error("scripted NMP publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
+        .fava()
+        .script_write_error("scripted Fava publish refusal", SCRIPTED_CLASSIFIED_FAILURE);
 
     let response = super::super::super::dispatch(
         &state,
@@ -165,7 +165,7 @@ async fn channel_create_readiness_failure_reaches_actual_rpc_response() {
     assert!(error.message.contains(SCRIPTED_CLASSIFIED_FAILURE));
     assert!(error
         .message
-        .contains("9007 create-subgroup NMP publish failed"));
+        .contains("9007 create-subgroup Fava publish failed"));
     assert!(!error.message.contains("does the relay support"));
     eprintln!(
         "CORPUS_CHANNEL_CREATE_RPC={}",

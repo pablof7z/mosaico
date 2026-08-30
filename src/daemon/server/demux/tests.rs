@@ -47,7 +47,7 @@ async fn observed_local_authored_chat_emits_tail_exactly_once() {
             .finalize(&local)
             .unwrap(),
     };
-    let views = state.nmp().views_handle();
+    let views = state.fava().views_handle();
 
     let first = views.apply_frame(
         "mosaico-h-room",
@@ -98,7 +98,7 @@ async fn departed_status_row_emits_leave_without_waiting_for_a_poll() {
             .unwrap(),
     };
     let id = row.event.id;
-    let views = state.nmp().views_handle();
+    let views = state.fava().views_handle();
 
     let added = views.apply_frame("mosaico-broad-h", 1, vec![RowDelta::Added(row)]);
     apply_transition(&state, added).await;
@@ -150,7 +150,7 @@ async fn status_tail_events_follow_exact_observation_edges() {
             .unwrap(),
     };
     let id = row.event.id;
-    let views = state.nmp().views_handle();
+    let views = state.fava().views_handle();
 
     // Under the single broad observation, one entry fans out to all channels
     // named in the status event's #h tags simultaneously.

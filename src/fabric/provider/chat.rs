@@ -1,7 +1,7 @@
 //! Publishing a kind:9 chat message into a NIP-29 group.
 //!
 //! **Nothing here writes to the local store.** Mosaico used to seed the chat
-//! it had just signed before NMP had delivered it. NMP #1182 ended that need:
+//! it had just signed before Fava had delivered it. Fava removes that need:
 //! a locally accepted write is injected into every matching live query, and
 //! Mosaico consumes that observed row on the same path as a peer's message.
 
@@ -25,7 +25,7 @@ impl Nip29Provider {
     /// the message threads as a reply to the triggering event — reusing the
     /// wire encoder rather than hand-building a parallel event.
     ///
-    /// The draft carries no `h` row: the group context belongs to NMP's group
+    /// The draft carries no `h` row: the group context belongs to Fava's group
     /// door, which appends it before the bytes are signed and refuses a draft
     /// that supplies its own.
     pub(crate) fn chat_draft(
@@ -76,7 +76,7 @@ impl Nip29Provider {
             .chat_draft(chat, reply_to)?
             .custom_created_at(nostr::types::Timestamp::from(created_at));
         let event_id: EventId = self
-            .nmp
+            .fava
             .publish_group(channel, builder, keys.public_key())?;
         Ok(PublishedChat {
             event_id: event_id.to_hex(),

@@ -118,7 +118,7 @@ fn timeout_result(timeout_secs: u64, channels: &[String]) -> serde_json::Value {
 }
 
 /// How long a reply wait will wait for its OWN message to come back before
-/// giving up on it. The message was published through NMP, which injects the
+/// giving up on it. The message was published through Fava, which injects the
 /// accepted write into the subscription this daemon already holds (#1182), so
 /// the round trip is local and sub-millisecond -- but it is asynchronous, and
 /// `channel_send` returning is acceptance rather than observed delivery. Spending

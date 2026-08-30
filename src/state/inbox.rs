@@ -41,7 +41,7 @@ fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
 impl Store {
     /// Atomically park one observed direct mention. The target pubkey has
     /// already been classified as daemon-owned by the caller; recipient tags
-    /// remain owned by the active NMP message projection.
+    /// remain owned by the active Fava message projection.
     pub fn park_direct_mention(
         &self,
         event_id: &str,

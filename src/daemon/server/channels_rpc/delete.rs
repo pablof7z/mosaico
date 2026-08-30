@@ -46,7 +46,7 @@ pub(in crate::daemon::server) async fn delete_channel(
 
     let mgmt_keys = state.management_keys()?;
     let event_id = state
-        .nmp()
+        .fava()
         .publish_delete_group_and_wait(channel, mgmt_keys.public_key())
         .await?
         .to_hex();
@@ -182,7 +182,7 @@ mod tests {
     fn live_status_projection_excludes_offline_state() {
         let store = Store::open_memory().expect("store");
         let now = 1_700_000_000u64;
-        store.install_test_nmp_relay_delivery(crate::state::TestRelayDelivery::new().statuses([
+        store.install_test_fava_relay_delivery(crate::state::TestRelayDelivery::new().statuses([
             status("agent-pk", "coder", SessionState::Idle, now),
             status("offline-pk", "gone", SessionState::Offline, now),
         ]));

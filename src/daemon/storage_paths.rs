@@ -11,7 +11,7 @@ pub(crate) struct StoragePaths {
     pub(crate) lock_path: PathBuf,
     pub(crate) daemon_log_path: PathBuf,
     pub(crate) state_db_path: PathBuf,
-    pub(crate) nmp_store_path: PathBuf,
+    pub(crate) fava_store_path: PathBuf,
     pub(crate) attachment_receive_directory: PathBuf,
     pub(crate) mosaico_home_set: bool,
     pub(crate) mosaico_home_is_default: bool,
@@ -28,7 +28,7 @@ impl StoragePaths {
             .unwrap_or_else(|| home.mosaico_home.join("tmp/attachments"));
         Self {
             instance: home.instance,
-            nmp_store_path: home.mosaico_home.join("nmp.redb"),
+            fava_store_path: home.mosaico_home.join("fava.redb"),
             attachment_receive_directory,
             mosaico_home: home.mosaico_home,
             config_path: config::config_path(),

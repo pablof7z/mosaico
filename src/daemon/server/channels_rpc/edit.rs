@@ -1,4 +1,4 @@
-//! `channel_edit`: publish a channel's durable `about` through NMP.
+//! `channel_edit`: publish a channel's durable `about` through Fava.
 
 use super::*;
 
@@ -28,7 +28,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         ..Default::default()
     };
     let event_id = state
-        .nmp()
+        .fava()
         .publish_metadata_edit_and_wait(&channel_h, &edit, mgmt_keys.public_key())
         .await
         .context("publishing channel description")?;

@@ -1,18 +1,18 @@
-//! Raw event reads projected from NMP's current delivered rows.
+//! Raw event reads projected from Fava's current delivered rows.
 
 use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.nmp_views.recent_rows().event(id))
+        Ok(self.fava_views.recent_rows().event(id))
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
-        self.nmp_views.recent_rows().event_by_prefix(prefix)
+        self.fava_views.recent_rows().event_by_prefix(prefix)
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.nmp_views.recent_rows().event(id).is_some())
+        Ok(self.fava_views.recent_rows().event(id).is_some())
     }
 
     pub fn chat_for_channel(
@@ -22,7 +22,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<RelayEvent>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .recent_rows()
             .events_in_channel(channel_h, since, limit))
     }
@@ -32,7 +32,7 @@ impl Store {
         channel_h: &str,
     ) -> Result<std::collections::HashMap<String, u64>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .recent_rows()
             .latest_chat_by_author(channel_h, crate::fabric::nip29::wire::KIND_CHAT)
             .into_iter()
@@ -59,7 +59,7 @@ impl Store {
         };
         let mut events = Vec::new();
         for event in self
-            .nmp_views
+            .fava_views
             .recent_rows()
             .events_in_channel(channel_h, 0, u32::MAX)
         {
@@ -67,7 +67,7 @@ impl Store {
                 continue;
             }
             if self
-                .nmp_arrival_sequence(&event.id)?
+                .fava_arrival_sequence(&event.id)?
                 .is_some_and(|sequence| sequence <= joined_sequence)
             {
                 events.push(event);
@@ -82,7 +82,7 @@ impl Store {
 
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let kind = u16::try_from(kind).context("Nostr kind exceeds u16")?;
-        Ok(self.nmp_views.recent_rows().events_by_kind(kind, limit))
+        Ok(self.fava_views.recent_rows().events_by_kind(kind, limit))
     }
 }
 

@@ -6,11 +6,11 @@ fn symlinked_inhibitor_refuses_before_truncating_config_or_runtime() {
     let home = selected_home(fixture.path());
     let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("nmp.redb"));
+    superseded_epoch_store(&home.join("fava.redb"));
     std::os::unix::fs::symlink(home.join("config.json"), home.join("daemon.inhibit")).unwrap();
     let runtime = [
         home.join("state.db"),
-        home.join("nmp.redb"),
+        home.join("fava.redb"),
         home.join("sessions/one/hook-calls.jsonl"),
         home.join("tmp/attachments/received.bin"),
         home.join("daemon.log"),
@@ -49,7 +49,7 @@ fn existing_inhibitor_hard_linked_to_config_is_never_truncated() {
     let home = selected_home(fixture.path());
     let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("nmp.redb"));
+    superseded_epoch_store(&home.join("fava.redb"));
     std::fs::hard_link(home.join("config.json"), home.join("daemon.inhibit")).unwrap();
     let config = std::fs::read(home.join("config.json")).unwrap();
 
@@ -63,7 +63,7 @@ fn existing_inhibitor_hard_linked_to_config_is_never_truncated() {
     assert_eq!(std::fs::read(home.join("config.json")).unwrap(), config);
     assert_eq!(std::fs::read(home.join("daemon.inhibit")).unwrap(), config);
     assert!(!home.join("state.db").exists());
-    assert!(!home.join("nmp.redb").exists());
+    assert!(!home.join("fava.redb").exists());
     for (path, bytes) in kept {
         assert_eq!(std::fs::read(path).unwrap(), bytes);
     }

@@ -1,4 +1,4 @@
-//! NIP-29 group metadata read through the daemon's live NMP view.
+//! NIP-29 group metadata read through the daemon's live Fava view.
 //!
 //! A channel and a channel are one abstraction; `parent` is the only distinction
 //! (`""` = top-level root channel, set = session/task channel).
@@ -35,12 +35,12 @@ impl Store {
     /// namespace. `None` when no channel by that name exists under `parent`.
     pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .with_groups(|groups| groups.channel_id_for_name(parent, name)))
     }
 
     /// A local reservation for a channel name whose relay-authored kind:39000 has
-    /// not reached the retained NMP view yet. This is not channel truth; it prevents two immediate
+    /// not reached the retained Fava view yet. This is not channel truth; it prevents two immediate
     /// session-start hooks for the same `(parent, name)` from minting two ids while
     /// daemon-side readiness is still in flight.
     pub fn channel_resolution_intent(&self, parent: &str, name: &str) -> Result<Option<String>> {
@@ -89,13 +89,13 @@ impl Store {
     /// Fetch one channel's metadata.
     pub fn get_channel(&self, channel_h: &str) -> Result<Option<Channel>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .with_groups(|groups| groups.get_channel(channel_h)))
     }
 
     /// All known channels, newest metadata first.
     pub fn list_channels(&self) -> Result<Vec<Channel>> {
-        Ok(self.nmp_views.with_groups(|groups| groups.list_channels()))
+        Ok(self.fava_views.with_groups(|groups| groups.list_channels()))
     }
 
     pub fn is_archived_channel(&self, channel_h: &str) -> Result<bool> {
@@ -108,7 +108,7 @@ impl Store {
     /// Root channels as read-model rows, ordered by stable channel id.
     pub fn list_root_channels(&self) -> Result<Vec<Channel>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .with_groups(|groups| groups.list_root_channels()))
     }
 
@@ -121,7 +121,7 @@ impl Store {
     /// or `None` if the channel is unknown.
     pub fn channel_parent(&self, channel_h: &str) -> Result<Option<String>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .with_groups(|groups| groups.channel_parent(channel_h)))
     }
 
@@ -129,33 +129,33 @@ impl Store {
     /// Returns `None` when the channel or any ancestor is unknown; callers that
     /// use rootness for routing/admission must not silently treat that as root.
     pub fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
-        self.nmp_views
+        self.fava_views
             .with_groups(|groups| groups.root_channel_of(channel_h))
     }
 
     /// True when the channel is a known top-level root channel (`parent`
     /// empty). Unknown channels are not root.
     pub fn is_root_channel(&self, channel_h: &str) -> Result<bool> {
-        self.nmp_views
+        self.fava_views
             .with_groups(|groups| groups.is_root_channel(channel_h))
     }
 
     /// True when the channel is known and belongs under a different top-level
     /// channel root. Unknown ancestry is not treated as a sub-channel.
     pub fn is_subchannel(&self, channel_h: &str) -> Result<bool> {
-        self.nmp_views
+        self.fava_views
             .with_groups(|groups| groups.is_subchannel(channel_h))
     }
 
     /// Direct children of `parent` (one hop), ordered by stable id.
     pub fn list_child_channels(&self, parent: &str) -> Result<Vec<Channel>> {
         Ok(self
-            .nmp_views
+            .fava_views
             .with_groups(|groups| groups.list_child_channels(parent)))
     }
 
     /// Drop host-local bindings for a channel after a confirmed kind:9008 delete.
-    /// NMP owns the relay-derived group state and is not mutated here.
+    /// Fava owns the relay-derived group state and is not mutated here.
     pub fn purge_deleted_channel(&self, channel_h: &str) -> Result<()> {
         let transaction = rusqlite::Transaction::new_unchecked(
             &self.conn,

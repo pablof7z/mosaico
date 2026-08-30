@@ -1,11 +1,11 @@
 //! Decode retained [`RelayEvent`]s into the chat/reaction projections the
 //! state read layer serves.
 //!
-//! These decoders read only the relay-event fields NMP surfaces
+//! These decoders read only the relay-event fields Fava surfaces
 //! (`tags_json`, `content`, `pubkey`, `kind`, `channel_h`, `created_at`,
 //! `id`); they do not need the signed event, so [`RecentRows`] — which stores
 //! `RelayEvent` — is a sufficient substrate. Profile decode moved to the
-//! retained [`ProfileFeed`](crate::nmp_host::ProfileFeed), which keeps its own
+//! retained [`ProfileFeed`](crate::fava_host::ProfileFeed), which keeps its own
 //! kind:0 drain. Status decode stays on the bounded row mirror: kind:30315 is
 //! replaceable and `Nip29WireCodec.decode_event` wants the signed event, so the
 //! mirror's `Row` remains the status substrate (mosaico#837 — the mirror is

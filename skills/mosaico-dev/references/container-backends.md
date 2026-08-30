@@ -46,12 +46,12 @@ Each profile owns:
 .container-state/<profile>/mosaico/presets.json
 .container-state/<profile>/mosaico/agents/<slug>.json
 .container-state/<profile>/mosaico/state.db*
-.container-state/<profile>/mosaico/nmp.redb
+.container-state/<profile>/mosaico/fava.redb
 ```
 
 `write-container-profiles` resets the disposable `mosaico/` directory by
 default while preserving provider home and build caches. This clears both the
-SQLite daemon state and NMP's `nmp.redb`; carrying either store onto a fresh
+SQLite daemon state and Fava's `fava.redb`; carrying either store onto a fresh
 relay can produce stale membership or event projections. Set
 `MOSAICO_DEV_RESET_PROFILE_STATE=0` only to diagnose that exact existing state.
 

@@ -38,7 +38,7 @@ The selected root owns all mutable state that can produce or reveal awareness:
 - configuration and relay selection;
 - backend and agent identities;
 - SQLite state and session history;
-- NMP storage, acquisition cursors, publish queue, and signer state;
+- Fava storage, acquisition cursors, publish queue, and signer state;
 - daemon socket, startup lock, stop inhibitor, and logs;
 - attachment storage and workspace mappings;
 - PTY metadata, supervisor sockets, and lifecycle controls.
@@ -49,18 +49,18 @@ daemon; neither path searches another instance or falls back to the default.
 Stopping, restarting, resetting, or purging state targets only the selected
 daemon root.
 
-## When NMP refuses the selected instance's store
+## When Fava refuses the selected instance's store
 
-Opening the NMP store is the daemon's first irreversible commitment, and a
+Opening the Fava store is the daemon's first irreversible commitment, and a
 refusal there is a daemon that exits before it can answer an RPC. Exactly one
-refusal is fixed by deleting the store — NMP supports one persistent schema
+refusal is fixed by deleting the store — Fava supports one persistent schema
 epoch and migrates nothing across it — and deleting the store in response to any
-*other* refusal destroys the only copy of writes NMP accepted and had not yet
-published. Mosaico branches on `nmp::EngineError` for that distinction and never
-on its message; the vocabulary is `nmp_host::store::StoreCondition`, emitted as
+*other* refusal destroys the only copy of writes Fava accepted and had not yet
+published. Mosaico branches on `fava::EngineError` for that distinction and never
+on its message; the vocabulary is `fava_host::store::StoreCondition`, emitted as
 the `condition` field in the selected daemon's structured startup log.
 
-- **`superseded-epoch`** — the durable bytes are not this build's epoch. NMP
+- **`superseded-epoch`** — the durable bytes are not this build's epoch. Fava
   reads nothing inside a store it refused, so no tool can say what the file
   holds; a marker this build cannot read means *not this epoch*, never *no
   data*.
@@ -81,7 +81,7 @@ $ mosaico daemon restart
 Reset is coherent across the selected instance: it inhibits hook respawn,
 stops the exact daemon, holds its startup lock, reaps only its detached PTY
 supervisors, removes `state.db` and transient session/runtime directories, and
-asks `Engine::reset_persistent_store` to remove NMP's complete store. It also
+asks `Engine::reset_persistent_store` to remove Fava's complete store. It also
 clears the resolved `attachmentReceiveDirectory`, including a safely scoped
 external directory. The reset refuses root/home-wide targets and anything that
 overlaps configuration or native profile files.
@@ -90,7 +90,7 @@ Configuration survives byte-for-byte: `config.json`, `presets.json`,
 `agents/`, `workspaces.json`, registered MCP clients, harness definitions,
 agent profile declarations, and unrecognized files in the selected root.
 Transient `harness-profiles/` materializations are runtime and are deleted.
-Hooks stay inhibited until the explicit restart. On every NMP refusal other
+Hooks stay inhibited until the explicit restart. On every Fava refusal other
 than `superseded-epoch`, the diagnosis still says not to reset: damaged
 current-epoch bytes or a failing disk may hold the only
 accepted-but-unpublished writes.

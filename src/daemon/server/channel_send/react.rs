@@ -30,7 +30,7 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .with_context(|| format!("resolving react id {:?}", p.id.trim()))?
         .with_context(|| format!("message not found for react id {:?}", p.id.trim()))?;
     super::super::mcp_actor::ensure_membership_if_actor(state, &rec, &original.channel_h).await?;
-    // NMP rows are signed relay events, so the message id is the exact `e`
+    // Fava rows are signed relay events, so the message id is the exact `e`
     // target peers observe.
     let target_event_id = original.message_id.clone();
 

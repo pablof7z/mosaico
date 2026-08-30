@@ -4,8 +4,8 @@
 //! rendering, `who`, channel context — resolves it HERE so the policy lives in
 //! one place:
 //!
-//!   1. A Row already owned by a retained NMP observation answers immediately.
-//!   2. Otherwise a bounded exact-author NMP read returns its decoded Row value
+//!   1. A Row already owned by a retained Fava observation answers immediately.
+//!   2. Otherwise a bounded exact-author Fava read returns its decoded Row value
 //!      directly to the caller. It does not mutate Mosaico's retained view.
 //!
 //! Resolution is the reason remote agents and human operators show up by name
@@ -21,7 +21,7 @@ use nostr::nips::nip19::FromBech32;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Resolve `pubkey` from a retained Row or one bounded exact-author NMP read.
+/// Resolve `pubkey` from a retained Row or one bounded exact-author Fava read.
 pub async fn resolve_name(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
     if let Some(name) = state
         .with_store(|store| store.get_profile(pubkey).ok().flatten())
@@ -83,7 +83,7 @@ pub async fn resolve_chat_labels(
 }
 
 /// Replace every `nostr:npub1…` / `nostr:nprofile1…` mention in `text` with
-/// `@<name>` from the retained NMP view. An unresolved pubkey falls back to a
+/// `@<name>` from the retained Fava view. An unresolved pubkey falls back to a
 /// short hex form so the output is never a wall of bech32.
 pub fn rewrite_body_mentions(store: &Store, text: &str) -> String {
     rewrite_body_mentions_with_names(store, text, &BTreeMap::new())
