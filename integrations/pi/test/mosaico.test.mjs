@@ -9,7 +9,7 @@ const context = {
   sessionManager: { getSessionId: () => "pi-native-session" },
 }
 
-function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubkey } = {}) {
+async function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubkey } = {}) {
   const handlers = new Map()
   const tools = new Map()
   const sent = []
@@ -24,15 +24,16 @@ function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubk
     },
   }
   const inherited = Object.fromEntries([
-    "MOSAICO_AGENT", "MOSAICO_OBSERVED_HARNESS", "MOSAICO_PTY_SESSION", "MOSAICO_TRANSPORT", "MOSAICO_PUBKEY",
+    "MOSAICO_AGENT", "MOSAICO_OBSERVED_HARNESS", "MOSAICO_PTY_SESSION", "MOSAICO_TRANSPORT", "MOSAICO_PUBKEY", "PI_CODING_AGENT_DIR",
   ].map(key => [key, process.env[key]]))
   process.env.MOSAICO_AGENT = agent
   process.env.MOSAICO_OBSERVED_HARNESS = observedHarness
   delete process.env.MOSAICO_PTY_SESSION
   process.env.MOSAICO_TRANSPORT = transport
+  process.env.PI_CODING_AGENT_DIR = "/tmp/pi-mosaico-test-agent"
   if (pubkey === undefined) delete process.env.MOSAICO_PUBKEY
   else process.env.MOSAICO_PUBKEY = pubkey
-  mosaico(pi)
+  await mosaico(pi)
   return { handlers, inherited, sent, tools }
 }
 
@@ -49,7 +50,7 @@ test("registers Pi's native identity and injects context through the daemon UDS"
     if (frame.method === "turn_start") return { ok: { context: "<mosaico>aware</mosaico>" } }
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
-  const pi = install()
+  const pi = await install()
   try {
     await pi.handlers.get("session_start")({}, context)
     const injected = await pi.handlers.get("before_agent_start")({ prompt: "hello" }, context)
@@ -78,7 +79,7 @@ test("managed Pi RPC retains its transport-owned completion and delivery", async
     if (frame.method === "turn_start") return { ok: { context: "context" } }
     return { ok: { pubkey: "agent-pubkey" } }
   })
-  const pi = install({ transport: "pi-rpc" })
+  const pi = await install({ transport: "pi-rpc" })
   try {
     await pi.handlers.get("session_start")({}, context)
     await pi.handlers.get("before_agent_start")({ prompt: "hello" }, context)
@@ -93,7 +94,7 @@ test("managed Pi RPC retains its transport-owned completion and delivery", async
 
 test("a manually launched Pi ignores inherited parent-host identity but remains directly reachable", async () => {
   const daemon = await daemonFixture(frame => holdDeliveryWait(frame) || { ok: { pubkey: "manual-pubkey" } })
-  const pi = install({ transport: "pi-rpc", observedHarness: "codex", agent: "codex", pubkey: "parent-pubkey" })
+  const pi = await install({ transport: "pi-rpc", observedHarness: "codex", agent: "codex", pubkey: "parent-pubkey" })
   try {
     await pi.handlers.get("session_start")({}, context)
     await eventually(() => assert.ok(daemon.requests.some(request => request.method === "session_delivery_wait")))
@@ -116,7 +117,7 @@ test("exposes only agent-facing Mosaico tools and keeps calls structured", async
     } }
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
-  const pi = install()
+  const pi = await install()
   try {
     assert.deepEqual([...pi.tools.keys()], [
       "mosaico_session", "mosaico_wait", "mosaico_channel_list", "mosaico_channel_read",
@@ -146,7 +147,7 @@ test("channel reads use a daemon stream, including duration timestamps", async (
     ]
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
-  const pi = install()
+  const pi = await install()
   try {
     const result = await pi.tools.get("mosaico_channel_read").execute(
       "id", { channel: "#work", since: "2h", limit: 3 }, undefined, undefined, context,
@@ -174,7 +175,7 @@ test("a direct delivery becomes one custom Pi message and is acknowledged after 
     } }
     return new Promise(() => {})
   })
-  const pi = install()
+  const pi = await install()
   try {
     await pi.handlers.get("session_start")({}, context)
     await eventually(() => assert.equal(pi.sent.length, 1))
@@ -202,7 +203,7 @@ test("daemon failures and aborted requests become explicit Pi tool errors", asyn
     if (frame.method === "pi_tool_call") return blocked
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
-  const pi = install()
+  const pi = await install()
   try {
     const controller = new AbortController()
     const result = pi.tools.get("mosaico_wait").execute(

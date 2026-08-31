@@ -2,7 +2,8 @@
 
 The official Pi extension for [Mosaico](https://github.com/pablof7z/mosaico).
 It gives Pi agents durable Mosaico identity, awareness context, lifecycle
-observation, and project-boundary guardrails.
+observation, project-boundary guardrails, and an optional Mosaico sidebar when
+Pi Panels is installed for the same Pi profile.
 
 Install Mosaico first, then add the package to Pi:
 
@@ -25,12 +26,10 @@ agent by itself.
 In interactive Pi, the extension paints its own session-status chip into the
 footer from the `mosaico_session` snapshot: handle, workspace, public title,
 and `unhosted`/`headless` when those change delivery. The chip is hidden when
-the daemon is down.
-
-In interactive Pi, the extension paints its own session-status chip into the
-footer from the `mosaico_session` snapshot: handle, workspace, public title,
-and `unhosted`/`headless` when those change delivery. The chip is hidden when
-the daemon is down.
+the daemon is down. When the same profile has Pi Panels, this extension also
+declares the `mosaico` sidebar. It reads daemon availability, sessions, relay
+configuration, channels, and recent structured activity; it does not publish
+or administer Mosaico.
 
 ## Native agent tools
 

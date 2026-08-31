@@ -30,10 +30,17 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+interface Subscription {
+  id: number
+  onItem: (item: unknown) => void
+  onEnd: (error?: Error) => void
+}
+
 export class DaemonConnection {
   private buffer = ""
   private handshake?: { resolve: () => void; reject: (error: Error) => void }
   private pending?: Pending
+  private subscription?: Subscription
   private nextId = 1
   private readonly socket: Socket
 
@@ -53,7 +60,7 @@ export class DaemonConnection {
   }
 
   async call(method: string, params: Params, signal?: AbortSignal): Promise<unknown> {
-    if (this.pending) throw new Error("Mosaico daemon connection already has a request")
+    if (this.pending || this.subscription) throw new Error("Mosaico daemon connection already has a request")
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       const onAbort = () => {
@@ -79,6 +86,19 @@ export class DaemonConnection {
 
   close(): void {
     this.socket.destroy()
+  }
+
+  subscribe(
+    method: string,
+    params: Params,
+    onItem: (item: unknown) => void,
+    onEnd: (error?: Error) => void,
+  ): () => void {
+    if (this.pending || this.subscription) throw new Error("Mosaico daemon connection already has a request")
+    const id = this.nextId++
+    this.subscription = { id, onItem, onEnd }
+    this.write({ id, method, params })
+    return () => this.close()
   }
 
   private open(signal?: AbortSignal): Promise<void> {
@@ -131,6 +151,18 @@ export class DaemonConnection {
   }
 
   private handle(frame: Response): void {
+    const subscription = this.subscription
+    if (subscription && frame.id === subscription.id) {
+      if (frame.item !== undefined) {
+        subscription.onItem(frame.item)
+        return
+      }
+      if (frame.error || frame.end) {
+        this.subscription = undefined
+        subscription.onEnd(frame.error ? new Error(frame.error.message || "Mosaico daemon request failed.") : undefined)
+      }
+      return
+    }
     const pending = this.pending
     if (!pending || frame.id !== pending.id) return
     if (frame.error) {
@@ -160,6 +192,9 @@ export class DaemonConnection {
     const pending = this.pending
     this.pending = undefined
     pending?.reject(reason)
+    const subscription = this.subscription
+    this.subscription = undefined
+    subscription?.onEnd(reason)
   }
 
   private write(frame: object): void {
@@ -267,8 +302,12 @@ function parseResult(tool: string, value: unknown): ProtocolResult {
   return { content: result.content, details: result.details ?? null, isError: result.is_error }
 }
 
+export function mosaicoHome(): string {
+  return process.env.MOSAICO_HOME || join(homedir(), ".mosaico")
+}
+
 function daemonSocketPath(): string {
-  return join(process.env.MOSAICO_HOME || join(homedir(), ".mosaico"), "daemon.sock")
+  return join(mosaicoHome(), "daemon.sock")
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

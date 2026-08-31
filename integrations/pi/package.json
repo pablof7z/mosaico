@@ -1,7 +1,7 @@
 {
   "name": "pi-mosaico",
   "version": "0.3.0",
-  "description": "Mosaico identity, awareness, and lifecycle integration for Pi",
+  "description": "Mosaico identity, awareness, lifecycle, and optional Pi Panels sidebar integration for Pi",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -17,6 +17,9 @@
   "files": [
     "mosaico.ts",
     "delivery.ts",
+    "panel.ts",
+    "panel-model.ts",
+    "panel-view.ts",
     "protocol.ts",
     "status.ts",
     "tools.ts",
@@ -34,10 +37,12 @@
     "check": "npm run typecheck && npm test && npm pack --dry-run"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.4"
+    "@earendil-works/pi-coding-agent": ">=0.80.4",
+    "@earendil-works/pi-tui": ">=0.84.2"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-tui": "0.84.2",
     "@types/node": "22.18.3",
     "typescript": "5.9.2"
   }

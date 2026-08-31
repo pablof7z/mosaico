@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { DeliveryPump } from "./delivery.ts"
+import { installMosaicoPanel } from "./panel.ts"
 import { caller, daemonCall, isHostedPi } from "./protocol.ts"
 import { clearSessionStatus, paintSessionStatus } from "./status.ts"
 import { registerMosaicoTools } from "./tools.ts"
@@ -8,9 +9,10 @@ const HOOK_TIMEOUT_MS = 5_000
 const REGISTER_TIMEOUT_MS = 15_000
 const boundaryWarnings = new Map<string, string>()
 
-export default function mosaico(pi: ExtensionAPI) {
+export default async function mosaico(pi: ExtensionAPI) {
   let pump: DeliveryPump | undefined
   registerMosaicoTools(pi)
+  await installMosaicoPanel(pi)
 
   pi.on("session_start", async (_event, ctx) => {
     if (await register(ctx)) {

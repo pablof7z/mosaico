@@ -41,11 +41,13 @@ fn pi_installation_evicts_the_legacy_npm_package_so_tools_do_not_conflict() {
     let settings = agent_dir.join("settings.json");
     write_text(
         &settings,
-        r#"{"extensions":["npm:pi-web-access","npm:pi-mosaico","npm:pi-memory-stone"]}"#,
+        r#"{"extensions":["npm:pi-web-access","npm:pi-mosaico","/work/pi-mosaico-panel/src/index.js","npm:pi-memory-stone"],"packages":["npm:pi-mosaico-panel","../../Work/pi-mosaico-panel"]}"#,
     )
     .unwrap();
     let npm_pkg = agent_dir.join("npm/node_modules/pi-mosaico");
+    let panel_pkg = agent_dir.join("npm/node_modules/pi-mosaico-panel");
     std::fs::create_dir_all(&npm_pkg).unwrap();
+    std::fs::create_dir_all(&panel_pkg).unwrap();
     write_text(&npm_pkg.join("mosaico.ts"), "// stale single-file form\n").unwrap();
 
     pi::install(&h, &InstallOpts::default(), false).unwrap();
@@ -65,8 +67,27 @@ fn pi_installation_evicts_the_legacy_npm_package_so_tools_do_not_conflict() {
         "npm:pi-mosaico still listed"
     );
     assert!(
+        !kept.iter().any(|s| s.contains("pi-mosaico-panel")),
+        "standalone panel still listed"
+    );
+    let packages: Vec<String> = doc
+        .get("packages")
+        .and_then(|e| e.as_array())
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        !packages.iter().any(|s| s.contains("pi-mosaico-panel")),
+        "standalone panel package source still listed"
+    );
+    assert!(
         kept.contains(&"npm:pi-web-access".to_string()),
         "unrelated extension evicted"
     );
     assert!(!npm_pkg.exists(), "stale npm package dir still present");
+    assert!(
+        !panel_pkg.exists(),
+        "stale standalone panel package dir still present"
+    );
 }
