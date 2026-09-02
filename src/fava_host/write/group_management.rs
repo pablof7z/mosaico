@@ -3,7 +3,7 @@ use fava_simple_groups::SimpleGroup;
 use fava_simple_groups::{
     create_group, delete_group, edit_metadata, put_user, remove_user, MetadataEdit,
 };
-use nostr::event::{EventId, UnsignedEvent};
+use nostr::event::EventId;
 use nostr::key::PublicKey;
 
 use super::FavaHost;
@@ -136,16 +136,13 @@ impl FavaHost {
         let child = child.to_string();
         let parent = parent.to_string();
         tokio::task::spawn_blocking(move || {
-            let h_tag = nostr::event::Tag::parse(["h", &child])
-                .map_err(|error| anyhow::anyhow!("h tag: {error}"))?;
-            let parent_tag = nostr::event::Tag::parse(["parent", &parent])
+            let child_sg = simple_group(&child, host.relays.iter().cloned())?;
+            let parent_tag = fava::Tag::parse(["parent", &parent])
                 .map_err(|error| anyhow::anyhow!("parent tag: {error}"))?;
-            let unsigned = fava::EventBuilder::new(fava::Kind::from_u16(9007))
-                .tags([h_tag, parent_tag])
-                .by(author)
-                .build()
-                .map_err(anyhow::Error::from)?;
-            publish_unsigned_and_wait(&host, unsigned, "create-subgroup")
+            let builder = create_group(&child_sg)
+                .context("building create-subgroup event")?
+                .tag(parent_tag);
+            publish_group_builder_and_wait(&host, builder, author, "create-subgroup")
         })
         .await
         .context("joining create-subgroup task")?
@@ -179,7 +176,7 @@ fn publish_group_builder_and_wait(
 ) -> Result<EventId> {
     let write = host
         .fava
-        .by(author)
+        .with_account(author)
         .publish(builder)
         .with_context(|| format!("publishing {operation} event"))?;
     let event_id = write
@@ -187,28 +184,6 @@ fn publish_group_builder_and_wait(
         .with_context(|| format!("reading accepted {operation} receipt"))?
         .current
         .id();
-    tokio::runtime::Handle::current()
-        .block_on(write.settled(fava::all_terminal()))
-        .with_context(|| format!("awaiting {operation} delivery"))?;
-    Ok(event_id)
-}
-
-/// Fava signs the unsigned subgroup event using its registered author signer,
-/// then owns the resulting durable delivery lifecycle.
-fn publish_unsigned_and_wait(
-    host: &FavaHost,
-    mut unsigned: UnsignedEvent,
-    operation: &str,
-) -> Result<EventId> {
-    super::scrub_unsigned(&mut unsigned);
-    unsigned.ensure_id();
-    let event_id = unsigned.id.context("building group-management event id")?;
-    let write = host
-        .fava
-        .to(host.relays.iter().cloned().collect::<Vec<_>>())
-        .with_context(|| format!("building relay route for {operation}"))?
-        .publish(unsigned)
-        .with_context(|| format!("publishing {operation} event"))?;
     tokio::runtime::Handle::current()
         .block_on(write.settled(fava::all_terminal()))
         .with_context(|| format!("awaiting {operation} delivery"))?;

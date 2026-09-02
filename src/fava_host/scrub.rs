@@ -128,8 +128,8 @@ mod tests {
     #[tokio::test]
     async fn scrub_unsigned_noop_on_empty_content() {
         let keys = Keys::generate();
-        // Kind 9000 put-user events have empty content; it must be untouched.
-        let mut unsigned = fava::EventBuilder::new(fava::Kind::from_u16(9000))
+        // An event with no content must not have its id reset by the scrubber.
+        let mut unsigned = fava::EventBuilder::new(fava::Kind::TextNote)
             .by(keys.public_key())
             .build()
             .expect("build unsigned event");
