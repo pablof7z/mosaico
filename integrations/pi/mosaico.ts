@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { registerMosaicoCommand } from "./command.ts"
 import { DeliveryPump } from "./delivery.ts"
 import { installMosaicoPanel } from "./panel.ts"
 import { caller, daemonCall, isHostedPi } from "./protocol.ts"
@@ -11,6 +12,7 @@ const boundaryWarnings = new Map<string, string>()
 
 export default async function mosaico(pi: ExtensionAPI) {
   let pump: DeliveryPump | undefined
+  registerMosaicoCommand(pi)
   registerMosaicoTools(pi)
   await installMosaicoPanel(pi)
 

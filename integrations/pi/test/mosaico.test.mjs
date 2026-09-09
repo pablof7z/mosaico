@@ -11,10 +11,12 @@ const context = {
 
 async function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubkey } = {}) {
   const handlers = new Map()
+  const commands = new Map()
   const tools = new Map()
   const sent = []
   const pi = {
     on: (name, handler) => handlers.set(name, handler),
+    registerCommand: (name, command) => commands.set(name, command),
     registerTool: tool => tools.set(tool.name, tool),
     sendMessage: (message, options) => {
       sent.push({ message, options })
@@ -34,7 +36,7 @@ async function install({ transport = "pty", observedHarness = "pi", agent = "pi"
   if (pubkey === undefined) delete process.env.MOSAICO_PUBKEY
   else process.env.MOSAICO_PUBKEY = pubkey
   await mosaico(pi)
-  return { handlers, inherited, sent, tools }
+  return { commands, handlers, inherited, sent, tools }
 }
 
 async function shutdown(instance) {
@@ -110,7 +112,7 @@ test("a manually launched Pi ignores inherited parent-host identity but remains 
   }
 })
 
-test("exposes only agent-facing Mosaico tools and keeps calls structured", async () => {
+test("exposes agent-facing Mosaico tools and keeps calls structured", async () => {
   const daemon = await daemonFixture(frame => {
     if (frame.method === "pi_tool_call") return { ok: {
       content: [{ type: "text", text: "ok" }], details: { accepted: true }, is_error: false,
@@ -119,6 +121,7 @@ test("exposes only agent-facing Mosaico tools and keeps calls structured", async
   })
   const pi = await install()
   try {
+    assert.deepEqual([...pi.commands.keys()], ["mosaico"])
     assert.deepEqual([...pi.tools.keys()], [
       "mosaico_session", "mosaico_wait", "mosaico_channel_list", "mosaico_channel_read",
       "mosaico_channel_search", "mosaico_send", "mosaico_reply", "mosaico_react",
@@ -134,6 +137,87 @@ test("exposes only agent-facing Mosaico tools and keeps calls structured", async
       watch_pid: process.pid, agent: "pi",
       tool: "mosaico_reply", arguments: { message_id: "event", message: "done" },
     })
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("/mosaico reads the daemon through the native protocol", async () => {
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "my_session_overview") return { ok: {
+      name: "drift-pi",
+      state: "working",
+      title: "Complete Pi integration",
+      channels: [{ path: "#mosaico", about: "Main coordination" }],
+      interactions: [{
+        name: "haven-codex",
+        channel: "#mosaico",
+        age: "2 min ago",
+        message: "Latest exchange",
+      }],
+    } }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
+  })
+  const pi = await install()
+  const notifications = []
+  try {
+    await pi.commands.get("mosaico").handler("", {
+      ...context,
+      ui: { notify: (message, level) => notifications.push({ message, level }) },
+    })
+    assert.match(notifications[0].message, /Mosaico running/)
+    assert.match(notifications[0].message, /@drift-pi · working/)
+    assert.match(notifications[0].message, /Working on: Complete Pi integration/)
+    assert.equal(notifications[0].level, "info")
+    assert.deepEqual(
+      daemon.requests.slice(-1).map(request => request.method),
+      ["my_session_overview"],
+    )
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("/mosaico join selects and joins a known channel through the native protocol", async () => {
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "my_session_overview") return { ok: {
+      name: "drift-pi", state: "working", title: "Complete Pi integration",
+      channels: [{ path: "#mosaico", about: "Main coordination" }], interactions: [],
+    } }
+    if (frame.method === "channel_list") {
+      return { ok: { sections: [{ channels: [
+          { path: "#mosaico", about: "Main coordination", children: [] },
+          { path: "#pi", about: "Pi workspace", children: [
+            { path: "#pi/tools", about: "Pi integration", children: [] },
+          ] },
+        ] }] } }
+    }
+    if (frame.method === "channel_join") {
+      return { ok: { channel: frame.params.channel } }
+    }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
+  })
+  const pi = await install()
+  const notifications = []
+  try {
+    await pi.commands.get("mosaico").handler("join", {
+      ...context,
+      ui: {
+        notify: (message, level) => notifications.push({ message, level }),
+        select: async (_title, options) => {
+          assert.deepEqual(options, ["#pi — Pi workspace", "#pi/tools — Pi integration"])
+          return "#pi/tools — Pi integration"
+        },
+      },
+    })
+    assert.deepEqual(notifications, [{ message: "Joined #pi/tools.", level: "info" }])
+    const calls = daemon.requests.filter(request => ["channel_list", "channel_join"].includes(request.method))
+    assert.deepEqual(calls.map(call => [call.method, call.params.channel, call.params.recursive]), [
+      ["channel_list", undefined, true],
+      ["channel_join", "#pi/tools", undefined],
+    ])
   } finally {
     await shutdown(pi)
     await daemon.close()

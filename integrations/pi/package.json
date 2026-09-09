@@ -16,6 +16,7 @@
   },
   "files": [
     "mosaico.ts",
+    "command.ts",
     "delivery.ts",
     "panel.ts",
     "panel-model.ts",

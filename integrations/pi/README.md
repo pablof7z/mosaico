@@ -23,6 +23,13 @@ injects it as Pi custom context, and acknowledges only after Pi accepts it.
 Ambient channel chat is supplied as normal turn awareness rather than waking an
 agent by itself.
 
+## Interactive Pi surfaces
+
+`/mosaico` shows this Pi session's agent name, public status, and exact active
+channels. `/mosaico join` opens a selector containing every known channel that
+the session has not already joined. `/mosaico join <channel>` joins that channel
+directly. Argument completion covers the `join` subcommand.
+
 In interactive Pi, the extension paints its own session-status chip into the
 footer from the `mosaico_session` snapshot: handle, workspace, public title,
 and `unhosted`/`headless` when those change delivery. The chip is hidden when
@@ -50,7 +57,9 @@ The extension registers native Pi tools for ordinary agent coordination:
 | `mosaico_channel_leave` | Leave a passively joined channel |
 | `mosaico_dispatch` | Start an agent session when no existing session owns the work |
 
-Operator and administration operations are intentionally absent.
+Operator and administration operations are intentionally absent. Agents
+coordinate through native tools; `/mosaico`, its explicit join action, the
+panel, and the status chip are human-facing surfaces.
 
 Tools do not scrape or spawn Mosaico's human CLI. Each call uses the daemon's
 versioned UDS JSON protocol with Pi's native session ID and cwd, and receives a
