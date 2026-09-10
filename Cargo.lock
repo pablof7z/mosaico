@@ -953,6 +953,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 name = "fava"
 version = "0.1.0"
 dependencies = [
+ "fava-auth",
  "fava-delivery",
  "fava-diagnostics",
  "fava-event-cache",
@@ -972,6 +973,21 @@ dependencies = [
  "fava-transport",
  "fava-write",
  "fava-write-store",
+ "nostr",
+ "thiserror 2.0.20",
+ "tokio",
+]
+
+[[package]]
+name = "fava-auth"
+version = "0.1.0"
+dependencies = [
+ "fava-relay",
+ "fava-runtime",
+ "fava-session",
+ "fava-transport",
+ "fava-wire",
+ "fava-write",
  "nostr",
  "thiserror 2.0.20",
  "tokio",
@@ -1056,6 +1072,7 @@ dependencies = [
  "fava-relay",
  "fava-routing",
  "fava-runtime",
+ "fava-session",
  "fava-state",
  "fava-subscriptions",
  "fava-transport",
@@ -1095,6 +1112,7 @@ dependencies = [
  "fava-state",
  "fava-transport",
  "fava-write",
+ "nostr",
 ]
 
 [[package]]
@@ -1141,6 +1159,7 @@ name = "fava-relay"
 version = "0.1.0"
 dependencies = [
  "nostr",
+ "serde",
 ]
 
 [[package]]
@@ -1257,8 +1276,10 @@ version = "0.1.0"
 dependencies = [
  "fava-relay",
  "fava-state",
+ "fava-wire",
  "nostr",
  "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -1268,6 +1289,7 @@ dependencies = [
  "fava-relay",
  "fava-state",
  "fava-transport",
+ "fava-wire",
  "futures-util",
  "nostr",
  "tokio",
@@ -1299,10 +1321,10 @@ name = "fava-write-store"
 version = "0.1.0"
 dependencies = [
  "fava-query",
- "fava-relay",
  "fava-routing",
  "fava-state",
  "fava-write",
+ "nostr",
  "thiserror 2.0.20",
  "tokio",
 ]

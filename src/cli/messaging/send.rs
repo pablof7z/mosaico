@@ -39,7 +39,7 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         return super::wait::wait_for_reply(&v, timeout_secs, session).await;
     }
     let event_id = v["event_id"].as_str().unwrap_or("?");
-    let labels = v["mentioned_labels"]
+    let labels = v["mentioned"]
         .as_array()
         .into_iter()
         .flatten()

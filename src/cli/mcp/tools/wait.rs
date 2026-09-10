@@ -44,8 +44,7 @@ fn reply_params(send: &Value, event_id: &str, timeout_seconds: u64, args: &Value
         json!({
             "timeout_secs": timeout_seconds,
             "reply_to": event_id,
-            "from_pubkeys": string_array(send, "mentioned_pubkeys"),
-            "from_labels": string_array(send, "mentioned_labels"),
+            "from_labels": string_array(send, "mentioned"),
         }),
         args,
     )

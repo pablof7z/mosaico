@@ -45,8 +45,7 @@ pub(super) async fn wait_for_reply(
     let params = crate::cli::rpc_params(serde_json::json!({
         "timeout_secs": timeout_secs,
         "reply_to": event_id,
-        "from_pubkeys": send_result["mentioned_pubkeys"],
-        "from_labels": send_result["mentioned_labels"],
+        "from_labels": send_result["mentioned"],
         "session": session,
     }));
     let result = daemon_call_async("channel_wait", params).await?;

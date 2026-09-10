@@ -73,7 +73,7 @@ params: {"message": "see [report]",
          "tags": ["agent"], "force": false,
          "channel": "#root/child"|null, "wait_intent": false}
 result: {"event_id": "hex", "channel": "#root/child",
-         "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
+         "mentioned": ["agent"],
          "recipient_reminders": [], "coaching": []}
 ```
 
@@ -136,7 +136,7 @@ Timeout is a successful RPC outcome.
 params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
 result: {"event_id": "hex", "reply_to": "hex",
-         "channel": "#root/child", "mentioned_pubkey": "hex",
+         "channel": "#root/child", "mentioned": ["slug@host"],
          "recipient_reminders": [], "coaching": []}
 ```
 

@@ -142,10 +142,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .iter()
         .map(|target| target.pubkey.clone())
         .collect::<Vec<_>>();
-    let mentioned_labels = tagged
-        .iter()
-        .map(|target| target.label.clone())
-        .collect::<Vec<_>>();
+    let mentioned: Vec<String> = tagged.iter().map(|target| target.label.clone()).collect();
     let recipient_reminders =
         state.with_store(|store| recipient_notice::suspension_reminders(store, &tagged))?;
     let publish_scope = chat_publish_scope(
@@ -247,8 +244,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     Ok(serde_json::json!({
         "event_id": event_id,
         "channel": channel_ref,
-        "mentioned_pubkeys": mentioned_pubkeys,
-        "mentioned_labels": mentioned_labels,
+        "mentioned": mentioned,
         "recipient_reminders": recipient_reminders,
         "coaching": coaching,
     }))

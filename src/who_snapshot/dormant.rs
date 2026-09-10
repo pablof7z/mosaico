@@ -10,7 +10,7 @@ pub(super) fn push_stopped_rows(
     rows: &mut Vec<WhoRow>,
     other_agents: &mut BTreeMap<String, BTreeSet<String>>,
 ) -> Result<()> {
-    let live_pubkeys: HashSet<String> = rows.iter().map(|row| row.pubkey.clone()).collect();
+    let live_pubkeys: HashSet<String> = aggregation.local_sessions.iter().map(|s| s.pubkey.clone()).collect();
     for standing in &aggregation.stopped_standing {
         if live_pubkeys.contains(&standing.pubkey)
             || scope::is_archived_channel(aggregation, &standing.channel_h)
@@ -69,6 +69,5 @@ fn stopped_row(
         remote: false,
         work_root_display: work_root.clone(),
         work_root,
-        pubkey: session.pubkey.clone(),
     })
 }

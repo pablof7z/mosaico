@@ -157,7 +157,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
             .await
             .expect("untagged name-prefix chat must publish")
     });
-    assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
+    assert_eq!(ambient["mentioned"], serde_json::json!([]));
     let prefix = notice(&ambient, "untagged_agent_prefix").expect("prefix coaching");
     assert_eq!(prefix["matched_agent"], receiver_handle);
 

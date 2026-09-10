@@ -15,7 +15,7 @@ impl AuthorFilter {
         params: &WaitParams,
     ) -> Result<Self> {
         let mut filter = Self {
-            pubkeys: params.from_pubkeys.iter().cloned().collect(),
+            pubkeys: HashSet::new(),
             labels: params
                 .from_labels
                 .iter()

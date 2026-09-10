@@ -155,8 +155,7 @@ async fn send(
             .as_str()
             .context("send returned no event id")?,
     );
-    insert(&mut wait, "from_pubkeys", sent["mentioned_pubkeys"].clone());
-    insert(&mut wait, "from_labels", sent["mentioned_labels"].clone());
+    insert(&mut wait, "from_labels", sent["mentioned"].clone());
     Ok(
         json!({"send": sent, "wait": super::channel_wait::rpc_channel_wait(state, &Value::Object(wait)).await?}),
     )
