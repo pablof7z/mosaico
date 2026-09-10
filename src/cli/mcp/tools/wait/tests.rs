@@ -45,7 +45,7 @@ fn ambient_params_preserve_filters_and_session() {
 }
 
 #[test]
-fn reply_params_set_timeout_and_reply_to() {
+fn reply_params_contain_reply_to_and_timeout() {
     let params = reply_params("sent-event", 120, &json!({ "session": "actor" }));
     assert_eq!(params["timeout_secs"], 120);
     assert_eq!(params["reply_to"], "sent-event");

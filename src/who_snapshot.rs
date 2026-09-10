@@ -82,9 +82,6 @@ pub(crate) struct WhoRow {
     /// Human display label for `work_root`.
     #[serde(default)]
     pub(crate) work_root_display: String,
-    /// Hex pubkey others route to: per-session when derived, else durable agent.
-    #[serde(default)]
-    pub(crate) pubkey: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

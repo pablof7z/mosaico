@@ -10,6 +10,7 @@ mod notice;
 mod params;
 mod react;
 mod recipient;
+mod recipient_notice;
 mod reply;
 mod self_target;
 #[cfg(test)]
@@ -233,6 +234,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         p.wait_intent,
         now_secs(),
     ));
+    notices.extend(
+        state.with_store(|store| recipient_notice::suspension_notices(store, &tagged))?,
+    );
     let mut result = serde_json::json!({"id": crate::util::short_id(&event_id)});
     if !notices.is_empty() {
         result["notices"] = serde_json::json!(notices);

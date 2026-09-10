@@ -79,13 +79,16 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             .with_store(|store| store.set_message_attachment_dir(&published.event_id, directory)),
         None => Ok(false),
     });
-    let notices = super::unhosted_notice::notices(
+    let mut notices = super::unhosted_notice::notices(
         state,
         &rec,
         &original.channel_h,
         std::slice::from_ref(&original.author_pubkey),
         false,
         now_secs(),
+    );
+    notices.extend(
+        state.with_store(|store| super::recipient_notice::reply_suspension_notices(store, &original))?,
     );
     let mut result = serde_json::json!({"id": crate::util::short_id(&published.event_id)});
     if !notices.is_empty() {

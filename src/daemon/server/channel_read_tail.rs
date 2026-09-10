@@ -242,7 +242,6 @@ pub(in crate::daemon::server) fn chat_log_row_to_json(
     };
     serde_json::json!({
         "id": crate::util::short_id(&row.message_id),
-        "from_pubkey": &row.author_pubkey,
         "from_slug": from_slug,
         "host": host,
         "channel": &row.channel_h,

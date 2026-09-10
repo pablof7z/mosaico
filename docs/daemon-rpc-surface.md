@@ -31,7 +31,7 @@ result: {
     "slug": "…", "channel": "…", "status": "…", "activity": "…",
     "dormant": bool, "host": "…", "age_secs": u64|null,
     "rel_cwd": "…", "remote": bool,
-    "work_root": "…", "work_root_display": "…", "pubkey": "hex"
+    "work_root": "…", "work_root_display": "…"
   }, …],
   "other_roots": [{"root": "…", "agent_count": N,
                     "agents": ["…", …], "about": "…"|null}, …],

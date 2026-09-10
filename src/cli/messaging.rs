@@ -73,12 +73,12 @@ pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
 }
 
 fn render_channel_read_row(item: &serde_json::Value, use_color: bool) -> String {
-    let pubkey = item["from_pubkey"].as_str().unwrap_or_default();
+    let from_ref = item["from_ref"].as_str().unwrap_or_default();
     let slug = item["from_slug"]
         .as_str()
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| pubkey_short(pubkey));
+        .unwrap_or_else(|| from_ref.to_string());
     let host = item["host"].as_str().filter(|s| !s.is_empty());
     let sender = match host {
         Some(host) => format!("<{slug}@{host}>"),
@@ -86,7 +86,7 @@ fn render_channel_read_row(item: &serde_json::Value, use_color: bool) -> String 
         // render bare rather than a misleading `<name@?>`.
         None => format!("<@{slug}>"),
     };
-    let sender = color_by_pubkey(&sender, pubkey, use_color);
+    let sender = color_by_pubkey(&sender, from_ref, use_color);
     let body = item["body"].as_str().unwrap_or_default().trim_end();
     let ts = item["created_at"].as_u64().unwrap_or(0);
     let mut text = format!("{sender} {body}");

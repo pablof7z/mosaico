@@ -23,8 +23,6 @@ pub(super) struct WaitParams {
     #[serde(default)]
     reply_to: Option<String>,
     #[serde(default)]
-    from_pubkeys: Vec<String>,
-    #[serde(default)]
     from_labels: Vec<String>,
 }
 
@@ -39,7 +37,7 @@ pub(super) async fn rpc_channel_wait(
         anyhow::bail!("wait duration must be at least 1 second");
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(p.timeout_secs);
-    if p.from.is_some() && (!p.from_pubkeys.is_empty() || !p.from_labels.is_empty()) {
+    if p.from.is_some() && !p.from_labels.is_empty() {
         anyhow::bail!("channel_wait author filters are mutually exclusive");
     }
 

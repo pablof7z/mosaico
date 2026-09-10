@@ -27,7 +27,6 @@ pub(super) fn local_row(
         remote: false,
         work_root_display: work_root.clone(),
         work_root,
-        pubkey: instance.pubkey,
     })
 }
 
@@ -69,7 +68,6 @@ pub(super) fn peer_row(
         rel_cwd: String::new(),
         work_root_display: work_root.clone(),
         work_root,
-        pubkey: st.pubkey.clone(),
     })
 }
 

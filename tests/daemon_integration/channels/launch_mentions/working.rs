@@ -132,10 +132,6 @@ fn operator_kind9_injects_into_working_launch_session() {
     );
     let observed = observed.expect("observed operator chat");
     assert_eq!(observed["body"].as_str(), Some(body.as_str()));
-    assert_eq!(
-        observed["from_pubkey"].as_str(),
-        Some(pubkey_of(EXAMPLE_USER_NSEC).as_str())
-    );
     let read_params = serde_json::json!({
         "session": &rec.pubkey,
         "channel": format!("#{channel}"),
@@ -144,7 +140,7 @@ fn operator_kind9_injects_into_working_launch_session() {
     let messages = read_channel_messages(read_params.clone()).expect("public channel read");
     let agent_messages_before = messages
         .iter()
-        .filter(|event| event["from_pubkey"].as_str() == Some(rec.pubkey.as_str()))
+        .filter(|event| event["from_slug"].as_str() == Some(agent))
         .count();
 
     let legacy_transcript = home.dir.path().join("legacy-transcript.jsonl");
@@ -176,7 +172,7 @@ fn operator_kind9_injects_into_working_launch_session() {
         )
         .map(|messages| messages
             .iter()
-            .filter(|event| event["from_pubkey"].as_str() == Some(rec.pubkey.as_str()))
+            .filter(|event| event["from_slug"].as_str() == Some(agent))
             .count()
             > agent_messages_before)
         .unwrap_or(false)),

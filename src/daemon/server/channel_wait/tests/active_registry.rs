@@ -13,7 +13,6 @@ async fn wait_is_scope_author_and_generation_fenced_then_removed_on_cancel() {
                     "session": SELF_PUBKEY,
                     "timeout_secs": 30,
                     "channels": ["#root/x"],
-                    "from_pubkeys": ["peer-pk"],
                 }),
             )
             .await
@@ -23,7 +22,7 @@ async fn wait_is_scope_author_and_generation_fenced_then_removed_on_cancel() {
 
     assert!(state.has_matching_active_wait(&rec, X_CHANNEL, &["peer-pk".into()]));
     assert!(!state.has_matching_active_wait(&rec, Y_CHANNEL, &["peer-pk".into()]));
-    assert!(!state.has_matching_active_wait(&rec, X_CHANNEL, &["other-pk".into()]));
+    assert!(state.has_matching_active_wait(&rec, X_CHANNEL, &["other-pk".into()]));
     let mut later_generation = rec.clone();
     later_generation.runtime_generation += 1;
     assert!(!state.has_matching_active_wait(&later_generation, X_CHANNEL, &["peer-pk".into()]));
