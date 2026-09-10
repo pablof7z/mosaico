@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
-import { execute, readChannel } from "./protocol.ts"
+import { execute } from "./protocol.ts"
 
 type Schema = Parameters<ExtensionAPI["registerTool"]>[0]["parameters"]
 
@@ -171,9 +171,7 @@ export function registerMosaicoTools(pi: ExtensionAPI) {
         "Reply for substantive context; react for a bare acknowledgement.",
       ],
       execute: async (_id, params, signal, _update, ctx) =>
-        tool.name === "mosaico_channel_read"
-          ? readChannel(params as Record<string, unknown>, signal, ctx)
-          : execute(tool.name, params as Record<string, unknown>, signal, ctx),
+        execute(tool.name, params as Record<string, unknown>, signal, ctx),
     })
   }
 }

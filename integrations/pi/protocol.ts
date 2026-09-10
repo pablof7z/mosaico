@@ -1,9 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { daemonCall, daemonStream, mosaicoHome, type Params } from "./daemon.ts"
+import { daemonCall, mosaicoHome, type Params } from "./daemon.ts"
 import { basename, join } from "node:path"
 import { homedir } from "node:os"
 
-export { DaemonConnection, daemonCall, daemonStream, mosaicoHome, type Params } from "./daemon.ts"
+export { DaemonConnection, daemonCall, mosaicoHome, type Params } from "./daemon.ts"
 
 export type Details = Record<string, unknown> | null
 
@@ -56,29 +56,6 @@ export async function execute(
   }
 }
 
-export async function readChannel(
-  params: Params,
-  signal: AbortSignal | undefined,
-  ctx: ExtensionContext,
-): Promise<ProtocolResult> {
-  try {
-    const messages = await daemonStream("channel_read", {
-      ...caller(ctx),
-      id: stringOrUndefined(params.id),
-      channel: stringOrUndefined(params.channel),
-      since: params.since,
-      limit: numberOrUndefined(params.limit),
-      offset: 0,
-      tail: true,
-      live: false,
-    }, signal)
-    const details = { messages }
-    return { content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details, isError: false }
-  } catch (error) {
-    return protocolError(`Mosaico mosaico_channel_read failed: ${message(error)}`)
-  }
-}
-
 export function protocolError(message: string): ProtocolResult {
   return { content: [{ type: "text", text: message }], details: { error: message }, isError: true }
 }
@@ -89,14 +66,6 @@ function parseResult(tool: string, value: unknown): ProtocolResult {
     return protocolError(`Mosaico ${tool} returned an invalid daemon result.`)
   }
   return { content: result.content, details: result.details ?? null, isError: result.is_error }
-}
-
-function stringOrUndefined(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value : undefined
-}
-
-function numberOrUndefined(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
 function message(error: unknown): string {

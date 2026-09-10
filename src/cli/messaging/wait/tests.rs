@@ -54,7 +54,7 @@ fn wait_has_no_json_mode() {
 
 #[test]
 fn agent_native_wait_renderers_use_one_mosaico_envelope() {
-    let message = render_wait_message(
+    let message = crate::channel_render::render_wait_message(
         &serde_json::json!({
             "channel": "#root/x",
             "from_ref": "agent5",
@@ -104,7 +104,7 @@ fn direct_delivery_omits_for_while_wait_keeps_recipients() {
         true,
     )
     .unwrap();
-    let waited = render_wait_message(
+    let waited = crate::channel_render::render_wait_message(
         &serde_json::json!({
             "channel": "#x",
             "from_ref": "pk-sende",

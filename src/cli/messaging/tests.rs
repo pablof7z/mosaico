@@ -1,4 +1,5 @@
 use super::*;
+use crate::channel_render::render_channel_read_row;
 
 #[test]
 fn command_line_message_arguments_expand_literal_newlines() {

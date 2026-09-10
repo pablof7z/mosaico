@@ -89,7 +89,6 @@ fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
         "watch_pid",
         "MOSAICO_OBSERVED_HARNESS",
         "pi_tool_call",
-        "channel_read",
         "isHostedPi",
     ] {
         assert!(
@@ -105,8 +104,8 @@ fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
         "mosaico_reply",
         "mosaico_channel_create",
         "mosaico_dispatch",
+        "mosaico_channel_read",
         "execute",
-        "readChannel",
     ] {
         assert!(
             tools.contains(contract),

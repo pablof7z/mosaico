@@ -249,11 +249,11 @@ test("/mosaico join selects and joins a known channel through the native protoco
   }
 })
 
-test("channel reads use a daemon stream, including duration timestamps", async () => {
+test("channel reads route through pi_tool_call and return plain text rows", async () => {
   const daemon = await daemonFixture(frame => {
-    if (frame.method === "channel_read") return [
-      { item: { id: "one", body: "hello" } }, { end: true },
-    ]
+    if (frame.method === "pi_tool_call" && frame.params.tool === "mosaico_channel_read") return { ok: {
+      content: [{ type: "text", text: "<@sender> hello [1m ago]" }], is_error: false,
+    } }
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
   const pi = await install()
@@ -262,11 +262,14 @@ test("channel reads use a daemon stream, including duration timestamps", async (
       "id", { channel: "#work", since: "2h", limit: 3 }, undefined, undefined, context,
     )
     assert.equal(result.isError, false)
-    assert.deepEqual(result.details, { messages: [{ id: "one", body: "hello" }] })
-    const call = daemon.requests.find(request => request.method === "channel_read")
-    assert.equal(call.params.since, "2h")
-    assert.equal(call.params.tail, true)
-    assert.equal(call.params.live, false)
+    assert.equal(result.details, null)
+    const call = daemon.requests.find(
+      request => request.method === "pi_tool_call" && request.params.tool === "mosaico_channel_read"
+    )
+    assert.ok(call)
+    assert.equal(call.params.arguments.channel, "#work")
+    assert.equal(call.params.arguments.since, "2h")
+    assert.equal(call.params.arguments.limit, 3)
   } finally {
     await shutdown(pi)
     await daemon.close()
