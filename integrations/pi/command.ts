@@ -1,9 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { toggleDebug } from "./display.ts"
 import { caller, daemonCall } from "./protocol.ts"
 
-const COMMANDS = ["join"] as const
+const COMMANDS = ["debug", "join"] as const
 const USAGE = [
   "/mosaico — inspect this Pi session and the Mosaico fabric",
+  "/mosaico debug — toggle injected context rendering in the transcript",
   "/mosaico join — choose a known channel to join",
   "/mosaico join <channel> — join a known channel",
 ].join("\n")
@@ -46,6 +48,11 @@ export function registerMosaicoCommand(
       try {
         if (!input) {
           ctx.ui.notify(renderOverview(await dependencies.readSnapshot(ctx)), "info")
+          return
+        }
+        if (input === "debug") {
+          const on = toggleDebug()
+          ctx.ui.notify(`Mosaico debug ${on ? "on" : "off"} — injected context will ${on ? "appear" : "not appear"} in the transcript.`, "info")
           return
         }
         const match = /^join(?:\s+(\S+))?$/.exec(input)

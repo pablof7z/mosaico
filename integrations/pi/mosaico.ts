@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { registerMosaicoCommand } from "./command.ts"
 import { DeliveryPump } from "./delivery.ts"
+import { isDebugEnabled } from "./display.ts"
 import { installMosaicoPanel } from "./panel.ts"
 import { caller, daemonCall, isHostedPi } from "./protocol.ts"
 import { clearSessionStatus, paintSessionStatus } from "./status.ts"
@@ -55,8 +56,10 @@ export default async function mosaico(pi: ExtensionAPI) {
     const warning = boundaryWarnings.get(event.toolCallId)
     boundaryWarnings.delete(event.toolCallId)
     const context = await turnContext("turn_check", ctx)
-    const addition = [warning, context].filter(Boolean).join("\n\n")
-    return addition ? { content: [{ type: "text", text: addition }, ...event.content] } : undefined
+    if (context) {
+      pi.sendMessage({ customType: "mosaico.context", content: context, display: isDebugEnabled() })
+    }
+    return warning ? { content: [{ type: "text", text: warning }, ...event.content] } : undefined
   })
 
   pi.on("message_start", event => pump?.onMessageStart(event))
@@ -118,7 +121,7 @@ function contextFrom(result: unknown): string {
 }
 
 function customContext(content: string) {
-  return { message: { customType: "mosaico.context", content, display: false } }
+  return { message: { customType: "mosaico.context", content, display: isDebugEnabled() } }
 }
 
 function fabricUnavailable(): string {

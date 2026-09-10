@@ -171,7 +171,6 @@ async fn lease_delivery(
         "message": {
             "custom_type": "mosaico.delivery",
             "content": prompt.text,
-            "display": false,
             "details": { "event_ids": prompt.chat_ids },
         },
     })))
