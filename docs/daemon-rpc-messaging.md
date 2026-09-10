@@ -14,7 +14,7 @@ zero or multiple joined channels must name the destination.
 params: {"id": "event-id"|null, "channel": "#root/child"|null,
          "since": u64|"2h"|null, "limit": u64|null, "offset": u64,
          "tail": bool, "live": bool}
-stream: {"item": {"event_id": "hex", "from_slug": "agent",
+stream: {"item": {"id": "6-char", "from_slug": "agent",
                   "channel": "#root/child", "body": "…",
                   "truncated": false, "created_at": 123}}
 ```
@@ -38,7 +38,7 @@ result: {
   "channels": [{
     "ref": "#root/child",
     "messages": [{
-      "event_id": "hex", "from": "public-ref",
+      "id": "6-char", "from": "public-ref",
       "recipients": ["public-ref", …], "body": "…", "created_at": 123
     }, …]
   }, …],
@@ -72,9 +72,7 @@ params: {"message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
          "tags": ["agent"], "force": false,
          "channel": "#root/child"|null, "wait_intent": false}
-result: {"event_id": "hex", "channel": "#root/child",
-         "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
-         "notices": [/* omitted when empty */]}
+result: {"id": "6-char", "notices": [{"level": "warn", "code": "…", "summary": "…"}]}
 ```
 
 Publishes a kind:9 event signed by the caller's session key and succeeds only
@@ -105,10 +103,10 @@ all attachment tags, URLs, and metadata.
 
 ```jsonc
 params: {"timeout_secs": 60, "channels": ["#root/child"],
-         "from": "human-or-agent"|null, "reply_to": "event-id"|null}
+         "from": "human-or-agent"|null, "reply_to": "6-char"|null}
 result: {"outcome": "message", "waited_secs": 4,
          "channels": ["#root/child"],
-         "message": {"event_id": "hex", "channel": "#root/child", "body": "…"}}
+         "message": {"id": "6-char", "channel": "#root/child", "body": "…"}}
       | {"outcome": "timeout", "timeout_secs": 60,
          "channels": ["#root/child"]}
 ```
@@ -135,9 +133,7 @@ Timeout is a successful RPC outcome.
 ```jsonc
 params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
-result: {"event_id": "hex", "reply_to": "hex",
-         "channel": "#root/child", "mentioned_pubkey": "hex",
-         "notices": [/* omitted when empty */]}
+result: {"id": "6-char", "notices": [{"level": "warn", "code": "…", "summary": "…"}]}
 ```
 
 Publishes a threaded NIP-10 reply in the original message's channel and targets

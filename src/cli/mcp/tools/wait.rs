@@ -16,12 +16,10 @@ pub(super) async fn for_reply(
     args: &Value,
     identity: &Value,
 ) -> Result<Value> {
-    let event_id = send["event_id"]
-        .as_str()
-        .context("channel send returned no event id")?;
+    let event_id = send["id"].as_str().context("channel send returned no id")?;
     daemon_identity(
         "channel_wait",
-        reply_params(send, event_id, timeout_seconds, args),
+        reply_params(event_id, timeout_seconds, args),
         identity,
     )
     .await
@@ -39,13 +37,11 @@ fn ambient_params(args: &Value) -> Result<Value> {
     ))
 }
 
-fn reply_params(send: &Value, event_id: &str, timeout_seconds: u64, args: &Value) -> Value {
+fn reply_params(event_id: &str, timeout_seconds: u64, args: &Value) -> Value {
     with_session(
         json!({
             "timeout_secs": timeout_seconds,
             "reply_to": event_id,
-            "from_pubkeys": string_array(send, "mentioned_pubkeys"),
-            "from_labels": string_array(send, "mentioned_labels"),
         }),
         args,
     )

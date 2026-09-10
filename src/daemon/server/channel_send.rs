@@ -10,7 +10,6 @@ mod notice;
 mod params;
 mod react;
 mod recipient;
-mod recipient_notice;
 mod reply;
 mod self_target;
 #[cfg(test)]
@@ -142,17 +141,13 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .iter()
         .map(|target| target.pubkey.clone())
         .collect::<Vec<_>>();
-    let mentioned_labels = tagged
-        .iter()
-        .map(|target| target.label.clone())
-        .collect::<Vec<_>>();
-    let suspension_notices =
-        state.with_store(|store| recipient_notice::suspension_notices(store, &tagged))?;
     let publish_scope = chat_publish_scope(
         &destination,
         pinned_destination.as_deref(),
         tagged.first().map(|target| target.channel.as_str()),
     );
+    let channel_ref = state
+        .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
     let ambient_prefix_notice = if p.tags.is_empty() && !p.force {
         let backend_pubkey = state.backend_pubkey();
         match state.with_store(|store| {
@@ -160,6 +155,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 store,
                 &p.message,
                 &publish_scope,
+                channel_ref.clone(),
                 &rec.pubkey,
                 &backend_pubkey,
             )
@@ -219,8 +215,6 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         None => Ok(false),
     });
 
-    let channel_ref = state
-        .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
     let mut notices = Vec::new();
     if let Some(label) = formatted.stripped_label {
         notices.push(notice::redundant_prefix(label));
@@ -239,13 +233,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         p.wait_intent,
         now_secs(),
     ));
-    notices.extend(suspension_notices);
-    let mut result = serde_json::json!({
-        "event_id": event_id,
-        "channel": channel_ref,
-        "mentioned_pubkeys": mentioned_pubkeys,
-        "mentioned_labels": mentioned_labels,
-    });
+    let mut result = serde_json::json!({"id": crate::util::short_id(&event_id)});
     if !notices.is_empty() {
         result["notices"] = serde_json::json!(notices);
     }

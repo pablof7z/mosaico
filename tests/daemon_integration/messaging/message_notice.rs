@@ -94,7 +94,7 @@ fn send_publishes_then_returns_structured_message_notices() {
         receiver_handle
     );
     assert!(notice(&redundant, "unhosted_no_return_path").is_some());
-    let event_id = redundant["event_id"].as_str().unwrap();
+    let event_id = redundant["id"].as_str().unwrap();
     assert!(
         wait_until(Duration::from_secs(10), || super::observed_message(
             event_id
@@ -135,7 +135,7 @@ fn send_publishes_then_returns_structured_message_notices() {
             .await
             .expect("ACK-like chat must still publish")
     });
-    assert!(ack["event_id"].as_str().is_some());
+    assert!(ack["id"].as_str().is_some());
     let ack_notice = notice(&ack, "ack_like_chat").expect("ACK notice");
     assert!(ack_notice["summary"]
         .as_str()
@@ -157,7 +157,6 @@ fn send_publishes_then_returns_structured_message_notices() {
             .await
             .expect("untagged name-prefix chat must publish")
     });
-    assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
     let prefix = notice(&ambient, "untagged_agent_prefix").expect("prefix notice");
     assert_eq!(prefix["matched_agent"], receiver_handle);
 

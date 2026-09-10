@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn renderer_preserves_summaries_and_builds_an_explicit_correction_command() {
     let result = serde_json::json!({
-        "event_id": "abcdef1234567890",
-        "channel": "#mosaico/reviews",
+        "id": "abcdef",
         "notices": [{
             "level": "warn",
             "code": "untagged_agent_prefix",
             "summary": "WARN: published ambient chat",
-            "matched_agent": "drift-codex"
+            "matched_agent": "drift-codex",
+            "channel": "#mosaico/reviews"
         }]
     });
 
@@ -27,8 +27,7 @@ fn renderer_preserves_summaries_and_builds_an_explicit_correction_command() {
 #[test]
 fn ambiguous_advisory_never_offers_a_guessed_command() {
     let result = serde_json::json!({
-        "event_id": "abcdef1234567890",
-        "channel": "#mosaico",
+        "id": "abcdef",
         "notices": [{
             "level": "warn",
             "code": "untagged_agent_prefix_ambiguous",

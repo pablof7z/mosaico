@@ -31,16 +31,15 @@ fn send_notice_lines(result: &serde_json::Value) -> Result<Vec<String>> {
         else {
             continue;
         };
-        let channel = result
+        let channel = notice
             .get("channel")
             .and_then(serde_json::Value::as_str)
-            .context("daemon response missing channel for notice command")?;
-        let event_id = result
-            .get("event_id")
+            .context("daemon returned untagged_agent_prefix notice without channel")?;
+        let id = result
+            .get("id")
             .and_then(serde_json::Value::as_str)
-            .context("daemon response missing event_id for notice command")?;
-        let short_id = crate::util::short_id(event_id);
-        let message = format!("That message, {short_id}, was for you; I forgot to tag you.");
+            .context("daemon response missing id for notice command")?;
+        let message = format!("That message, {id}, was for you; I forgot to tag you.");
         lines.push(format!(
             "To tag that agent now, run: `mosaico channel send --channel {} --tag {} --message {}`",
             shell_quote(channel),

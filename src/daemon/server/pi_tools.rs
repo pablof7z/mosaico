@@ -151,15 +151,14 @@ async fn send(
     insert(
         &mut wait,
         "reply_to",
-        sent["event_id"]
-            .as_str()
-            .context("send returned no event id")?,
+        sent["id"].as_str().context("send returned no id")?,
     );
-    insert(&mut wait, "from_pubkeys", sent["mentioned_pubkeys"].clone());
-    insert(&mut wait, "from_labels", sent["mentioned_labels"].clone());
-    Ok(
-        json!({"send": sent, "wait": super::channel_wait::rpc_channel_wait(state, &Value::Object(wait)).await?}),
-    )
+    let wait_result = super::channel_wait::rpc_channel_wait(state, &Value::Object(wait)).await?;
+    let mut result = json!({"id": sent["id"], "wait": wait_result});
+    if let Some(notices) = sent.get("notices") {
+        result["notices"] = notices.clone();
+    }
+    Ok(result)
 }
 
 async fn reply(
