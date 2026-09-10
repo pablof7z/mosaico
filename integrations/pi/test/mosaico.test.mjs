@@ -153,14 +153,14 @@ test("exposes agent-facing Mosaico tools and keeps calls structured", async () =
       "mosaico_channel_create", "mosaico_channel_join", "mosaico_channel_leave", "mosaico_dispatch",
     ])
     const result = await pi.tools.get("mosaico_reply").execute(
-      "id", { message_id: "event", message: "done" }, undefined, undefined, context,
+      "id", { id: "abc123", message: "done" }, undefined, undefined, context,
     )
     assert.equal(result.isError, false)
     const call = daemon.requests.find(request => request.method === "pi_tool_call")
     assert.deepEqual(call.params, {
       harness: "pi", harness_session: "pi-native-session", cwd: "/workspace",
       watch_pid: process.pid, agent: "pi",
-      tool: "mosaico_reply", arguments: { message_id: "event", message: "done" },
+      tool: "mosaico_reply", arguments: { id: "abc123", message: "done" },
     })
   } finally {
     await shutdown(pi)
@@ -319,7 +319,7 @@ test("daemon failures and aborted requests become explicit Pi tool errors", asyn
   try {
     const controller = new AbortController()
     const result = pi.tools.get("mosaico_wait").execute(
-      "id", { timeout_seconds: 1 }, controller.signal, undefined, context,
+      "id", { seconds: 1 }, controller.signal, undefined, context,
     )
     await eventually(() => assert.ok(daemon.requests.some(request => request.method === "pi_tool_call")))
     controller.abort()

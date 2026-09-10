@@ -24,7 +24,7 @@ mosaico channel send --channel <channel> --tag <agent-ref> \
   --wait 600 --message "..."
 ```
 
-Through MCP, set `wait_seconds` on `mosaico.channel_send`. These forms wait only
+Through MCP, set `seconds` on `mosaico.channel_send`. These forms wait only
 for a reply correlated to the accepted message and expected sender.
 
 An already-running ambient wait can also keep the current invocation open when

@@ -60,7 +60,7 @@ pub(in crate::cli) enum ChannelAction {
     Add(AddArgs),
     /// Read channel chat history.
     Read {
-        /// Read one exact message by event id; returns the full untruncated body.
+        /// Read one exact message by id; returns the full untruncated body.
         #[arg(long = "id")]
         id: Option<String>,
         /// Only show messages after this time (unix timestamp or duration like "1h").
@@ -133,7 +133,7 @@ pub(in crate::cli) enum ChannelAction {
     },
     /// Reply to a specific channel message by short id.
     Reply {
-        /// Short or full message/event id from a mention envelope.
+        /// 6-character message id.
         id: String,
         /// Reply body. Positional or --message text expands literal `\n`;
         /// piped stdin is used verbatim.
@@ -159,7 +159,7 @@ pub(in crate::cli) enum ChannelAction {
     /// surfaces as compact awareness at their next turn start. Use it for a bare
     /// acknowledgement ("got it", 👍, ✅) instead of sending a chat line.
     React {
-        /// Short or full message/event id from a mention envelope.
+        /// 6-character message id.
         id: String,
         /// The reaction emoji (e.g. 👍 ✅ 👀 🎉) or `+`/`-`.
         #[arg(value_name = "EMOJI")]
