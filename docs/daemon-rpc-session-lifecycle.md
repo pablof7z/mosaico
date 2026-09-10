@@ -60,7 +60,7 @@ params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",
 result: {"kind":"timeout"}
      | {"kind":"delivery", "lease_id":"pi-<generation>-<nonce>",
         "message":{"custom_type":"mosaico.delivery", "content":"<mosaico>…",
-                   "display":false, "details":{"event_ids":["…"]}}}
+                   "details":{"event_ids":["…"]}}}
 
 session_delivery_ack
 params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",

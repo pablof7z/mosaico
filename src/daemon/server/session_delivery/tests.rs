@@ -88,7 +88,6 @@ async fn lease_then_matching_ack_is_the_only_path_to_injected() {
 
     assert_eq!(response["kind"], "delivery");
     assert_eq!(response["message"]["custom_type"], "mosaico.delivery");
-    assert_eq!(response["message"]["display"], false);
     assert!(response["message"]["content"]
         .as_str()
         .unwrap()

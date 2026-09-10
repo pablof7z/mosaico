@@ -35,7 +35,10 @@ slug from `MOSAICO_AGENT`.
 `/mosaico` shows this Pi session's agent name, public status, and exact active
 channels. `/mosaico join` opens a selector containing every known channel that
 the session has not already joined. `/mosaico join <channel>` joins that channel
-directly. Argument completion covers the `join` subcommand.
+directly. `/mosaico debug` toggles whether injected Mosaico context messages are
+rendered in the Pi transcript; default is off. Live deliveries (directed inbox
+messages) are always shown regardless of debug mode. The toggle is in-memory
+only — it resets when Pi restarts. Argument completion covers `debug` and `join`.
 
 In interactive Pi, the extension paints its own session-status chip into the
 footer from the `mosaico_session` snapshot: handle, workspace, public title,

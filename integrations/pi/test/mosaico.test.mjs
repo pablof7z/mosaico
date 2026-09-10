@@ -283,7 +283,7 @@ test("a direct delivery becomes one custom Pi message and is acknowledged after 
     waits += 1
     if (waits === 1) return { ok: {
       kind: "delivery", lease_id: "lease-1",
-      message: { custom_type: "mosaico.delivery", content: "direct message", display: false, details: { event_ids: ["event-1"] } },
+      message: { custom_type: "mosaico.delivery", content: "direct message", details: { event_ids: ["event-1"] } },
     } }
     return new Promise(() => {})
   })
@@ -294,7 +294,7 @@ test("a direct delivery becomes one custom Pi message and is acknowledged after 
     await eventually(() => assert.ok(daemon.requests.some(request => request.method === "session_delivery_ack")))
     assert.deepEqual(pi.sent[0], {
       message: {
-        customType: "mosaico.delivery", content: "direct message", display: false,
+        customType: "mosaico.delivery", content: "direct message", display: true,
         details: { event_ids: ["event-1"], lease_id: "lease-1" },
       },
       options: { triggerTurn: true, deliverAs: "steer" },
@@ -302,6 +302,94 @@ test("a direct delivery becomes one custom Pi message and is acknowledged after 
     const ack = daemon.requests.find(request => request.method === "session_delivery_ack")
     assert.equal(ack.params.lease_id, "lease-1")
     assert.equal(ack.params.accepted, true)
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("tool_result turn_check context is sent via sendMessage, not prepended to tool result", async () => {
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "turn_check") return { ok: { context: "<mosaico>mid-turn</mosaico>" } }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
+  })
+  const pi = await install()
+  try {
+    await pi.handlers.get("session_start")({}, context)
+    const result = await pi.handlers.get("tool_result")({
+      toolCallId: "call-1",
+      content: [{ type: "text", text: "tool output" }],
+    }, context)
+    // No boundary warning → tool result unmodified
+    assert.equal(result, undefined)
+    // Context delivered via sendMessage with display: false (debug off by default)
+    const contextMsg = pi.sent.find(s => s.message.customType === "mosaico.context")
+    assert.ok(contextMsg, "sendMessage must have been called with mosaico.context")
+    assert.equal(contextMsg.message.content, "<mosaico>mid-turn</mosaico>")
+    assert.equal(contextMsg.message.display, false)
+    assert.equal(contextMsg.options, undefined)
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("tool_result boundary warning stays in tool result even when context is sent separately", async () => {
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "cross_project_path_classify") return { ok: { decision: "warn", message: "cross-project boundary" } }
+    if (frame.method === "turn_check") return { ok: { context: "<mosaico>check</mosaico>" } }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
+  })
+  const pi = await install()
+  try {
+    await pi.handlers.get("session_start")({}, context)
+    await pi.handlers.get("tool_call")({
+      toolCallId: "call-2", toolName: "read", input: { file_path: "/other/project/file.ts" },
+    }, context)
+    const result = await pi.handlers.get("tool_result")({
+      toolCallId: "call-2",
+      content: [{ type: "text", text: "file content" }],
+    }, context)
+    // Warning prepended to tool result; original content follows
+    assert.ok(result, "tool result must be modified when a warning exists")
+    assert.equal(result.content[0].text, "cross-project boundary")
+    assert.equal(result.content[1].text, "file content")
+    // Context still sent via sendMessage
+    const contextMsg = pi.sent.find(s => s.message.customType === "mosaico.context")
+    assert.ok(contextMsg)
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("/mosaico debug toggles context display on then off", async () => {
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "turn_check") return { ok: { context: "<mosaico>check</mosaico>" } }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
+  })
+  const pi = await install()
+  const notifications = []
+  const ui = { notify: (message, level) => notifications.push({ message, level }) }
+  try {
+    await pi.handlers.get("session_start")({}, context)
+
+    // Toggle ON
+    await pi.commands.get("mosaico").handler("debug", { ...context, ui })
+    assert.match(notifications[0].message, /debug on/i)
+    assert.equal(notifications[0].level, "info")
+
+    // Context message now has display: true
+    await pi.handlers.get("tool_result")({
+      toolCallId: "call-1", content: [{ type: "text", text: "out" }],
+    }, context)
+    const onMsg = pi.sent.find(s => s.message.customType === "mosaico.context")
+    assert.ok(onMsg)
+    assert.equal(onMsg.message.display, true)
+
+    // Toggle OFF — leaves state clean for other tests
+    await pi.commands.get("mosaico").handler("debug", { ...context, ui })
+    assert.match(notifications[1].message, /debug off/i)
   } finally {
     await shutdown(pi)
     await daemon.close()

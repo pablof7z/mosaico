@@ -10,7 +10,6 @@ interface Delivery {
   message: {
     custom_type: string
     content: string
-    display: boolean
     details?: Record<string, unknown>
   }
 }
@@ -101,7 +100,7 @@ export class DeliveryPump {
       this.pi.sendMessage({
         customType: delivery.message.custom_type,
         content: delivery.message.content,
-        display: delivery.message.display,
+        display: true,
         details: { ...delivery.message.details, lease_id: delivery.lease_id },
       }, { triggerTurn: true, deliverAs: "steer" })
     })

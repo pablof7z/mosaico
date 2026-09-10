@@ -19,6 +19,7 @@
     "command.ts",
     "daemon.ts",
     "delivery.ts",
+    "display.ts",
     "panel.ts",
     "panel-model.ts",
     "panel-view.ts",
