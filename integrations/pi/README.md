@@ -34,9 +34,11 @@ In interactive Pi, the extension paints its own session-status chip into the
 footer from the `mosaico_session` snapshot: handle, workspace, public title,
 and `unhosted`/`headless` when those change delivery. The chip is hidden when
 the daemon is down. When the same profile has Pi Panels, this extension also
-declares the `mosaico` sidebar. It reads daemon availability, sessions, relay
-configuration, channels, and recent structured activity; it does not publish
-or administer Mosaico.
+declares the `mosaico` sidebar. It shows this session's kind-0 name, lifecycle
+and public working title, its exact active channels, and only agents with which
+it exchanged a directed message. It does not show global sessions, ambient
+channel membership, or relay configuration, and it does not publish or
+administer Mosaico.
 
 ## Native agent tools
 

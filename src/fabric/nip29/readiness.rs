@@ -24,7 +24,7 @@ pub struct ChannelCtx<'a> {
     /// Caller's intended display NAME, used ONLY when this readiness check has to
     /// CREATE the (sub)group — it rides on the published kind:9002 metadata so the
     /// relay's authored kind:39000 carries it. Mosaico never writes an optimistic
-    /// group row; the retained Fava observation is the authority. A root group
+    /// group row; the current NIP-29 view is the authority. A root group
     /// always names itself after its slug, so `None` is correct there.
     pub name: Option<&'a str>,
 }

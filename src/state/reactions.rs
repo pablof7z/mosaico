@@ -1,18 +1,16 @@
-//! NIP-25 reaction reads derived from the active Fava row view.
+//! NIP-25 reaction reads derived from the current Nostr runtime subscription level.
 
-use super::observed_decode::{decode_reaction, MessageProjection, ReactionProjection};
+use super::relay_decode::{decode_reaction, MessageProjection, ReactionProjection};
 use super::*;
 use crate::fabric::nip29::wire::KIND_REACTION;
 use std::collections::BTreeMap;
 
 impl Store {
-    /// All retained kind:7 reaction rows decoded from the bounded recent-rows
-    /// window.
+    /// All retained kind:7 reaction rows decoded from the current Nostr runtime level.
     fn reaction_projections(&self) -> Vec<ReactionProjection> {
-        self.observed_views
-            .recent_rows()
-            .events_by_kind(KIND_REACTION, u32::MAX)
+        self.relay_events()
             .into_iter()
+            .filter(|event| event.kind == KIND_REACTION as u32)
             .filter_map(decode_reaction)
             .collect()
     }
@@ -114,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn authored_reactions_join_only_current_fava_messages() {
+    fn authored_reactions_join_only_current_nip29_messages() {
         let store = Store::open_memory().unwrap();
         store.install_test_relay_delivery(TestRelayDelivery::new().events([
             event("mine", 9, "me", "pushed the fix", 5, "[]"),

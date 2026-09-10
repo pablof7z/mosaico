@@ -114,7 +114,7 @@ pub(crate) fn publication_with_extension(
     }
 }
 
-/// Project a current signed remote status Row. Fava has already applied NIP-40
+/// Project a current signed remote status Row. Nostr runtime has already applied NIP-40
 /// expiry; absence, rather than a second Mosaico clock, represents offline.
 pub(crate) fn remote(status: &Status) -> PublicPresence {
     PublicPresence {

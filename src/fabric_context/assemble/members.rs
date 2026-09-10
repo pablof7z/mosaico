@@ -152,7 +152,7 @@ fn addressable(members: &MembersInput, pk: &str, status: Option<&&StatusCap>) ->
     members.has_handle(pk) || status.is_some_and(|s| !s.slug.trim().is_empty())
 }
 
-/// Fava-current statuses keyed by pubkey, preserving delivery order.
+/// Nostr runtime-current statuses keyed by pubkey, preserving delivery order.
 fn status_map(statuses: &[StatusCap]) -> BTreeMap<String, &StatusCap> {
     statuses
         .iter()

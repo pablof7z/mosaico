@@ -6,7 +6,7 @@ pub(super) async fn compensate_due_admission(
 ) {
     let removal = state
         .provider()
-        .remove_member_published(&due.channel_h, &due.pubkey)
+        .remove_member_published(&due.channel_h, &due.pubkey, &state.backend_keys())
         .await;
     if !removal.is_published() {
         tracing::warn!(
@@ -125,6 +125,7 @@ async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) 
                     parent_hint: parent.as_deref(),
                     name: None,
                 },
+                &state.backend_keys(),
             ),
         )
         .await,

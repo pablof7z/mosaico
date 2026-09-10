@@ -11,9 +11,9 @@ source "${LAB_ENV}"
 tail -n 300 "${RELAY_LOG}"
 ```
 
-Mosaico no longer keeps its own log of outgoing events: Fava signs and publishes
-group writes, so the app never holds the bytes. What this daemon still owes is
-in Fava's durable publish queue.
+Mosaico keeps no durable outgoing-event log. Product code signs with the exact
+selected key, sends once through the configured relay, and reports the relay's
+acknowledgement. Failed or unconfirmed ordinary writes have no background queue.
 
 Do not run another `containers/mosaico/run --profile <live-profile>` command,
 including a bare `mosaico` invocation, `channel`, `debug explain`, or `debug

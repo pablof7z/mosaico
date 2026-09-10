@@ -3,7 +3,7 @@
 //! [`group_reactions`] then derives the rendered rows.
 //!
 //! A reaction is passive awareness only — it comes from a round-tripped kind:7
-//! delivered by Fava and is surfaced here at turn start. It never enters the
+//! delivered by Nostr runtime and is surfaced here at turn start. It never enters the
 //! mention/inbox path.
 
 use std::collections::BTreeMap;

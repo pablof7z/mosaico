@@ -20,6 +20,7 @@ pub(super) fn resolve_agent_source(
     selector: &str,
     workspace: &std::path::Path,
     intent: LaunchIntent,
+    admitted_transport: Option<&str>,
 ) -> Result<ResolvedSource> {
     let home = crate::config::mosaico_home();
     let catalog = state.agent_catalog();
@@ -89,12 +90,18 @@ pub(super) fn resolve_agent_source(
         }
     };
 
-    let transport = desired_transport(
-        selected.harness,
-        intent,
-        profile.is_some(),
-        native_profile.is_some(),
-    )?;
+    let transport = admitted_transport
+        .and_then(transport_from_str)
+        .filter(|transport| crate::harness::driver::lookup(selected.harness, *transport).is_some())
+        .map(Ok)
+        .unwrap_or_else(|| {
+            desired_transport(
+                selected.harness,
+                intent,
+                profile.is_some(),
+                native_profile.is_some(),
+            )
+        })?;
 
     finish_source(
         &home,

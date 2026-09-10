@@ -93,7 +93,7 @@ fn channel_create_uses_watch_pid_as_exact_session_anchor() {
     assert_eq!(
         observed_channel_h(&parent, "native-subtask").as_deref(),
         Some(child_h.as_str()),
-        "Fava's delivered topology should nest the child under the explicit public parent"
+        "Nostr runtime's delivered topology should nest the child under the explicit public parent"
     );
 
     stop_daemon(&home);

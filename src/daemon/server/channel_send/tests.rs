@@ -3,8 +3,8 @@ use crate::state::{
     Profile, RegisterSession, Status, Store, TestGroup, TestGroupDelivery, TestRelayDelivery,
 };
 
-#[path = "tests/attachment_coaching.rs"]
-mod attachment_coaching;
+#[path = "tests/attachment_notice.rs"]
+mod attachment_notice;
 #[path = "tests/unhosted_return_path.rs"]
 mod unhosted_return_path;
 fn register_session(store: &Store, pubkey: &str, agent_slug: &str, channel_h: &str) {

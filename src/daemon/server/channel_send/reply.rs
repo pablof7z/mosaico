@@ -43,16 +43,11 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     let reply_to = original.message_id.clone();
     let instance = state.session_instance(&rec);
     let keys = state.session_signing_keys(&rec.pubkey)?;
-    let uploaded_attachments = crate::attachment::upload_all(
-        &p.attachments,
-        &state.config().relays,
-        &state.fava(),
-        keys.public_key(),
-    )
-    .await?;
+    let uploaded_attachments =
+        crate::attachment::upload_all(&p.attachments, &[state.config().relay], &keys).await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
-    let recipient_reminders =
-        state.with_store(|store| recipient_notice::reply_suspension_reminders(store, &original))?;
+    let suspension_notices =
+        state.with_store(|store| recipient_notice::reply_suspension_notices(store, &original))?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: original.channel_h.clone(),
@@ -80,8 +75,8 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             None
         }
     };
-    // The accepted write is not routed optimistically. Its Fava Added row will
-    // drive the same observed-event path as every remote reply.
+    // The accepted write is not routed optimistically. If the relay returns it
+    // through the active demand, it drives the same inbound path as every remote reply.
     super::persist_attachment_directory(&published.event_id, || match local_directory.as_ref() {
         Some(directory) => state
             .with_store(|store| store.set_message_attachment_dir(&published.event_id, directory)),
@@ -89,7 +84,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     });
     let channel_ref = state
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
-    let coaching = super::unhosted_coaching::notices(
+    let mut notices = super::unhosted_notice::notices(
         state,
         &rec,
         &original.channel_h,
@@ -97,14 +92,17 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         false,
         now_secs(),
     );
-    Ok(serde_json::json!({
+    notices.extend(suspension_notices);
+    let mut result = serde_json::json!({
         "event_id": published.event_id,
         "reply_to": reply_to,
         "channel": channel_ref,
         "mentioned_pubkey": original.author_pubkey,
-        "recipient_reminders": recipient_reminders,
-        "coaching": coaching,
-    }))
+    });
+    if !notices.is_empty() {
+        result["notices"] = serde_json::json!(notices);
+    }
+    Ok(result)
 }
 
 fn reply_body(author_pubkey: &str, message: &str) -> Result<String> {

@@ -33,7 +33,7 @@ fn remote_status(state: SessionState, expiration: u64) -> Status {
 }
 
 #[test]
-fn suspended_local_recipient_gets_manual_resumption_reminder() {
+fn suspended_local_recipient_emits_recipient_suspension_notice() {
     let store = Store::open_memory().unwrap();
     local_session(&store);
 
@@ -42,22 +42,19 @@ fn suspended_local_recipient_gets_manual_resumption_reminder() {
         pubkey: "local-pk".into(),
         channel: "room".into(),
     }];
-    let reminders = suspension_reminders(&store, &recipients).unwrap();
+    let notices = suspension_notices(&store, &recipients).unwrap();
 
-    assert_eq!(
-        reminders,
-        vec![
-            "Reminder: @local-codex is suspended and will receive this message after manual resumption."
-        ]
-    );
-    let reminder = &reminders[0];
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].code, "recipient_suspension");
+    assert!(notices[0].summary.contains("@local-codex"));
+    assert!(notices[0].summary.contains("suspended"));
     for private_mechanic in ["PTY", "ACP", "endpoint", "supervisor", "backend"] {
-        assert!(!reminder.contains(private_mechanic));
+        assert!(!notices[0].summary.contains(private_mechanic));
     }
 }
 
 #[test]
-fn suspended_reply_author_gets_the_same_reminder_contract() {
+fn suspended_reply_author_emits_recipient_suspension_notice() {
     let store = Store::open_memory().unwrap();
     local_session(&store);
     let original = Message {
@@ -69,16 +66,14 @@ fn suspended_reply_author_gets_the_same_reminder_contract() {
         attachment_dir: String::new(),
     };
 
-    assert_eq!(
-        reply_suspension_reminders(&store, &original).unwrap(),
-        vec![
-            "Reminder: @local-codex is suspended and will receive this message after manual resumption."
-        ]
-    );
+    let notices = reply_suspension_notices(&store, &original).unwrap();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].code, "recipient_suspension");
+    assert!(notices[0].summary.contains("@local-codex"));
 }
 
 #[test]
-fn working_and_offline_local_recipients_do_not_get_reminders() {
+fn working_and_offline_local_recipients_do_not_get_notices() {
     let store = Store::open_memory().unwrap();
     local_session(&store);
     let generation = store
@@ -89,32 +84,32 @@ fn working_and_offline_local_recipients_do_not_get_reminders() {
     store
         .apply_session_turn_started("local-pk", generation, 11)
         .unwrap();
-    assert!(suspension_reminder(&store, "local-pk", "room", None)
+    assert!(suspension_notice(&store, "local-pk", "room", None)
         .unwrap()
         .is_none());
 
     store
         .mark_runtime_stopped("local-pk", crate::state::StopReason::HeadlessExit, 12)
         .unwrap();
-    assert!(suspension_reminder(&store, "local-pk", "room", None)
+    assert!(suspension_notice(&store, "local-pk", "room", None)
         .unwrap()
         .is_none());
 }
 
 #[test]
-fn fresh_peer_state_controls_the_reminder() {
+fn fresh_peer_state_controls_the_suspension_notice() {
     let store = Store::open_memory().unwrap();
     store.install_test_relay_delivery(
         TestRelayDelivery::new().statuses([remote_status(SessionState::Suspended, 20)]),
     );
-    assert!(suspension_reminder(&store, "remote-pk", "room", None)
+    assert!(suspension_notice(&store, "remote-pk", "room", None)
         .unwrap()
         .is_some());
 
     store.install_test_relay_delivery(
         TestRelayDelivery::new().statuses([remote_status(SessionState::Idle, 30)]),
     );
-    assert!(suspension_reminder(&store, "remote-pk", "room", None)
+    assert!(suspension_notice(&store, "remote-pk", "room", None)
         .unwrap()
         .is_none());
 }
@@ -126,7 +121,7 @@ fn current_peer_row_is_not_reinterpreted_by_a_second_expiry_clock() {
         TestRelayDelivery::new().statuses([remote_status(SessionState::Suspended, 9)]),
     );
 
-    assert!(suspension_reminder(&store, "remote-pk", "room", None)
+    assert!(suspension_notice(&store, "remote-pk", "room", None)
         .unwrap()
         .is_some());
 }

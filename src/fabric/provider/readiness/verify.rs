@@ -1,12 +1,13 @@
 use super::{admins, ChannelCtx, Nip29Provider};
 use crate::fabric::nip29::readiness::ChannelReadinessError;
+use nostr::key::Keys;
 
 pub(super) struct Outcome {
     pub(super) repaired: bool,
     pub(super) degraded: Option<ChannelReadinessError>,
 }
 
-/// Complete the known initial roster after Fava reports terminal success for a
+/// Complete the known initial roster after Nostr runtime reports terminal success for a
 /// create+lock operation. The relay makes the creator an administrator, so the
 /// remaining desired administrators and optional member can be expressed as
 /// at most two typed, batched mutations without reading a projected echo back.
@@ -15,6 +16,7 @@ pub(super) async fn initialize_created_group(
     ctx: &ChannelCtx<'_>,
     mgmt_pubkey: &str,
     parent_admins: &[String],
+    keys: &Keys,
 ) -> Result<(), ChannelReadinessError> {
     let required = required_admins(provider, mgmt_pubkey, parent_admins);
     let additional_admins = required
@@ -25,7 +27,7 @@ pub(super) async fn initialize_created_group(
     if !additional_admins.is_empty() {
         admins::published(
             provider
-                .grant_admins_published(ctx.channel, &additional_admins)
+                .grant_admins_published(ctx.channel, &additional_admins, keys)
                 .await,
             format!(
                 "initial admin grant for {} users in {}",
@@ -37,7 +39,7 @@ pub(super) async fn initialize_created_group(
     if !ctx.expect_member.is_empty() && !required.iter().any(|key| key == ctx.expect_member) {
         admins::published(
             provider
-                .grant_member_published(ctx.channel, ctx.expect_member)
+                .grant_member_published(ctx.channel, ctx.expect_member, keys)
                 .await,
             format!("initial member grant in {}", ctx.channel),
         )?;
@@ -47,7 +49,7 @@ pub(super) async fn initialize_created_group(
 
 /// Bring the relay's roster up to the invariants a ready channel must satisfy.
 ///
-/// Every membership question is asked of Fava's complete group snapshot. "Is an
+/// Every membership question is asked of Nostr runtime's complete group snapshot. "Is an
 /// admin" means named by kind:39001, not that a record used a free-form role
 /// string.
 pub(super) async fn ensure_invariants(
@@ -56,6 +58,7 @@ pub(super) async fn ensure_invariants(
     mgmt_pubkey: &str,
     parent_admins: &[String],
     admins_published_this_attempt: &[String],
+    keys: &Keys,
 ) -> Outcome {
     let mut repaired = false;
     let required_admins = required_admins(provider, mgmt_pubkey, parent_admins);
@@ -71,6 +74,7 @@ pub(super) async fn ensure_invariants(
         &required_admins,
         policy,
         admins_published_this_attempt,
+        keys,
     )
     .await
     {
@@ -105,7 +109,7 @@ pub(super) async fn ensure_invariants(
     if !expect_already_admin && !expect_listed {
         match admins::published(
             provider
-                .grant_member_published(ctx.channel, ctx.expect_member)
+                .grant_member_published(ctx.channel, ctx.expect_member, keys)
                 .await,
             format!("member grant for {} in {}", ctx.expect_member, ctx.channel),
         ) {

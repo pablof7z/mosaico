@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+bash scripts/check_obsolete_nostr_architecture.sh
+
 HARD_LIMIT=500
 SOFT_LIMIT=300
 RATCHET="scripts/loc_violations.txt"

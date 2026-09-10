@@ -28,7 +28,7 @@ pub(super) async fn commit(state: Onboarding) -> Result<()> {
     };
 
     println!("\n{}", "◆ Applying Mosaico setup".cyan().bold());
-    device_config::write_onboarding(&identity, vec![relay_url.clone()])?;
+    device_config::write_onboarding(&identity, relay_url.clone())?;
 
     let selected_ids: Vec<&'static str> = state
         .all

@@ -57,7 +57,7 @@ pub(super) fn install_relay_delivery(
     );
 }
 
-/// Install the `proj` group and a complete empty Fava row delivery.
+/// Install the `proj` group and a complete empty Nostr runtime row delivery.
 pub(super) fn seed_channel(store: &Store) {
     // Opaque id "proj" with a distinct human name "main" (production ids are random, never the name).
     install_channel_delivery(store, ["pk-coder".to_string()]);

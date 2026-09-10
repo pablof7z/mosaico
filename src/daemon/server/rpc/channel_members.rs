@@ -4,9 +4,9 @@ const CHANNEL_MEMBER_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 // ── root_channels ────────────────────────────────────────────────────────────
 
-/// List the NIP-29 root channels currently delivered by the retained Fava group
+/// List the NIP-29 root channels currently delivered by the current decoded group
 /// observation. Asking the relay again on every call would create a second
-/// acquisition path for state Fava already owns.
+/// acquisition path for state Nostr runtime already owns.
 pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> {
     let channels: Vec<serde_json::Value> = state
         .with_store(|s| s.list_root_channels())
@@ -25,7 +25,7 @@ pub fn rpc_root_channels(state: &Arc<DaemonState>) -> Result<serde_json::Value> 
 
 // ── channel_members ──────────────────────────────────────────────────────────
 
-/// Return the membership roster currently delivered by Fava for a channel.
+/// Return the membership roster currently delivered by Nostr runtime for a channel.
 pub async fn rpc_channel_members(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -77,7 +77,7 @@ pub async fn rpc_channel_members(
 /// a channel. Resolves its full path globally to the internal group id, ensures
 /// the channel is ready (management is admin), then publishes an explicit
 /// NIP-29 kind:9000 put-user granting `member` (or `admin` when `admin`), then
-/// waits for Fava's terminal per-relay publication result.
+/// waits for Nostr runtime's terminal per-relay publication result.
 pub async fn rpc_channel_add_member(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -115,14 +115,18 @@ pub async fn rpc_channel_add_member(
         .with_store(|s| s.channel_parent(&channel_h).unwrap_or(None))
         .filter(|parent| !parent.is_empty());
     let provider = state.provider();
-    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-        channel: &channel_h,
-        // This readiness pass establishes only group manageability. The one
-        // explicit role mutation below owns the requested user addition.
-        expect_member: "",
-        parent_hint: parent_hint.as_deref(),
-        name: None,
-    });
+    let management = state.backend_keys();
+    let ready = provider.ensure_channel_ready(
+        crate::fabric::nip29::readiness::ChannelCtx {
+            channel: &channel_h,
+            // This readiness pass establishes only group manageability. The one
+            // explicit role mutation below owns the requested user addition.
+            expect_member: "",
+            parent_hint: parent_hint.as_deref(),
+            name: None,
+        },
+        &management,
+    );
     let gate = tokio::time::timeout(CHANNEL_MEMBER_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -138,17 +142,17 @@ pub async fn rpc_channel_add_member(
     ))?;
 
     // Explicit grant of the requested role. `ensure_channel_ready` above only
-    // guarantees the management key is admin. Fava's terminal result answers
-    // publication; the retained group observation alone updates the roster.
+    // guarantees the management key is admin. Relay acknowledgement answers
+    // publication; only the complete inbound group view updates the roster.
     let outcome = if p.admin {
         state
             .provider()
-            .grant_admin_published(&channel_h, &pubkey_hex)
+            .grant_admin_published(&channel_h, &pubkey_hex, &management)
             .await
     } else {
         state
             .provider()
-            .grant_member_published(&channel_h, &pubkey_hex)
+            .grant_member_published(&channel_h, &pubkey_hex, &management)
             .await
     };
     outcome.require_published(format!(
@@ -220,7 +224,7 @@ pub async fn rpc_channel_remove_member(
 
     let outcome = state
         .provider()
-        .remove_member_published(&channel_h, &pubkey_hex)
+        .remove_member_published(&channel_h, &pubkey_hex, &state.backend_keys())
         .await;
     let published = outcome.is_published();
     outcome.require_published(format!(

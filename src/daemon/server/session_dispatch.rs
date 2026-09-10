@@ -61,7 +61,7 @@ pub(super) async fn rpc_dispatch(
         &prose,
     )?;
     let keys = state.session_signing_keys(&caller.pubkey)?;
-    // The id exists once Fava has taken custody, so the ACK observation opens
+    // The id exists once Nostr runtime has taken custody, so the ACK observation opens
     // after the publish rather than before it. That is not a lost-ack race:
     // `observe` is cache-then-live, so an ACK that lands in the gap is replayed
     // from the store when the subscription opens.
@@ -69,14 +69,11 @@ pub(super) async fn rpc_dispatch(
     // The dispatch reaches this backend's own session-dispatch listener through
     // the same group subscription, so nothing is driven inline.
     let dispatch_event_id = state
-        .fava()
-        .publish_group(&route_channel, builder, keys.public_key())?
+        .provider()
+        .publish_group(&route_channel, builder, &keys)
+        .await?
         .to_hex();
-    let ack_observation = state
-        .fava()
-        .observe(&dispatch_ack_query(&dispatch_event_id))?;
-
-    let ack = wait_dispatch_ack(ack_observation, dispatch_event_id.clone()).await?;
+    let ack = wait_dispatch_ack(state, dispatch_event_id.clone()).await?;
     let body = dispatch_message_body(&p.message, &ack.pubkey)?;
     let message_event_id =
         send_dispatch_message(state, &caller, &route_channel, &body, &ack).await?;
@@ -183,49 +180,28 @@ struct DispatchAck {
     pubkey: String,
 }
 
-fn dispatch_ack_query(dispatch_event_id: &str) -> crate::reconcile::SubscriptionQuery {
-    crate::reconcile::SubscriptionQuery::References {
-        event_id: dispatch_event_id.to_string(),
-        kinds: std::collections::BTreeSet::from([crate::fabric::nip29::wire::KIND_STATUS]),
-    }
-}
-
 async fn wait_dispatch_ack(
-    mut observation: fava::Observation,
+    state: &Arc<DaemonState>,
     dispatch_event_id: String,
 ) -> Result<DispatchAck> {
-    let result = tokio::time::timeout(Duration::from_secs(30), async {
-        if let Some(ack) = dispatch_ack_from_snapshot(&observation.current(), &dispatch_event_id) {
-            return Ok(ack);
-        }
-        loop {
-            match observation.changed().await {
-                Ok(snapshot) => {
-                    if let Some(ack) = dispatch_ack_from_snapshot(&snapshot, &dispatch_event_id) {
-                        return Ok(ack);
-                    }
-                }
-                Err(fava::ObservationClosed) => {
-                    anyhow::bail!("relay stream closed while waiting for dispatch ACK")
-                }
-            }
-        }
-    })
-    .await;
-    match result {
-        Ok(r) => r,
-        Err(_elapsed) => anyhow::bail!("dispatched agent did not ACK after 30 seconds"),
-    }
+    let events = state
+        .nostr()
+        .wait_for_reference(
+            &dispatch_event_id,
+            [crate::fabric::nip29::wire::KIND_STATUS],
+            Duration::from_secs(30),
+        )
+        .await
+        .context("dispatched agent did not ACK after 30 seconds")?;
+    dispatch_ack_from_events(&events, &dispatch_event_id)
+        .context("referenced relay event was not a valid dispatch ACK")
 }
 
-fn dispatch_ack_from_snapshot(
-    snapshot: &fava::QuerySnapshot,
+fn dispatch_ack_from_events(
+    events: &[nostr::event::Event],
     dispatch_event_id: &str,
 ) -> Option<DispatchAck> {
-    snapshot.events.iter().find_map(|record| {
-        let fava::EventValue::Signed(event) = record.event() else {
-            return None;
-        };
+    events.iter().find_map(|event| {
         (crate::fabric::nip29::session_dispatch::dispatch_ack_ref(event) == Some(dispatch_event_id))
             .then(|| DispatchAck {
                 pubkey: event.pubkey.to_hex(),

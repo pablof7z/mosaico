@@ -3,7 +3,7 @@ use std::path::Path;
 
 impl Store {
     /// Keep the first successfully materialized local directory for an event.
-    /// This is intentionally independent of whether Fava currently observes it.
+    /// This is intentionally independent of whether Nostr runtime currently observes it.
     pub fn set_message_attachment_dir(&self, event_id: &str, directory: &Path) -> Result<bool> {
         let directory = directory
             .to_str()

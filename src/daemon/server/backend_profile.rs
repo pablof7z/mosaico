@@ -1,5 +1,9 @@
 use super::*;
 use std::collections::BTreeMap;
+use std::time::Duration;
+
+const PROFILE_PUBLISH_ATTEMPTS: usize = 3;
+const PROFILE_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::daemon::server) struct HostAgent {
@@ -66,23 +70,52 @@ pub(in crate::daemon::server) async fn publish_backend_profile(
 
 impl DaemonState {
     pub(crate) fn schedule_backend_profile_refresh(self: &Arc<Self>) {
+        if !self.profile_refresh.request() {
+            return;
+        }
         let state = self.clone();
         tokio::spawn(async move {
-            if let Err(error) = publish_backend_profile(&state).await {
-                tracing::warn!(
-                    error = %format!("{error:#}"),
-                    "backend profile publish failed"
-                );
+            loop {
+                while state.profile_refresh.take_dirty() {
+                    if let Err(error) = publish_latest_profile(&state).await {
+                        tracing::warn!(
+                            error = %format!("{error:#}"),
+                            "backend profile publish exhausted bounded retries"
+                        );
+                    }
+                }
+                if !state.profile_refresh.release_or_reclaim() {
+                    break;
+                }
             }
         });
     }
+}
+
+async fn publish_latest_profile(
+    state: &Arc<DaemonState>,
+) -> Result<Option<BackendProfilePublishReport>> {
+    let mut last_error = None;
+    for attempt in 1..=PROFILE_PUBLISH_ATTEMPTS {
+        match publish_backend_profile(state).await {
+            Ok(report) => return Ok(Some(report)),
+            Err(error) => last_error = Some(error),
+        }
+        if state.profile_refresh.is_dirty() {
+            return Ok(None);
+        }
+        if attempt < PROFILE_PUBLISH_ATTEMPTS {
+            tokio::time::sleep(PROFILE_RETRY_DELAY).await;
+        }
+    }
+    Err(last_error.expect("at least one profile publish attempt"))
 }
 
 /// The root workspaces this backend MANAGES: the ones whose relay-signed
 /// kind:39001 admin list names the management key.
 ///
 /// This is the local reading of "to which groups does my management key belong
-/// on this relay as an admin?" — the question the retained Fava group observation
+/// on this relay as an admin?" — the question the current decoded group view
 /// answers. It is deliberately not "every root channel this daemon has heard
 /// of": advertising observed metadata as the backend's own workspace would
 /// claim hosting it cannot provide. Consumers

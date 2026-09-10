@@ -11,9 +11,9 @@ lint:
 
 # Real product boundary: standalone daemon, disposable home, counted local
 # relay, 207 retained profile observations, and a measured idle CPU window.
-stress-fava-check:
-    env -u MOSAICO cargo clippy --features stress-harness --test fava_daemon_stress -- -D warnings
-    env -u MOSAICO cargo test --features stress-harness --test fava_daemon_stress -- --nocapture --test-threads=1
+stress-nostr-check:
+    env -u MOSAICO cargo clippy --features stress-harness --test nostr_runtime_stress -- -D warnings
+    env -u MOSAICO cargo test --features stress-harness --test nostr_runtime_stress -- --nocapture --test-threads=1
 
 # Install the repo's git hooks (currently: a pre-commit `cargo fmt --check`,
 # matching CI's fmt-check). Symlinked so `git pull` picks up hook updates.
@@ -91,4 +91,4 @@ loc-check:
     bash scripts/check_hosted_open_seam.sh
 
 vocabulary-check:
-    bash scripts/check_fava_only_vocabulary.sh
+    bash scripts/check_obsolete_nostr_architecture.sh

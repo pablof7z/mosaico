@@ -49,7 +49,7 @@ pub(super) async fn confirm(state: &Arc<DaemonState>, pubkey: &str, channel: &st
         .with_context(|| format!("exact recovery target {pubkey} disappeared"))?;
     let outcome = state
         .provider()
-        .grant_member_published(channel, pubkey)
+        .grant_member_published(channel, pubkey, &state.backend_keys())
         .await;
     if !outcome.is_published() {
         anyhow::bail!("relay admission event was not published: {outcome:?}");

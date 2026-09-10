@@ -15,7 +15,7 @@ fn event(id: &str, author: &str, channel: &str, body: &str, at: u64) -> RelayEve
 }
 
 #[test]
-fn attachment_can_arrive_before_fava_observes_the_message() {
+fn attachment_can_arrive_before_relay_observes_the_message() {
     let store = Store::open_memory().unwrap();
     assert!(store
         .set_message_attachment_dir(
@@ -49,7 +49,7 @@ fn attachment_can_arrive_before_fava_observes_the_message() {
 }
 
 #[test]
-fn message_reads_and_channel_activity_follow_the_current_fava_delivery() {
+fn message_reads_and_channel_activity_follow_the_current_nip29_delivery() {
     let store = Store::open_memory().unwrap();
     store.install_test_relay_delivery(TestRelayDelivery::new().events([
         event("old", "author", "chan", "old", 10),

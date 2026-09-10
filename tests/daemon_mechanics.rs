@@ -4,7 +4,7 @@
 //! `MOSAICO_HOME`.
 //!
 //! The daemon connects ONE relay at startup, so each test points its config's
-//! `relays` at a local `nak serve` (NOT the production relay — that would touch
+//! `relay` at a local `nak serve` (NOT the production relay — that would touch
 //! the live fabric). Each test isolates its daemon via a fresh temp
 //! `MOSAICO_HOME`; env mutation is serialized with a mutex.
 
@@ -12,8 +12,11 @@
 mod common;
 #[path = "daemon_mechanics/named_instances.rs"]
 mod named_instances;
+#[path = "daemon_mechanics/process.rs"]
+mod process;
 
 use common::TestRelay;
+use process::spawn_real_daemon;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -60,7 +63,7 @@ impl Home {
         let body = serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [shared_relay_url()],
+            "relay": shared_relay_url(),
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
         // Register /tmp as a channel so hook-driven session_start finds a
@@ -85,22 +88,6 @@ impl Home {
 /// Exact standalone binary; the Cargo test harness cannot act as a daemon.
 fn bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_mosaico"))
-}
-
-/// Spawn the daemon by exec'ing the real binary (not current_exe of the test).
-fn spawn_real_daemon(home: &Home) -> std::process::Child {
-    let log = std::fs::File::create(home.dir.path().join("daemon.log")).unwrap();
-    std::process::Command::new(bin())
-        .arg("daemon")
-        .env_remove("MOSAICO")
-        .env("MOSAICO_HOME", home.dir.path())
-        .env("MOSAICO_CONFIG", home.dir.path().join("config.json"))
-        .env("MOSAICO_DAEMON_GRACE_S", "30")
-        .env(mosaico::pty::REAP_SESSIONS_ON_STOP_ENV, "1")
-        .stdout(log.try_clone().unwrap())
-        .stderr(log)
-        .spawn()
-        .expect("spawn daemon")
 }
 
 fn wait_for_sock(home: &Home, dur: Duration) -> bool {

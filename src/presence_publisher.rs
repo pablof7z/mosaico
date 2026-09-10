@@ -6,12 +6,17 @@ use std::sync::{Arc, Mutex, RwLock};
 use nostr::key::Keys;
 use tokio::sync::mpsc;
 
-use crate::domain::Status;
 use crate::fabric::provider::{ConfirmedGroupScope, Nip29Provider};
-use crate::reconcile::{StatusEffect, StatusOutcome, StatusReconciler};
+use crate::reconcile::{StatusOutcome, StatusReconciler};
 use crate::state::Store;
 
+#[cfg(test)]
+use crate::{domain::Status, reconcile::StatusEffect};
+
 const PUBLISH_SIGNAL_CAPACITY: usize = 1;
+
+#[path = "presence_publisher/publication.rs"]
+mod publication;
 
 #[cfg(test)]
 #[path = "presence_publisher/tests.rs"]
@@ -57,6 +62,12 @@ impl PendingPublishJobs {
         self.jobs.clear();
     }
 
+    fn supersedes(&self, pubkey: &str, revision: u64) -> bool {
+        self.jobs
+            .get(pubkey)
+            .is_some_and(|job| job.outcome.revision > revision)
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.jobs.len()
@@ -76,23 +87,26 @@ impl PresencePublisher {
     ) -> PresencePublisher {
         let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
         let (signal_tx, signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
+        let publish_pending = pending.clone();
         spawn_publish_worker(signal_rx, pending.clone(), move |job| {
             let provider = provider.clone();
             let store = store.clone();
+            let pending = publish_pending.clone();
             async move {
                 let provider = provider
                     .read()
                     .unwrap_or_else(|poison| poison.into_inner())
                     .clone();
-                let event_ids = apply_status_effects(
+                let event_ids = publication::apply_status_effects(
                     &job.outcome,
                     &provider,
                     &job.keys,
                     &job.trigger,
                     job.confirmed_scope.as_ref(),
+                    &pending,
                 )
                 .await;
-                record_status_receipt(&store, &job.outcome, &event_ids);
+                publication::record_status_receipt(&store, &job.outcome, &event_ids);
             }
         });
         PresencePublisher { signal_tx, pending }
@@ -166,102 +180,4 @@ pub(crate) fn drive(
         f(&mut policy)
     };
     publisher.submit(outcome, keys, meta.trigger, meta.confirmed_scope);
-}
-
-async fn apply_status_effects(
-    outcome: &StatusOutcome,
-    provider: &Nip29Provider,
-    keys: &Keys,
-    trigger: &str,
-    confirmed_scope: Option<&ConfirmedGroupScope>,
-) -> Vec<String> {
-    let mut ids = Vec::new();
-    for effect in &outcome.effects {
-        let (status, require_member) = match effect {
-            StatusEffect::Publish { status, .. } => (status, true),
-            StatusEffect::Expire { status } => (status, false),
-        };
-        let source_ref = format!(
-            "status/{}#rev:{}:{trigger}",
-            status.agent.pubkey, outcome.revision
-        );
-        if let Some(id) = enqueue_status(
-            provider,
-            keys,
-            status.clone(),
-            require_member,
-            source_ref,
-            confirmed_scope,
-        )
-        .await
-        {
-            ids.push(id);
-        }
-    }
-    ids
-}
-
-fn record_status_receipt(store: &Mutex<Store>, outcome: &StatusOutcome, event_ids: &[String]) {
-    let Some(artifact_ref) = event_ids.first().cloned() else {
-        return;
-    };
-    let effects = outcome
-        .effects
-        .iter()
-        .map(|effect| match effect {
-            StatusEffect::Publish { reason, .. } => reason.as_str(),
-            StatusEffect::Expire { .. } => "expire",
-        })
-        .collect::<Vec<_>>();
-    let changed_summary = serde_json::json!({
-        "pubkey": outcome.pubkey,
-        "effects": effects,
-    })
-    .to_string();
-    let row = crate::state::receipts::NewReceipt {
-        surface: "status".into(),
-        transaction_id: outcome.revision as i64,
-        revision: outcome.revision as i64,
-        changed_summary,
-        commands: serde_json::to_string(&effects).unwrap_or_else(|_| "[]".into()),
-        artifact_ref: Some(artifact_ref),
-        created_at: crate::instrument::now_millis(),
-    };
-    crate::instrument::record_receipt(&store.lock().expect("store mutex poisoned"), row);
-}
-
-async fn enqueue_status(
-    provider: &Nip29Provider,
-    keys: &Keys,
-    status: Status,
-    require_member: bool,
-    source_ref: String,
-    confirmed_scope: Option<&ConfirmedGroupScope>,
-) -> Option<String> {
-    let result = match confirmed_scope {
-        Some(scope) => {
-            provider
-                .enqueue_status_after_confirmed_scope(&status, keys, scope, require_member)
-                .await
-        }
-        None => {
-            provider
-                .enqueue_status(&status, keys, require_member, None)
-                .await
-        }
-    };
-    match result {
-        Ok(event_id) => {
-            tracing::debug!(event_id = %event_id.to_hex(), source_ref, "status accepted by Fava");
-            Some(event_id.to_hex())
-        }
-        Err(error) => {
-            tracing::error!(
-                error = %format!("{error:#}"),
-                source_ref,
-                "status submission to Fava failed"
-            );
-            None
-        }
-    }
 }

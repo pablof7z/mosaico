@@ -1,17 +1,17 @@
-//! End-to-end coverage for Nostr codec and Fava acquisition boundaries.
+//! End-to-end coverage for Nostr codec and Nostr runtime acquisition boundaries.
 
 #[path = "common/mod.rs"]
 mod common;
-#[path = "common/fava_client.rs"]
-mod fava_client;
+#[path = "common/nostr_client.rs"]
+mod nostr_client;
 
 use common::TestRelay;
-use fava_client::FavaRelayClient;
 use mosaico::domain::{AgentRef, DomainEvent, Profile, Status};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
 use nostr::event::{EventBuilder, Kind, Tag};
 use nostr::filter::Filter;
 use nostr::key::Keys;
+use nostr_client::NostrRelayClient;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -88,79 +88,7 @@ async fn publishes_and_decodes_all_event_types() {
 }
 
 #[tokio::test]
-async fn fava_acquires_from_an_explicitly_allowed_local_relay() {
-    use fava::RelayUrl;
-    use fava_query::Query;
-
-    let relay = TestRelay::start();
-    let author = Keys::generate();
-    let relay_url = RelayUrl::parse(&relay.url).expect("valid relay URL");
-
-    // Build a fava instance pinned to the local relay.
-    let fava = {
-        use fava::FavaBuilder;
-        use fava_delivery_standard::StandardDeliveryPolicy;
-        use fava_event_cache_memory::MemoryEventCache;
-        use fava_publisher_nip01::Nip01Publisher;
-        use fava_query_standard::StandardQueryEvaluator;
-        use fava_router_app_relays::AppRelayRouter;
-        use fava_signer_local::LocalSigner;
-        use fava_subscriptions_no_grouping::planner;
-        use fava_transport_websocket::WebSocketTransport;
-        use fava_write_store_memory::MemoryWriteStore;
-        use std::sync::Arc;
-        FavaBuilder::default()
-            .event_cache(Arc::new(MemoryEventCache::default()))
-            .query_evaluator(Arc::new(StandardQueryEvaluator))
-            .subscription_planner(Arc::new(planner()))
-            .transport(Arc::new(WebSocketTransport::new()))
-            .router(Arc::new(AppRelayRouter::new("app", [relay_url.clone()])))
-            .signer(Arc::new(LocalSigner::new(author.clone())))
-            .publisher(Arc::new(Nip01Publisher))
-            .delivery_policy(Arc::new(StandardDeliveryPolicy::default()))
-            .write_store(Arc::new(MemoryWriteStore::default()))
-            .build()
-            .expect("fava build")
-    };
-
-    let query = Query::events()
-        .authors([author.public_key()])
-        .expect("bounded author set")
-        .kinds([Kind::TextNote])
-        .expect("bounded kind set")
-        .only_from_relays([relay_url])
-        .expect("relay set");
-    let mut observation = fava.observe(query).await.expect("fava observes");
-
-    let writer = relay_client(&relay.url, author).await;
-    writer
-        .send_event_builder(EventBuilder::new(Kind::TextNote, "hello from Fava"))
-        .await
-        .expect("publish");
-
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    let mut found = false;
-    while !found && std::time::Instant::now() < deadline {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        match tokio::time::timeout(remaining, observation.changed()).await {
-            Ok(Ok(snapshot)) => {
-                found = snapshot.events.iter().any(|rec| {
-                    if let fava::EventValue::Signed(e) = rec.event() {
-                        e.content == "hello from Fava"
-                    } else {
-                        false
-                    }
-                });
-            }
-            _ => break,
-        }
-    }
-    observation.close();
-    assert!(found, "fava did not acquire the published event");
-}
-
-#[tokio::test]
-async fn bounded_fava_read_accepts_an_active_empty_acquisition() {
+async fn bounded_relay_read_accepts_an_active_empty_acquisition() {
     let relay = TestRelay::start();
     let client = relay_client(&relay.url, Keys::generate()).await;
     let events = client
@@ -169,7 +97,7 @@ async fn bounded_fava_read_accepts_an_active_empty_acquisition() {
             Duration::from_secs(5),
         )
         .await
-        .expect("empty Fava read should complete with acquisition evidence");
+        .expect("empty Nostr runtime read should complete with acquisition evidence");
     assert!(events.is_empty());
 }
 
@@ -279,8 +207,8 @@ fn p_tag(pubkey: &str) -> Tag {
     Tag::custom("p", [pubkey])
 }
 
-async fn relay_client(relay: &str, keys: Keys) -> FavaRelayClient {
-    FavaRelayClient::connect(keys, relay)
+async fn relay_client(relay: &str, keys: Keys) -> NostrRelayClient {
+    NostrRelayClient::connect(keys, relay)
         .await
-        .expect("connect Fava relay client")
+        .expect("connect Nostr relay client")
 }

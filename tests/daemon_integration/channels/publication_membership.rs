@@ -66,7 +66,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
     let admission_log =
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default();
     assert!(
-        !admission_log.contains("status submission to Fava failed"),
+        !admission_log.contains("status submission to Nostr runtime failed"),
         "session startup attempted presence before membership confirmation:\n{admission_log}"
     );
     let before_receipt = Store::open(&home.store_path())
@@ -124,7 +124,7 @@ fn status_publication_never_rejoins_after_explicit_last_route_leave() {
                     .all(|member| member["pubkey"].as_str() != Some(pubkey.as_str()))
             })
         }),
-        "Fava's delivered roster must remain absent after expiry publication"
+        "Nostr runtime's delivered roster must remain absent after expiry publication"
     );
     stop_daemon(&home);
 }

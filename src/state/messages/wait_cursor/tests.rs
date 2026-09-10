@@ -15,7 +15,7 @@ fn event(id: &str, tags_json: &str) -> RelayEvent {
 }
 
 #[test]
-fn wait_cursor_follows_fava_arrival_order() {
+fn wait_cursor_follows_relay_arrival_order() {
     let store = Store::open_memory().unwrap();
     store.install_test_relay_delivery(TestRelayDelivery::new().events([event("first", "[]")]));
     let cursor = store.latest_message_arrival_sequence().unwrap();

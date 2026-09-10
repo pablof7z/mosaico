@@ -17,6 +17,7 @@
   "files": [
     "mosaico.ts",
     "command.ts",
+    "daemon.ts",
     "delivery.ts",
     "panel.ts",
     "panel-model.ts",

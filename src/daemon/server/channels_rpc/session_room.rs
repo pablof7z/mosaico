@@ -23,12 +23,15 @@ pub(in crate::daemon::server) async fn ensure_session_room(
     }
     let gate = state
         .provider()
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: room_h,
-            expect_member: member_pubkey,
-            parent_hint: Some(parent),
-            name: Some(name),
-        })
+        .ensure_channel_ready(
+            crate::fabric::nip29::readiness::ChannelCtx {
+                channel: room_h,
+                expect_member: member_pubkey,
+                parent_hint: Some(parent),
+                name: Some(name),
+            },
+            &state.backend_keys(),
+        )
         .await;
     let _ = ensure_subscription(state, room_h).await;
     gate

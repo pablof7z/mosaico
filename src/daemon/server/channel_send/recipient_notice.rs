@@ -1,3 +1,4 @@
+use super::notice::{self, Notice};
 use super::TaggedRecipient;
 use crate::session_state::SessionState;
 use crate::state::{Message, Store};
@@ -7,14 +8,14 @@ use anyhow::Result;
 #[path = "recipient_notice/tests.rs"]
 mod tests;
 
-pub(super) fn suspension_reminders(
+pub(super) fn suspension_notices(
     store: &Store,
     recipients: &[TaggedRecipient],
-) -> Result<Vec<String>> {
-    let reminders = recipients
+) -> Result<Vec<Notice>> {
+    let notices = recipients
         .iter()
         .map(|recipient| {
-            suspension_reminder(
+            suspension_notice(
                 store,
                 &recipient.pubkey,
                 &recipient.channel,
@@ -22,34 +23,31 @@ pub(super) fn suspension_reminders(
             )
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(reminders.into_iter().flatten().collect())
+    Ok(notices.into_iter().flatten().collect())
 }
 
-pub(super) fn reply_suspension_reminders(store: &Store, original: &Message) -> Result<Vec<String>> {
-    suspension_reminder(store, &original.author_pubkey, &original.channel_h, None)
-        .map(|reminder| reminder.into_iter().collect())
+pub(super) fn reply_suspension_notices(store: &Store, original: &Message) -> Result<Vec<Notice>> {
+    suspension_notice(store, &original.author_pubkey, &original.channel_h, None)
+        .map(|n| n.into_iter().collect())
 }
 
-pub(super) fn suspension_reminder(
+pub(super) fn suspension_notice(
     store: &Store,
     pubkey: &str,
     channel: &str,
     target_label: Option<&str>,
-) -> Result<Option<String>> {
+) -> Result<Option<Notice>> {
     let (state, observed_label) = recipient_presence(store, pubkey, channel)?;
     if state != SessionState::Suspended {
         return Ok(None);
     }
-
     let label = target_label
         .and_then(normalize_label)
         .or_else(|| observed_label.as_deref().and_then(normalize_label));
     let subject = label
         .map(|label| format!("@{label}"))
         .unwrap_or_else(|| "This recipient".to_string());
-    Ok(Some(format!(
-        "Reminder: {subject} is suspended and will receive this message after manual resumption."
-    )))
+    Ok(Some(notice::recipient_suspension(label, subject)))
 }
 
 fn recipient_presence(

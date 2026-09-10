@@ -58,13 +58,18 @@ pub(super) fn schedule_admission(
                 );
                 continue;
             }
-            let outcome = state
-                .provider()
-                .grant_member_published(&channel, &pubkey)
-                .await;
-            if !outcome.is_published() {
-                tracing::warn!(pubkey, %channel, ?outcome, "session_start passive admission was not published");
-                continue;
+            let already_member = state
+                .with_store(|store| store.is_channel_member(&channel, &pubkey))
+                .unwrap_or(false);
+            if !already_member {
+                let outcome = state
+                    .provider()
+                    .grant_member_published(&channel, &pubkey, &state.backend_keys())
+                    .await;
+                if !outcome.is_published() {
+                    tracing::warn!(pubkey, %channel, ?outcome, "session_start passive admission was not published");
+                    continue;
+                }
             }
             match super::super::managed_lifecycle::commit_confirmed_admission(
                 &state,

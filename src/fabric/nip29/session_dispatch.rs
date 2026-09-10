@@ -132,7 +132,7 @@ mod tests {
         b.finalize(&Keys::generate()).unwrap()
     }
 
-    /// Sign the draft into `group` exactly as the publish path does: Fava's
+    /// Sign the draft into `group` exactly as the publish path does: Nostr runtime's
     /// contextualizer mints the routing `h` row, never this module.
     fn sign_into(group: &str, b: EventBuilder) -> Event {
         crate::fabric::nip29::signed_into_group(group, b, &Keys::generate())

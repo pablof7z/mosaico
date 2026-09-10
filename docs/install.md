@@ -21,7 +21,7 @@ $ mosaico setup
 ```
 
 `mosaico setup` is both the first-run and reconfiguration command. It requires
-one or more existing NIP-29 relay URLs, then manages the profile indexer, host
+one existing NIP-29 relay URL, then manages the host
 label, operator allowlist, optional CLI operator signing key, per-session-room
 policy, generated backend identity, runtime skill, and selected harness
 integrations.
@@ -52,7 +52,7 @@ $ MOSAICO=relay2 codex --yolo
 ```
 
 Each selection has its own config, relay connection, backend and agent
-identities, database, Fava store and cursors, socket, logs, sessions, and PTY
+identities, database, socket, logs, sessions, and PTY
 metadata. A selected command or hook never connects to or falls back to another
 instance. Run lifecycle commands with the same selector, for example
 `MOSAICO=relay1 mosaico daemon stop`.

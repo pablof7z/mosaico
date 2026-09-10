@@ -41,8 +41,9 @@ pub(super) async fn publish_eye_reaction(state: &Arc<DaemonState>, event: &Event
         }
     };
     if let Err(e) = state
-        .fava()
-        .publish_group(&channel_h, builder, backend_keys.public_key())
+        .provider()
+        .publish_group(&channel_h, builder, &backend_keys)
+        .await
     {
         tracing::warn!(
             event_id = %&event_id[..8],

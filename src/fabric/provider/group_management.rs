@@ -1,8 +1,9 @@
 use super::Nip29Provider;
 use crate::fabric::group_management::{
-    GroupMutationOutcome, GroupOperationError, GroupOperationStage, GroupPublishOutcome,
+    GroupMutationOutcome, GroupOperationError, GroupOperationStage,
 };
-use nostr::key::Keys;
+use crate::fabric::nip29::management::{self, GroupUser, MetadataEdit};
+use nostr::key::{Keys, PublicKey};
 
 mod roles;
 mod topology;
@@ -13,82 +14,133 @@ impl Nip29Provider {
         group: &str,
         pubkeys: &[String],
     ) -> GroupMutationOutcome {
-        let nsec = match &self.user_nsec {
-            Some(n) => n.clone(),
-            None => {
-                eprintln!("[daemon] try_grant_admins: no userNsec configured");
+        let Some(nsec) = self.user_nsec.as_deref() else {
+            return GroupMutationOutcome::Failed(GroupOperationError::new(
+                "management self-grant",
+                GroupOperationStage::Configuration,
+                "no userNsec configured",
+            ));
+        };
+        let user_keys = match Keys::parse(nsec) {
+            Ok(keys) => keys,
+            Err(error) => {
                 return GroupMutationOutcome::Failed(GroupOperationError::new(
                     "management self-grant",
                     GroupOperationStage::Configuration,
-                    "no userNsec configured",
+                    error,
                 ));
             }
         };
-        let user_keys = match Keys::parse(&nsec) {
-            Ok(k) => k,
-            Err(e) => {
-                eprintln!("[daemon] try_grant_admins: userNsec parse failed: {e}");
-                return GroupMutationOutcome::Failed(GroupOperationError::new(
-                    "management self-grant",
-                    GroupOperationStage::Configuration,
-                    e,
-                ));
-            }
-        };
-
-        let operation = "9000 put-admins (authority bootstrap via userNsec)";
-        let users = match roles::group_users(pubkeys, Some("admin".into())) {
+        let users = match roles::group_users(pubkeys, Some("admin".to_string())) {
             Ok(users) => users,
             Err(error) => {
                 return GroupMutationOutcome::Failed(GroupOperationError::new(
-                    operation,
+                    "9000 put-admins (authority bootstrap via userNsec)",
                     GroupOperationStage::Build,
                     error,
                 ));
             }
         };
-
-        match self
-            .fava
-            .add_group_users_and_wait(group, users, user_keys.public_key())
-            .await
-        {
+        let builder = match management::put_users(group, &users) {
+            Ok(builder) => builder,
+            Err(error) => {
+                return GroupMutationOutcome::Failed(GroupOperationError::from_anyhow(
+                    "9000 put-admins (authority bootstrap via userNsec)",
+                    GroupOperationStage::Build,
+                    &error,
+                ));
+            }
+        };
+        match self.publish_built(builder, &user_keys).await {
             Ok(_) => GroupMutationOutcome::Published,
             Err(error) => GroupMutationOutcome::Failed(GroupOperationError::from_anyhow(
-                operation,
+                "9000 put-admins (authority bootstrap via userNsec)",
                 GroupOperationStage::Publish,
                 &error,
             )),
         }
     }
 
-    pub(crate) fn management_pubkey(&self) -> String {
-        // Fava owns the backend publication signer. Public identity reads use
-        // the exact signer admitted into that engine; they never touch secret
-        // configuration or create secp256k1 key material.
-        self.fava.backend_pubkey().to_hex()
+    pub(crate) async fn publish_metadata_edit(
+        &self,
+        group: &str,
+        edit: &MetadataEdit,
+        keys: &Keys,
+    ) -> anyhow::Result<nostr::event::EventId> {
+        self.publish_built(management::edit_metadata(group, edit)?, keys)
+            .await
+    }
+
+    pub(crate) async fn publish_group_create(
+        &self,
+        group: &str,
+        parent: Option<&str>,
+        keys: &Keys,
+    ) -> anyhow::Result<nostr::event::EventId> {
+        self.publish_built(management::create_group(group, parent)?, keys)
+            .await
+    }
+
+    pub(crate) async fn publish_group_delete(
+        &self,
+        group: &str,
+        keys: &Keys,
+    ) -> anyhow::Result<nostr::event::EventId> {
+        self.publish_built(management::delete_group(group)?, keys)
+            .await
+    }
+
+    async fn publish_group_users(
+        &self,
+        group: &str,
+        users: &[GroupUser],
+        keys: &Keys,
+    ) -> anyhow::Result<()> {
+        if users.is_empty() {
+            return Ok(());
+        }
+        self.publish_built(management::put_users(group, users)?, keys)
+            .await
+            .map(|_| ())
+    }
+
+    async fn publish_group_removals(
+        &self,
+        group: &str,
+        users: &[PublicKey],
+        keys: &Keys,
+    ) -> anyhow::Result<()> {
+        if users.is_empty() {
+            return Ok(());
+        }
+        self.publish_built(management::remove_users(group, users)?, keys)
+            .await
+            .map(|_| ())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::sync::{Arc, Mutex};
 
-    use crate::fava_host::FavaHost;
+    use super::*;
+    use crate::fabric::nip29::view::Nip29ViewStore;
+    use crate::nostr_runtime::NostrRuntime;
     use crate::state::Store;
 
-    #[tokio::test]
-    async fn management_pubkey_comes_from_the_fava_registered_signer() {
+    #[test]
+    fn management_pubkey_is_the_explicit_product_identity() {
         let backend = Keys::generate();
-        let fava = Arc::new(FavaHost::open(&[], None, None, &backend).unwrap());
+        let runtime = Arc::new(NostrRuntime::new("wss://relay.invalid").unwrap());
+        let view = Arc::new(Nip29ViewStore::default());
         let provider = Nip29Provider::new(
-            fava,
+            runtime,
+            view,
             Arc::new(Mutex::new(Store::open_memory().unwrap())),
+            backend.public_key(),
             None,
             Vec::new(),
         );
-
         assert_eq!(provider.management_pubkey(), backend.public_key().to_hex());
     }
 }

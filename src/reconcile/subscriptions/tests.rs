@@ -64,15 +64,15 @@ fn opens_one_broad_h_and_is_idempotent() {
     let effects = sync(&mut policy, &snapshot);
     // The N per-channel ChannelH observations, the global kind:9000, the global
     // kind:39000 group-metadata, and the per-author kind:0 profile observations
-    // are all gone — each moved to a retained observation (group_records,
-    // ProfileFeed). Only the broad #h remains here.
+    // are all gone — each moved to a stable product demand (group_records,
+    // profile demand). Only the broad #h remains here.
     assert_eq!(open_ids(&effects), set([BROAD_H_ID]));
     assert_eq!(
         effects.iter().find_map(|effect| match effect {
             SubEffect::Open { id, query } if id == BROAD_H_ID => Some(query.clone()),
             _ => None,
         }),
-        Some(SubscriptionQuery::GroupContentsMulti {
+        Some(SubscriptionSpec::GroupContentsMulti {
             groups: set(["room-a", "room-b"]),
             kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS, KIND_GROUP_PUT_USER]),
         })
@@ -88,7 +88,7 @@ fn opens_one_broad_h_and_is_idempotent() {
 /// its CONTENTS being subscribed to. The broad `#h` covers only daemon +
 /// session channels, so a `group_state_channels` entry with no daemon/session
 /// presence opens no content observation. (The kind:39000 records ride the
-/// retained `group_records` observation, not this reconciler.)
+/// stable `group_records` demand, not this reconciler.)
 #[test]
 fn known_unjoined_channels_do_not_subscribe_to_content() {
     let effects = SubscriptionReconciler::new().plan(&CoverageSnapshot {

@@ -1,33 +1,37 @@
 //! NIP-29 fabric adapter — group lifecycle, observation, and product codecs.
 
+use anyhow::Context;
+
 pub mod lifecycle;
+pub(crate) mod management;
 pub mod orchestration;
 pub mod readiness;
 pub mod session_dispatch;
+pub(crate) mod view;
 pub mod wire;
 
-/// Compose the exact bytes Fava's group door would sign, for a fixture.
-///
-/// Test-only, and it calls Fava's own contextualizer rather than restating the
-/// rule: a fixture that wrote its own `h` row would be modelling a shape the
-/// product cannot publish, because `nip29::Groups::publish` refuses a
-/// caller-supplied context row. Product code never composes a group event --
-/// it hands Fava a draft and gets back an id.
-#[cfg(test)]
+/// Complete a product draft with every NIP-29 group context before signing.
 pub(crate) fn signed_into_groups(
     groups: &[&str],
     builder: nostr::event::EventBuilder,
     keys: &nostr::key::Keys,
-) -> nostr::event::Event {
+) -> anyhow::Result<nostr::event::Event> {
     use nostr::event::FinalizeEvent;
     let h_tags: Vec<nostr::event::Tag> = groups
         .iter()
-        .map(|g| nostr::event::Tag::parse(["h", g]).expect("h tag"))
-        .collect();
+        .map(|group| {
+            if group.is_empty() {
+                anyhow::bail!("a NIP-29 publication requires a non-empty group id");
+            }
+            nostr::event::Tag::parse(["h", group])
+                .map_err(anyhow::Error::from)
+                .context("building NIP-29 group tag")
+        })
+        .collect::<anyhow::Result<_>>()?;
     builder
         .tags(h_tags)
         .finalize(keys)
-        .expect("signing a fixture")
+        .context("signing NIP-29 event")
 }
 
 /// [`signed_into_groups`] for the ordinary one-group case.
@@ -37,7 +41,7 @@ pub(crate) fn signed_into_group(
     builder: nostr::event::EventBuilder,
     keys: &nostr::key::Keys,
 ) -> nostr::event::Event {
-    signed_into_groups(&[group], builder, keys)
+    signed_into_groups(&[group], builder, keys).expect("signing a fixture")
 }
 
 /// Read a single tag value by name from a Nostr event.

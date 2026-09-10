@@ -122,6 +122,7 @@ fn pi_extension_uses_native_lifecycle_and_tool_boundaries() {
         .collect();
     for name in [
         "index.ts",
+        "daemon.ts",
         "delivery.ts",
         "protocol.ts",
         "status.ts",

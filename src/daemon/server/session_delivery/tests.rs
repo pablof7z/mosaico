@@ -61,6 +61,24 @@ async fn seeded_state_with_transport(transport: &str) -> (Arc<DaemonState>, crat
 }
 
 #[tokio::test]
+async fn open_establishes_the_extension_as_a_live_return_path_before_waiting() {
+    let (state, session) = seeded_state().await;
+
+    let response = rpc_open(&state, &caller()).unwrap();
+
+    assert_eq!(response["state"], "live");
+    assert!(extension_delivery_live(&state, &session));
+    let status = super::super::my_session::rpc_my_session(&state, &caller()).unwrap();
+    assert!(
+        !status["fabric"]
+            .as_str()
+            .unwrap()
+            .contains("unhosted=\"true\""),
+        "an opened Pi extension can wake the session"
+    );
+}
+
+#[tokio::test]
 async fn lease_then_matching_ack_is_the_only_path_to_injected() {
     let (state, session) = seeded_state().await;
     let mut wait = caller();

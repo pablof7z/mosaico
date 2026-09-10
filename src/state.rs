@@ -3,11 +3,11 @@
 //! handles (`sessions`),
 //!      joined-channel state (`session_channels`), typed runtime locators
 //!      (`session_locators`), signer material, public handle leases, the inbound
-//!      delivery ledger (`inbox`), backend replay guards (`event_claims`), the
+//!      delivery ledger (`inbox`), work-start replay guards (`event_claims`), the
 //!      pending channel-name reservations,
-//!      generation-scoped progressive coaching claims,
+//!      generation-scoped progressive notice claims,
 //! and on-disk workspace paths (`workspace_roots`). Relay-owned state is read
-//! directly from retained Fava observations.
+//! directly from the complete process-local NIP-29 view.
 //!
 //! A pubkey appears AT MOST ONCE per channel and is the durable agent identity.
 //! The pubkey is the sole session identity. Harness-native ids and PTY endpoints
@@ -21,34 +21,20 @@ use std::sync::Arc;
 
 mod profile;
 pub use profile::Profile;
-#[cfg(test)]
-mod test_group_delivery;
-#[cfg(test)]
-pub(crate) use test_group_delivery::{TestGroup, TestGroupDelivery, TestRelayDelivery};
 
 pub struct Store {
     conn: Connection,
-    observed_views: Arc<crate::observed_views::ObservedViews>,
-    profile_feed: Arc<crate::fava_host::ProfileFeed>,
+    nip29_view: Option<Arc<crate::fabric::nip29::view::Nip29ViewStore>>,
+    #[cfg(test)]
+    test_snapshots: std::sync::RwLock<test_snapshots::TestSnapshots>,
 }
 
 impl Store {
-    /// Bind the process-local observed state in one call: row/group projections
-    /// plus the retained profile feed that owns `Store::get_profile`. Both come
-    /// from the same live [`FavaHost`](crate::fava_host::FavaHost).
-    pub(crate) fn bind_observed_state(
+    pub(crate) fn bind_nip29_view(
         &mut self,
-        views: Arc<crate::observed_views::ObservedViews>,
-        host: Arc<crate::fava_host::FavaHost>,
+        view: Arc<crate::fabric::nip29::view::Nip29ViewStore>,
     ) {
-        self.observed_views = views;
-        self.profile_feed = Arc::new(crate::fava_host::ProfileFeed::new(host));
-    }
-
-    /// The retained profile feed driving `Store::get_profile`. The coverage
-    /// refresh calls `set_members` on this `Arc`.
-    pub(crate) fn profile_feed(&self) -> Arc<crate::fava_host::ProfileFeed> {
-        Arc::clone(&self.profile_feed)
+        self.nip29_view = Some(view);
     }
 }
 
@@ -94,8 +80,8 @@ pub struct ChannelMember {
 }
 
 /// kind:30315 current activity for one agent session in one channel, projected
-/// from the exact Fava observation that currently owns the Row. Fava applies
-/// replacement and NIP-40 removal before this value reaches Mosaico.
+/// from the exact Nostr runtime subscription level. Nostr runtime applies replacement and
+/// NIP-40 removal before this value reaches Mosaico.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub pubkey: String,
@@ -114,7 +100,7 @@ pub struct Status {
     pub expiration: u64,
 }
 
-/// A verbatim relay event projected from Fava's current delivered Rows.
+/// A verbatim relay event projected from Nostr runtime's current subscription level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayEvent {
     pub id: String,
@@ -127,7 +113,7 @@ pub struct RelayEvent {
     pub tags_json: String,
 }
 
-/// Current kind:9 row projected from Fava. The author's pubkey is the sole
+/// Current kind:9 row projected from Nostr runtime. The author's pubkey is the sole
 /// sender identity; Mosaico does not persist message history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
@@ -146,7 +132,7 @@ pub struct MessageRecipient {
     pub recipient_pubkey: String,
 }
 
-/// One current NIP-25 reaction plus the target body projected from Fava.
+/// One current NIP-25 reaction plus the target body projected from Nostr runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReactionRow {
     pub reaction_id: String,
@@ -155,7 +141,7 @@ pub struct ReactionRow {
     pub reactor_pubkey: String,
     pub emoji: String,
     pub created_at: u64,
-    /// The reacted-to message body from the same Fava view. Reactions whose
+    /// The reacted-to message body from the same Nostr runtime view. Reactions whose
     /// target is absent are excluded from `ReactionRow` queries.
     pub target_body: String,
 }
@@ -243,6 +229,7 @@ mod inbox;
 mod mcp_actors;
 mod members;
 mod message_search;
+mod nip29_view;
 mod session_signers;
 pub(crate) use message_search::{
     MessageSearchHit, MessageSearchPosition, MessageSearchQuery, MESSAGE_SEARCH_DEFAULT_LIMIT,
@@ -250,7 +237,7 @@ pub(crate) use message_search::{
 };
 mod messages;
 mod native_turn_attempts;
-mod observed_decode;
+mod relay_decode;
 pub use native_turn_attempts::{
     FinishNativeTurnAttempt, NativeTurnAttempt, NativeTurnDeliveryKind, NativeTurnOutcome,
     NewNativeTurnAttempt,
@@ -265,11 +252,11 @@ pub(crate) use reader::StoreReader;
 pub mod receipts;
 mod retention;
 pub use retention::{RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS};
-mod session_coaching;
 mod session_context;
 mod session_cursor;
 mod session_lifecycle;
 mod session_native;
+mod session_notice;
 mod session_recovery;
 pub use session_lifecycle::HEADLESS_IDLE_TIMEOUT_SECS;
 mod session_resume;
@@ -284,5 +271,9 @@ pub use session_ty::{
 };
 mod sessions;
 mod status;
+#[cfg(test)]
+mod test_snapshots;
+#[cfg(test)]
+pub(crate) use test_snapshots::{TestGroup, TestGroupDelivery, TestRelayDelivery};
 #[cfg(test)]
 mod tests;

@@ -63,7 +63,7 @@ mod tests {
         let path = dir.path().join("config.json");
         std::fs::write(
             &path,
-            r#"{"version":3,"backendName":"test","relays":["wss://relay.example"]}"#,
+            r#"{"version":3,"backendName":"test","relay":"wss://relay.example"}"#,
         )
         .unwrap();
 

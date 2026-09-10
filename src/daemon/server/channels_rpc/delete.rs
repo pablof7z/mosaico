@@ -46,8 +46,8 @@ pub(in crate::daemon::server) async fn delete_channel(
 
     let mgmt_keys = state.backend_keys();
     let event_id = state
-        .fava()
-        .publish_delete_group_and_wait(channel, mgmt_keys.public_key())
+        .provider()
+        .publish_group_delete(channel, &mgmt_keys)
         .await?
         .to_hex();
 

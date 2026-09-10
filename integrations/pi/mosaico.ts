@@ -14,19 +14,21 @@ export default async function mosaico(pi: ExtensionAPI) {
   let pump: DeliveryPump | undefined
   registerMosaicoCommand(pi)
   registerMosaicoTools(pi)
-  await installMosaicoPanel(pi)
 
   pi.on("session_start", async (_event, ctx) => {
     if (await register(ctx)) {
-      pump = new DeliveryPump(pi, ctx)
-      pump.start()
+      pump ??= new DeliveryPump(pi, ctx)
+      await pump.start()
     }
     await paintSessionStatus(ctx)
   })
 
   pi.on("before_agent_start", async (event, ctx) => {
     const registered = await register(ctx)
-    if (registered) pump?.start()
+    if (registered) {
+      pump ??= new DeliveryPump(pi, ctx)
+      await pump.start()
+    }
     const context = registered
       ? await turnContext("turn_start", ctx, { prompt: event.prompt })
       : fabricUnavailable()
@@ -75,6 +77,8 @@ export default async function mosaico(pi: ExtensionAPI) {
     }, AbortSignal.timeout(HOOK_TIMEOUT_MS)).catch(() => undefined)
     clearSessionStatus(ctx)
   })
+
+  await installMosaicoPanel(pi)
 }
 
 async function register(ctx: ExtensionContext): Promise<boolean> {

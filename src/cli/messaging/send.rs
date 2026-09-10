@@ -33,8 +33,7 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         "wait_intent": wait_intent,
     }));
     let v = daemon_call_async("channel_send", params).await?;
-    super::notices::print_recipient_reminders(&v)?;
-    super::notices::print_send_coaching(&v)?;
+    super::notices::print_send_notices(&v)?;
     if let Some(timeout_secs) = wait {
         return super::wait::wait_for_reply(&v, timeout_secs, session).await;
     }

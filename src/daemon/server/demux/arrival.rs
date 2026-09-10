@@ -1,4 +1,4 @@
-//! Durable product-local ordering before a Fava row enters product dispatch.
+//! Durable product-local ordering before a Nostr runtime row enters product dispatch.
 
 use std::time::Duration;
 
@@ -10,25 +10,25 @@ const INITIAL_RETRY: Duration = Duration::from_millis(25);
 const MAX_RETRY: Duration = Duration::from_secs(1);
 
 /// Record the host-local arrival fence before any fallible or observable
-/// product handling. A storage outage backpressures this one serialized demux
-/// instead of silently dropping a Row that Fava already delivered.
-pub(super) async fn record_before_dispatch(state: &Arc<DaemonState>, event_id: &str) -> u64 {
+/// product handling. Returns whether this is the first durable local arrival;
+/// replay-safe handlers still run for older rows so incomplete claims recover.
+pub(super) async fn record_before_dispatch(state: &Arc<DaemonState>, event_id: &str) -> bool {
     retry(event_id, || {
-        state.with_store(|store| store.record_event_arrival(event_id))
+        state.with_store(|store| store.claim_event_arrival(event_id))
     })
     .await
 }
 
-async fn retry(event_id: &str, mut record: impl FnMut() -> Result<u64>) -> u64 {
+async fn retry(event_id: &str, mut record: impl FnMut() -> Result<(u64, bool)>) -> bool {
     let mut failures = 0_u64;
     let mut delay = INITIAL_RETRY;
     loop {
         match record() {
-            Ok(sequence) => {
+            Ok((sequence, first_arrival)) => {
                 if failures > 0 {
-                    tracing::info!(%event_id, failures, sequence, "local Fava arrival cursor recovered");
+                    tracing::info!(%event_id, failures, sequence, "local Nostr runtime arrival cursor recovered");
                 }
-                return sequence;
+                return first_arrival;
             }
             Err(error) => {
                 failures = failures.saturating_add(1);
@@ -38,7 +38,7 @@ async fn retry(event_id: &str, mut record: impl FnMut() -> Result<u64>) -> u64 {
                         failures,
                         retry_ms = delay.as_millis(),
                         %error,
-                        "local Fava arrival cursor unavailable; product dispatch is paused"
+                        "local Nostr runtime arrival cursor unavailable; product dispatch is paused"
                     );
                 }
             }
@@ -55,16 +55,16 @@ mod tests {
     #[tokio::test]
     async fn transient_failure_retries_before_product_dispatch_can_continue() {
         let mut attempts = 0_u8;
-        let sequence = retry("event", || {
+        let first_arrival = retry("event", || {
             attempts += 1;
             if attempts == 1 {
                 anyhow::bail!("injected storage outage");
             }
-            Ok(7)
+            Ok((7, true))
         })
         .await;
 
-        assert_eq!(sequence, 7);
+        assert!(first_arrival);
         assert_eq!(attempts, 2);
     }
 }

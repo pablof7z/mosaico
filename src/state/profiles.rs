@@ -1,22 +1,41 @@
-//! Profile reads projected from the retained kind:0 profile feed (mosaico#837).
+//! Profile reads projected from the complete current NIP-29 view.
 //!
 //! The feed holds only the current member set's kind:0 rows (one retained
 //! `authors:[members]` observation), not a union of all stored events. The
 //! profile-list and resolve surface reads it directly; `get_profile` reads it
-//! by pubkey. No `ObservedViews` mirror read is involved.
+//! by pubkey.
 
 use super::*;
 use crate::idref;
 
 impl Store {
+    pub(crate) fn current_profiles(&self) -> Vec<Profile> {
+        #[cfg(test)]
+        if let Some(delivery) = self
+            .test_snapshots
+            .read()
+            .expect("test snapshots poisoned")
+            .relay
+            .as_ref()
+        {
+            return delivery.profiles.clone();
+        }
+        self.nip29_view
+            .as_ref()
+            .map(|view| view.profiles())
+            .unwrap_or_default()
+    }
+
     pub fn get_profile(&self, pubkey: &str) -> Result<Option<Profile>> {
-        Ok(self.profile_feed.profile(pubkey))
+        Ok(self
+            .current_profiles()
+            .into_iter()
+            .find(|profile| profile.pubkey == pubkey))
     }
 
     pub fn list_backend_profiles(&self) -> Result<Vec<Profile>> {
         let mut profiles = self
-            .profile_feed
-            .all_profiles()
+            .current_profiles()
             .into_iter()
             .filter(|profile| profile.is_backend)
             .collect::<Vec<_>>();
@@ -28,8 +47,7 @@ impl Store {
     pub fn resolve_agent_pubkey(&self, slug: &str, host: &str) -> Result<Option<String>> {
         let name = idref::agent_label(slug, host);
         let mut matches = self
-            .profile_feed
-            .all_profiles()
+            .current_profiles()
             .into_iter()
             .filter(|profile| {
                 !profile.is_backend
@@ -46,8 +64,7 @@ impl Store {
     pub fn resolve_profile_handle_pubkey(&self, handle: &str) -> Result<Option<String>> {
         let handle = handle.trim();
         let mut matches = self
-            .profile_feed
-            .all_profiles()
+            .current_profiles()
             .into_iter()
             .filter(|profile| {
                 !profile.is_backend
@@ -67,8 +84,7 @@ impl Store {
 
     pub fn pubkey_for_backend_label(&self, label: &str) -> Result<Option<String>> {
         let mut matches = self
-            .profile_feed
-            .all_profiles()
+            .current_profiles()
             .into_iter()
             .filter(|profile| profile.is_backend && profile.host == label)
             .map(|profile| profile.pubkey)
@@ -79,8 +95,9 @@ impl Store {
 
     pub fn resolve_slug_for_pubkey(&self, pubkey: &str) -> Result<Option<String>> {
         Ok(self
-            .profile_feed
-            .profile(pubkey)
+            .current_profiles()
+            .into_iter()
+            .find(|profile| profile.pubkey == pubkey)
             .map(|profile| {
                 idref::session_handle_from_profile_name(&profile.slug, &profile.agent_slug)
             })

@@ -5,8 +5,8 @@ use crate::util::CHANNEL_MESSAGE_CHAR_LIMIT;
 use anyhow::bail;
 
 mod body;
-mod coaching;
 mod mention_guard;
+mod notice;
 mod params;
 mod react;
 mod recipient;
@@ -15,7 +15,7 @@ mod reply;
 mod self_target;
 #[cfg(test)]
 mod tests;
-mod unhosted_coaching;
+mod unhosted_notice;
 pub(in crate::daemon::server) use params::caller_params;
 pub(in crate::daemon::server) use react::rpc_channel_react;
 pub(in crate::daemon::server) use recipient::resolve_recipient;
@@ -146,8 +146,8 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         .iter()
         .map(|target| target.label.clone())
         .collect::<Vec<_>>();
-    let recipient_reminders =
-        state.with_store(|store| recipient_notice::suspension_reminders(store, &tagged))?;
+    let suspension_notices =
+        state.with_store(|store| recipient_notice::suspension_notices(store, &tagged))?;
     let publish_scope = chat_publish_scope(
         &destination,
         pinned_destination.as_deref(),
@@ -156,7 +156,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     let ambient_prefix_notice = if p.tags.is_empty() && !p.force {
         let backend_pubkey = state.backend_pubkey();
         match state.with_store(|store| {
-            coaching::untagged_agent_prefix(
+            notice::untagged_agent_prefix(
                 store,
                 &p.message,
                 &publish_scope,
@@ -164,9 +164,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
                 &backend_pubkey,
             )
         }) {
-            Ok(notice) => notice,
+            Ok(n) => n,
             Err(error) => {
-                tracing::debug!(%error, "optional untagged-recipient coaching unavailable");
+                tracing::debug!(%error, "optional untagged-recipient notice unavailable");
                 None
             }
         }
@@ -178,14 +178,9 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
     // first upload, so an overlong/unsafe request cannot orphan a Blossom blob.
     let instance = state.session_instance(&rec);
     let chat_signing_keys = state.session_signing_keys(&rec.pubkey)?;
-    let relays = &state.config().relays;
-    let uploaded_attachments = crate::attachment::upload_all(
-        &p.attachments,
-        relays,
-        &state.fava(),
-        chat_signing_keys.public_key(),
-    )
-    .await?;
+    let relays = vec![state.config().relay];
+    let uploaded_attachments =
+        crate::attachment::upload_all(&p.attachments, &relays, &chat_signing_keys).await?;
     let formatted = body::format_tagged_body(&prepared_message, &tagged)?;
     let body_to_send = formatted.wire;
     let chat = ChatMessage {
@@ -216,7 +211,7 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         }
     };
     // Publish acceptance is not observation. Keep only the product-local file
-    // path here; the Fava Added row is the sole trigger for message routing.
+    // path here; the Nostr runtime Added row is the sole trigger for message routing.
     persist_attachment_directory(&event_id, || match local_directory.as_ref() {
         Some(directory) => {
             state.with_store(|store| store.set_message_attachment_dir(&event_id, directory))
@@ -226,17 +221,17 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
 
     let channel_ref = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &publish_scope))?;
-    let mut coaching = Vec::new();
+    let mut notices = Vec::new();
     if let Some(label) = formatted.stripped_label {
-        coaching.push(coaching::redundant_prefix(label));
+        notices.push(notice::redundant_prefix(label));
     }
-    if let Some(notice) = coaching::ack_like(&formatted.message) {
-        coaching.push(notice);
+    if let Some(n) = notice::ack_like(&formatted.message) {
+        notices.push(n);
     }
-    if let Some(notice) = ambient_prefix_notice {
-        coaching.push(notice);
+    if let Some(n) = ambient_prefix_notice {
+        notices.push(n);
     }
-    coaching.extend(unhosted_coaching::notices(
+    notices.extend(unhosted_notice::notices(
         state,
         &rec,
         &publish_scope,
@@ -244,12 +239,15 @@ pub(in crate::daemon::server) async fn rpc_channel_send(
         p.wait_intent,
         now_secs(),
     ));
-    Ok(serde_json::json!({
+    notices.extend(suspension_notices);
+    let mut result = serde_json::json!({
         "event_id": event_id,
         "channel": channel_ref,
         "mentioned_pubkeys": mentioned_pubkeys,
         "mentioned_labels": mentioned_labels,
-        "recipient_reminders": recipient_reminders,
-        "coaching": coaching,
-    }))
+    });
+    if !notices.is_empty() {
+        result["notices"] = serde_json::json!(notices);
+    }
+    Ok(result)
 }

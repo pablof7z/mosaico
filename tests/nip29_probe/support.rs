@@ -1,4 +1,4 @@
-use crate::fava_client::FavaRelayClient;
+use crate::nostr_client::NostrRelayClient;
 use nostr::event::{Event, EventBuilder, FinalizeEvent as _, Kind, Tag};
 use nostr::filter::Filter;
 use nostr::key::Keys;
@@ -28,15 +28,15 @@ pub(crate) fn h_tag(slug: &str) -> Tag {
     Tag::parse(["h", slug]).unwrap()
 }
 
-pub(crate) async fn connect(keys: Keys, relay: &str) -> FavaRelayClient {
-    FavaRelayClient::connect(keys, relay)
+pub(crate) async fn connect(keys: Keys, relay: &str) -> NostrRelayClient {
+    NostrRelayClient::connect(keys, relay)
         .await
-        .expect("connect Fava relay client")
+        .expect("connect Nostr relay client")
 }
 
 /// Publish a pre-signed event over `client`; report and return whether the relay
 /// accepted it (best-effort: inspect Output, fall back to readback by caller).
-pub(crate) async fn publish(client: &FavaRelayClient, signed: &Event, label: &str) -> bool {
+pub(crate) async fn publish(client: &NostrRelayClient, signed: &Event, label: &str) -> bool {
     match client.send_event(signed).await {
         Ok(out) => {
             let ok = !out.success.is_empty();
@@ -53,7 +53,7 @@ pub(crate) async fn publish(client: &FavaRelayClient, signed: &Event, label: &st
     }
 }
 
-pub(crate) async fn fetch(client: &FavaRelayClient, filter: Filter, label: &str) -> Vec<Event> {
+pub(crate) async fn fetch(client: &NostrRelayClient, filter: Filter, label: &str) -> Vec<Event> {
     let evs = client
         .fetch_events(filter, Duration::from_secs(5))
         .await
@@ -79,7 +79,7 @@ pub(crate) async fn fetch(client: &FavaRelayClient, filter: Filter, label: &str)
 /// returns false when the relay stays throttled so the probe can skip.
 pub(crate) async fn create_group_with_retry(
     admin: &Keys,
-    admin_c: &FavaRelayClient,
+    admin_c: &NostrRelayClient,
     slug: &str,
 ) -> bool {
     for (attempt, backoff_s) in [2u64, 5, 12].into_iter().enumerate() {
@@ -113,7 +113,7 @@ pub(crate) async fn create_group_with_retry(
 }
 
 pub(crate) async fn group_id_honored(
-    admin_c: &FavaRelayClient,
+    admin_c: &NostrRelayClient,
     slug: &str,
     created_ok: bool,
 ) -> bool {

@@ -21,7 +21,7 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
         wait_until(std::time::Duration::from_secs(25), || {
             observed_channel_members("#tmp").is_some()
         }),
-        "concurrent RPC fixture requires a Fava-observed #tmp root"
+        "concurrent RPC fixture requires a Nostr runtime-observed #tmp root"
     );
 
     // Start one session, then 16 concurrent clients hammer write-RPCs
@@ -42,7 +42,7 @@ fn sixteen_concurrent_writers_no_corruption_single_writer() {
         wait_until(std::time::Duration::from_secs(25), || {
             observed_channel_has_role("#tmp", &pubkey, "member")
         }),
-        "concurrent RPC load must start only after Fava delivers the session roster"
+        "concurrent RPC load must start only after Nostr runtime delivers the session roster"
     );
 
     let n = 16;

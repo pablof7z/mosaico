@@ -68,7 +68,7 @@ test("registers Pi's native identity and injects context through the daemon UDS"
     assert.equal(start.params.observed_harness, "pi")
     assert.deepEqual(
       daemon.requests.map(request => request.method).filter(method => method !== "session_delivery_wait"),
-      ["session_start", "session_start", "turn_start", "turn_end"],
+      ["session_start", "session_delivery_open", "session_start", "turn_start", "turn_end"],
     )
   } finally {
     await shutdown(pi)
@@ -104,8 +104,33 @@ test("a manually launched Pi ignores inherited parent-host identity but remains 
     assert.equal(start.params.agent, "pi")
     assert.equal(start.params.admitted_transport, "")
     assert.equal("pubkey" in start.params, false)
+    assert.ok(daemon.requests.some(request => request.method === "session_delivery_open"))
     await pi.handlers.get("agent_settled")({}, context)
     assert.ok(daemon.requests.some(request => request.method === "turn_end"))
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("a Pi extension establishes its wake path after daemon registration recovers", async () => {
+  let starts = 0
+  const daemon = await daemonFixture(frame => {
+    if (frame.method === "session_start" && starts++ === 0) {
+      return { error: { code: "rpc_error", message: "temporarily unavailable" } }
+    }
+    if (frame.method === "turn_start") return { ok: { context: "" } }
+    return holdDeliveryWait(frame) || { ok: { pubkey: "manual-pubkey" } }
+  })
+  const pi = await install()
+  try {
+    await pi.handlers.get("session_start")({}, context)
+    assert.equal(daemon.requests.some(request => request.method === "session_delivery_open"), false)
+
+    await pi.handlers.get("before_agent_start")({ prompt: "hello" }, context)
+
+    assert.ok(daemon.requests.some(request => request.method === "session_delivery_open"))
+    await eventually(() => assert.ok(daemon.requests.some(request => request.method === "session_delivery_wait")))
   } finally {
     await shutdown(pi)
     await daemon.close()

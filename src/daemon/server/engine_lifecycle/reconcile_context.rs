@@ -44,12 +44,15 @@ pub(super) async fn restore_routes(state: &Arc<DaemonState>, session: &Session, 
         }
         let gate = state
             .provider()
-            .ensure_channel_ready(ChannelCtx {
-                channel,
-                expect_member: &session.pubkey,
-                parent_hint: parent_hint.as_deref(),
-                name: None,
-            })
+            .ensure_channel_ready(
+                ChannelCtx {
+                    channel,
+                    expect_member: &session.pubkey,
+                    parent_hint: parent_hint.as_deref(),
+                    name: None,
+                },
+                &state.backend_keys(),
+            )
             .await;
         if let ChannelGate::Degraded(error) = gate {
             tracing::warn!(

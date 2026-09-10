@@ -208,7 +208,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
             observed_channel_members("#root-chat-channel").is_some()
                 && observed_channel_members("#other-chat-channel").is_some()
         }),
-        "both ambiguous destination roots must first be delivered through Fava"
+        "both ambiguous destination roots must first be delivered through Nostr runtime"
     );
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();

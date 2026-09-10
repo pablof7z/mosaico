@@ -5,7 +5,7 @@
 //! hosts integrate from the outside via the CLI, hooks, and a skill.
 //!
 //! Layering, each knowing only what is below it:
-//!   cli -> runtime -> { domain, codec, Fava, state }
+//!   cli -> runtime -> { domain, Nostr, state }
 //!   config / identity / channel are leaf utilities.
 
 mod agent_about;
@@ -29,8 +29,8 @@ pub(crate) mod delivery_seam;
 pub mod domain;
 pub mod explain;
 mod fabric_context;
-mod fava_host;
 mod goose_integration;
+mod group_projection;
 mod group_snapshot;
 pub mod harness;
 pub(crate) mod host_env;
@@ -40,11 +40,8 @@ pub mod injection;
 pub mod instrument;
 pub(crate) mod liveness;
 pub mod logging;
-mod observed_views;
+mod nostr_runtime;
 pub mod profile;
-#[allow(dead_code)]
-mod recent_rows;
-mod row;
 mod secret_scrub;
 pub mod session;
 pub(crate) mod session_presence;

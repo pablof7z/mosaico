@@ -1,12 +1,9 @@
 //! Mosaico's local projection of relay-authoritative group records.
 //!
-//! These product-facing values are decoded from Fava snapshots via
-//! `fava_simple_groups`; protocol replacement and relay-union rules remain in
-//! those owning layers.
+//! These product-facing values are decoded from a complete current Nostr level.
 
 use std::collections::BTreeSet;
 
-use fava_simple_groups::{SimpleGroupAdmins, SimpleGroupMembers};
 use nostr::event::Event;
 use nostr::key::PublicKey;
 
@@ -18,10 +15,6 @@ use nostr::key::PublicKey;
 pub enum GroupAvailability {
     /// Relay-live records arrived; the snapshot reflects current relay state.
     Ready,
-    /// Only cached records are available; no live relay delivery yet.
-    CachedOnly,
-    /// Relay demand is being established; no delivery yet.
-    Acquiring,
 }
 
 // ------------------------------------------------------------------ subjects
@@ -100,27 +93,22 @@ pub struct GroupSnapshot {
 
 // ------------------------------------------------------------ decode helpers
 
-/// Decode a fava `QuerySnapshot` into `Vec<GroupSnapshot>`.
+/// Decode one complete relay-authored group-record level into product values.
 ///
 /// `group_ids` restricts which `d` values are included (empty = all).
 /// `default_av` is used when relay EOSE is not yet complete.
 pub(crate) fn decode_snapshots(
-    snapshot: &fava::QuerySnapshot,
+    events: &[Event],
     group_ids: &BTreeSet<String>,
     default_av: GroupAvailability,
 ) -> Vec<GroupSnapshot> {
-    use fava::EventValue;
     use std::collections::BTreeMap;
 
     let mut metadata_map: BTreeMap<String, Event> = BTreeMap::new();
     let mut admins_map: BTreeMap<String, Event> = BTreeMap::new();
     let mut members_map: BTreeMap<String, Event> = BTreeMap::new();
 
-    for record in snapshot.events.iter() {
-        let event = match record.event() {
-            EventValue::Signed(e) => e,
-            EventValue::Unsigned(_) => continue,
-        };
+    for event in events {
         let kind = event.kind.as_u16();
         let d = match d_tag(event) {
             Some(d) => d.to_string(),
@@ -145,11 +133,7 @@ pub(crate) fn decode_snapshots(
         all_ids.retain(|id| group_ids.contains(id));
     }
 
-    let av = if snapshot.evidence.all_relays_stored_events_complete() {
-        GroupAvailability::Ready
-    } else {
-        default_av
-    };
+    let av = default_av;
 
     all_ids
         .into_iter()
@@ -170,19 +154,6 @@ pub(crate) fn decode_snapshots(
         .collect()
 }
 
-/// Classify availability from fava query evidence.
-pub(crate) fn availability_from_evidence(
-    evidence: &fava_query::QueryEvidence,
-) -> GroupAvailability {
-    if evidence.all_relays_stored_events_complete() {
-        GroupAvailability::Ready
-    } else if evidence.relays.is_empty() {
-        GroupAvailability::CachedOnly
-    } else {
-        GroupAvailability::Acquiring
-    }
-}
-
 fn insert_latest(map: &mut std::collections::BTreeMap<String, Event>, key: String, event: Event) {
     map.entry(key)
         .and_modify(|existing| {
@@ -198,21 +169,22 @@ fn decode_admins(event: Option<&Event>) -> Vec<ListedSubject> {
         Some(e) => e,
         None => return Vec::new(),
     };
-    let fava_event = fava::EventValue::Signed(event.clone());
-    SimpleGroupAdmins::from_event(&fava_event)
-        .ok()
-        .map(|decoded| {
-            decoded
-                .admins()
-                .iter()
-                .filter_map(|entry| entry.as_ref().ok())
-                .filter_map(|(key_hex, roles)| {
-                    let pubkey = nostr::key::PublicKey::from_hex(key_hex).ok()?;
-                    Some(ListedSubject::new(pubkey, roles.clone()))
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let tag = tag.as_slice();
+            (tag.first().map(String::as_str) == Some("p"))
+                .then(|| {
+                    nostr::key::PublicKey::from_hex(tag.get(1)?)
+                        .ok()
+                        .map(|pubkey| {
+                            ListedSubject::new(pubkey, tag.iter().skip(2).cloned().collect())
+                        })
                 })
-                .collect()
+                .flatten()
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn decode_members(event: Option<&Event>) -> Vec<ListedSubject> {
@@ -220,21 +192,20 @@ fn decode_members(event: Option<&Event>) -> Vec<ListedSubject> {
         Some(e) => e,
         None => return Vec::new(),
     };
-    let fava_event = fava::EventValue::Signed(event.clone());
-    SimpleGroupMembers::from_event(&fava_event)
-        .ok()
-        .map(|decoded| {
-            decoded
-                .members()
-                .iter()
-                .filter_map(|entry| entry.as_ref().ok())
-                .filter_map(|key_hex| {
-                    let pubkey = nostr::key::PublicKey::from_hex(key_hex).ok()?;
-                    Some(ListedSubject::new(pubkey, Vec::new()))
+    event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let tag = tag.as_slice();
+            (tag.first().map(String::as_str) == Some("p"))
+                .then(|| {
+                    nostr::key::PublicKey::from_hex(tag.get(1)?)
+                        .ok()
+                        .map(|pubkey| ListedSubject::new(pubkey, Vec::new()))
                 })
-                .collect()
+                .flatten()
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 fn d_tag(event: &Event) -> Option<&str> {

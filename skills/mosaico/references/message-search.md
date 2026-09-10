@@ -1,7 +1,7 @@
 # Message search
 
-Use `mosaico channel search` to find messages in the daemon's current retained
-Fava observation. Search never opens a second query or backfills from the relay,
+Use `mosaico channel search` to find messages in the daemon's current decoded
+NIP-29 view. Search never opens a second query or backfills from the relay,
 so a missing result means only that no matching message is present in the
 currently delivered rows.
 
@@ -19,7 +19,7 @@ There is no workspace filter. A workspace root is an ordinary channel path, so
 `--channel '#fava'` searches that root and its descendants.
 
 Do not add a local permission check before searching. NIP-29 relay policy owns
-admission and authorization. Once messages have been delivered by Fava to the
+admission and authorization. Once messages have reached the current view on the
 current backend, channel and workspace paths are query scopes rather than
 separate local visibility boundaries.
 

@@ -171,8 +171,7 @@ prepare_state() {
     cat >"${STATE_DIR}/mosaico/config.json" <<JSON
 {
   "whitelistedPubkeys": [],
-  "relays": ["wss://relay.tenex.chat"],
-  "indexerRelay": "wss://relay.tenex.chat",
+  "relay": "wss://relay.tenex.chat",
   "backendName": "container-${PROFILE}"
 }
 JSON

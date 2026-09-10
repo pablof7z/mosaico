@@ -20,7 +20,7 @@ pub(in crate::daemon::server) fn engine_params_for(
         rel_cwd: rel_cwd.to_string(),
         dispatch_event,
         owners: cfg.whitelisted_pubkeys.clone(),
-        relays: cfg.relays.clone(),
+        relays: vec![cfg.relay.clone()],
         watch_pid,
         store_path: store_path(),
         presence_lease_interval: env_duration(

@@ -3,13 +3,12 @@ use super::*;
 use crate::state::{Profile, RelayEvent, Store, TestGroup, TestGroupDelivery, TestRelayDelivery};
 
 fn topology() -> Store {
-    topology_with_records(None, None, None)
+    topology_with_records(None, None)
 }
 
 fn topology_with_records(
     own_admins: Option<Vec<String>>,
     own_members: Option<Vec<String>>,
-    acquiring_alpha_members: Option<Vec<String>>,
 ) -> Store {
     let store = Store::open_memory().unwrap();
     let mut own = TestGroup::new("own").metadata("general", "Primary workspace", "", 1);
@@ -19,12 +18,7 @@ fn topology_with_records(
     if let Some(members) = own_members {
         own = own.members(members);
     }
-    let mut alpha = TestGroup::new("alpha-h").metadata("alpha", "Alpha work", "own", 2);
-    if let Some(members) = acquiring_alpha_members {
-        alpha = alpha
-            .members(members)
-            .availability(crate::group_snapshot::GroupAvailability::Acquiring);
-    }
+    let alpha = TestGroup::new("alpha-h").metadata("alpha", "Alpha work", "own", 2);
     store.install_test_group_delivery(TestGroupDelivery::new([
         own,
         alpha,
@@ -116,7 +110,7 @@ fn recursive_view_expands_unjoined_roots_without_opaque_ids() {
 }
 
 #[test]
-fn counts_named_agents_only_when_group_state_is_available() {
+fn counts_named_agents_from_the_retained_group_level() {
     let store = topology_with_records(
         Some(vec!["backend-pk".into(), "unknown-admin".into()]),
         Some(vec![
@@ -124,10 +118,7 @@ fn counts_named_agents_only_when_group_state_is_available() {
             "human-pk".into(),
             "backend-pk".into(),
         ]),
-        Some(vec!["agent-pk".into()]),
     );
-    // Fava reports the child group as still acquiring, so its member count is
-    // not yet a complete product fact.
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles([
@@ -181,13 +172,14 @@ fn counts_named_agents_only_when_group_state_is_available() {
     let root = &view.sections[0].channels[0];
     assert_eq!(root.agents, Some(1));
     assert_eq!(root.last_activity.as_deref(), Some("1 min ago"));
-    assert_eq!(root.children[0].agents, None);
+    assert_eq!(root.children[0].agents, Some(0));
 
     let json = serde_json::to_value(view).unwrap();
     assert_eq!(json["sections"][0]["channels"][0]["agents"], 1);
-    assert!(json["sections"][0]["channels"][0]["children"][0]
-        .get("agents")
-        .is_none());
+    assert_eq!(
+        json["sections"][0]["channels"][0]["children"][0]["agents"],
+        0
+    );
 }
 
 #[test]
@@ -208,7 +200,7 @@ fn compact_empty_root_has_no_zero_subchannel_suffix() {
 
 #[test]
 fn hydrated_roster_with_an_unclassified_identity_omits_the_agent_count() {
-    let store = topology_with_records(Some(Vec::new()), Some(vec!["unknown-pk".into()]), None);
+    let store = topology_with_records(Some(Vec::new()), Some(vec!["unknown-pk".into()]));
 
     let view = build(&store, ListMode::Workspace("own".into()), 10, "").unwrap();
     assert_eq!(view.sections[0].channels[0].agents, None);

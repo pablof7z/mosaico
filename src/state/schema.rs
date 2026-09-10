@@ -1,5 +1,5 @@
 //! The stamped persistence schema.
-//! NIP-29 group metadata and rosters are deliberately absent: Fava owns those
+//! NIP-29 group metadata and rosters are deliberately absent: Nostr runtime owns those
 //! views. Remaining `relay_*` migrations are independent. Local tables are
 //! non-rebuildable daemon state:
 //! runtime bindings and locators, inbox, event claims, channel

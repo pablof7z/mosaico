@@ -1,15 +1,17 @@
-//! Session-status reads projected from the current Fava row delivery.
+//! Session-status reads projected from the current NIP-29 view.
 //!
 //! The slug comes from the status event's own `slug` tag. A session that omitted
-//! it is enriched from its kind:0 profile via the retained profile feed (mosaico#837):
-//! the enrichment moved here from `ObservedViews::state_status` so ObservedViews no longer
-//! reads kind:0 from the mirror.
+//! it is enriched from its kind:0 profile in the complete profile view: the
+//! enrichment reads the stable exact-author demand alongside the status level.
 
 use super::*;
 
 impl Store {
     pub fn get_status(&self, pubkey: &str, channel_h: &str) -> Result<Option<Status>> {
-        let mut status = self.observed_views.status(pubkey, channel_h);
+        let mut status = self
+            .statuses()
+            .into_iter()
+            .find(|status| status.pubkey == pubkey && status.channel_h == channel_h);
         if let Some(status) = status.as_mut() {
             self.enrich_status_slug(status);
         }
@@ -17,7 +19,11 @@ impl Store {
     }
 
     pub fn statuses_in_channel(&self, channel_h: &str) -> Result<Vec<Status>> {
-        let mut statuses = self.observed_views.statuses_in_channel(channel_h);
+        let mut statuses = self
+            .statuses()
+            .into_iter()
+            .filter(|status| status.channel_h == channel_h)
+            .collect::<Vec<_>>();
         for status in statuses.iter_mut() {
             self.enrich_status_slug(status);
         }
@@ -29,7 +35,12 @@ impl Store {
         agent: Option<&str>,
         since: Option<u64>,
     ) -> Result<Vec<Status>> {
-        let mut statuses = self.observed_views.statuses(agent, since);
+        let mut statuses = self
+            .statuses()
+            .into_iter()
+            .filter(|status| agent.is_none_or(|agent| status.slug == agent))
+            .filter(|status| since.is_none_or(|since| status.updated_at >= since))
+            .collect::<Vec<_>>();
         for status in statuses.iter_mut() {
             self.enrich_status_slug(status);
         }
@@ -37,11 +48,14 @@ impl Store {
     }
 
     /// Fill a status's slug from its kind:0 profile when the status event omitted
-    /// the `slug` tag. Replaces the `ObservedViews::state_status` profile fallback that
-    /// read the mirror; the retained profile feed is the single kind:0 source.
+    /// the `slug` tag. The complete profile view is the single kind:0 source.
     fn enrich_status_slug(&self, status: &mut Status) {
         if status.slug.is_empty() {
-            if let Some(profile) = self.profile_feed.profile(&status.pubkey) {
+            if let Some(profile) = self
+                .current_profiles()
+                .into_iter()
+                .find(|profile| profile.pubkey == status.pubkey)
+            {
                 status.slug = profile.slug;
             }
         }

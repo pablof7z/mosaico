@@ -11,8 +11,7 @@ fn parses_real_tenex_shape_with_camelcase() {
     let c = Config::from_json_str(json, "fallback").unwrap();
     assert_eq!(c.whitelisted_pubkeys, vec!["aa", "bb"]);
     assert_eq!(c.host, "pablos' laptop");
-    assert!(c.relays.is_empty());
-    assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY);
+    assert!(c.relay.is_empty());
     assert_eq!(c.mosaico_private_key.as_deref(), Some("deadbeef"));
     assert_eq!(c.session_ikm_nsec().map(String::as_str), Some("deadbeef"));
     assert_eq!(c.management_nsec().map(String::as_str), Some("deadbeef"));
@@ -45,13 +44,12 @@ fn user_nsec_alone_is_not_a_management_key() {
 }
 
 #[test]
-fn explicit_relays_win_and_host_falls_back() {
-    let json = r#"{"whitelistedPubkeys":[],"relays":["wss://r1","wss://r2"]}"#;
+fn explicit_relay_wins_and_host_falls_back() {
+    let json = r#"{"whitelistedPubkeys":[],"relay":"wss://r1"}"#;
     let c = Config::from_json_str(json, "fallback-host").unwrap();
-    assert_eq!(c.relays, vec!["wss://r1", "wss://r2"]);
+    assert_eq!(c.relay, "wss://r1");
     assert_eq!(c.host, "fallback-host");
     assert!(c.whitelisted_pubkeys.is_empty());
-    assert_eq!(c.indexer_relay, DEFAULT_INDEXER_RELAY);
 }
 
 #[test]
@@ -61,13 +59,6 @@ fn runtime_config_requires_an_explicit_relay() {
 
     assert!(error.contains("externally operated NIP-29 relay"));
     assert!(error.contains("mosaico setup --relay <ws-url>"));
-}
-
-#[test]
-fn custom_indexer_relay() {
-    let json = r#"{"indexerRelay":"wss://my-indexer.example"}"#;
-    let c = Config::from_json_str(json, "host").unwrap();
-    assert_eq!(c.indexer_relay, "wss://my-indexer.example");
 }
 
 #[test]
@@ -124,7 +115,7 @@ fn daemon_upsert_persists_absolute_attachment_directory_and_unknown_fields() {
     let path = home.join("config.json");
     std::fs::write(
         &path,
-        r#"{"relays":["wss://relay.example"],"unknown":{"keep":true}}"#,
+        r#"{"relay":"wss://relay.example","unknown":{"keep":true}}"#,
     )
     .unwrap();
     let mut env = crate::test_env::EnvGuard::set("MOSAICO_HOME", &home);
@@ -147,7 +138,7 @@ fn daemon_upsert_persists_absolute_attachment_directory_and_unknown_fields() {
 
 #[test]
 fn cross_project_boundary_defaults_to_warn_reads_and_deny_writes() {
-    let config = Config::from_json_str(r#"{"relays":["wss://relay.example"]}"#, "host").unwrap();
+    let config = Config::from_json_str(r#"{"relay":"wss://relay.example"}"#, "host").unwrap();
 
     assert_eq!(
         config.cross_project_boundary,
@@ -167,7 +158,7 @@ fn cross_project_boundary_accepts_every_configured_action() {
     ] {
         let body = format!(
             r#"{{
-              "relays":["wss://relay.example"],
+              "relay":"wss://relay.example",
               "agents":{{"behavior":{{"crossProjectBoundary":{{
                 "read":"{value}",
                 "write":"{value}"
@@ -184,7 +175,7 @@ fn cross_project_boundary_accepts_every_configured_action() {
 fn cross_project_boundary_rejects_unknown_actions() {
     let error = Config::from_json_str(
         r#"{
-          "relays":["wss://relay.example"],
+          "relay":"wss://relay.example",
           "agents":{"behavior":{"crossProjectBoundary":{"read":"prompt"}}}
         }"#,
         "host",

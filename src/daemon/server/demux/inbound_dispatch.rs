@@ -5,12 +5,13 @@ use super::*;
 struct Prepared {
     decoded: crate::fabric::ProductDecode,
     now: u64,
+    first_arrival: bool,
 }
 
 /// Decode synchronously, then move only attachment network I/O off the
 /// relay's global demux loop. Routing for that event remains after its files.
-pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event) {
-    let prepared = prepare(state, event);
+pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event, first_arrival: bool) {
+    let prepared = prepare(state, event, first_arrival);
     if attachments::required(&prepared.decoded) {
         let state = state.clone();
         let event = event.clone();
@@ -23,14 +24,7 @@ pub(super) fn dispatch(state: &Arc<DaemonState>, event: &Event) {
     }
 }
 
-#[cfg(test)]
-pub(super) async fn handle_for_test(state: &Arc<DaemonState>, event: &Event) {
-    let prepared = prepare(state, event);
-    attachments::materialize(state, &prepared.decoded, event).await;
-    finish(state, event, prepared);
-}
-
-fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
+fn prepare(state: &Arc<DaemonState>, event: &Event, first_arrival: bool) -> Prepared {
     tracing::debug!(
         kind = event.kind.as_u16(),
         id = %&event.id.to_hex()[..8],
@@ -42,9 +36,16 @@ fn prepare(state: &Arc<DaemonState>, event: &Event) -> Prepared {
     Prepared {
         decoded,
         now: now_secs(),
+        first_arrival,
     }
 }
 
 fn finish(state: &Arc<DaemonState>, event: &Event, prepared: Prepared) {
-    super::finish_incoming(state, event, prepared.decoded, prepared.now);
+    super::finish_incoming(
+        state,
+        event,
+        prepared.decoded,
+        prepared.now,
+        prepared.first_arrival,
+    );
 }

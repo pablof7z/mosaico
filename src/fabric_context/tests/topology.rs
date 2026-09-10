@@ -118,42 +118,6 @@ fn unhydrated_membership_omits_the_agent_count() {
 }
 
 #[test]
-fn an_acquiring_group_never_claims_a_complete_agent_count() {
-    let store = seed_store();
-    let partial_group = || {
-        TestGroup::new("partial-h")
-            .metadata("partial", "Partial roster", "root", 1)
-            .members(pubkeys(&[OTHER_PK]))
-    };
-    store.install_test_group_delivery(TestGroupDelivery::new([
-        root_group(),
-        task_group(),
-        partial_group().availability(crate::group_snapshot::GroupAvailability::Acquiring),
-    ]));
-    assert_eq!(
-        crate::channel_ref::full_channel_ref(&store, "partial-h"),
-        "#root/partial"
-    );
-    let rec = session(&store);
-
-    let partial = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    assert!(partial.contains("#root/partial"), "{partial}");
-    let partial_tag = opening_tag(&partial, "#root/partial");
-    assert!(!partial_tag.contains(" agents="), "{partial_tag}");
-
-    store.install_test_group_delivery(TestGroupDelivery::new([
-        root_group(),
-        task_group(),
-        partial_group().availability(crate::group_snapshot::GroupAvailability::Ready),
-    ]));
-    let complete = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    assert!(
-        opening_tag(&complete, "#root/partial").contains("agents=\"1\""),
-        "{complete}"
-    );
-}
-
-#[test]
 fn hydrated_roster_with_an_unknown_identity_omits_the_agent_count() {
     let store = seed_store();
     store.install_test_group_delivery(TestGroupDelivery::new([

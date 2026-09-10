@@ -1,11 +1,11 @@
 use super::Nip29Provider;
 use anyhow::Result;
 
-/// Exact, short-lived authority returned by one successful Fava group mutation.
+/// Exact, short-lived authority returned by one relay-acknowledged group mutation.
 ///
 /// This is not roster state and is never retained. It only bridges the command
-/// that received Fava's terminal result to the immediately following write
-/// while the daemon's retained observation catches up.
+/// that received the relay acknowledgement to the immediately following write
+/// while the daemon's current view catches up.
 #[derive(Clone, Debug)]
 pub(crate) struct ConfirmedGroupScope {
     channel: String,
@@ -20,7 +20,7 @@ enum ScopeAuthority {
 }
 
 impl ConfirmedGroupScope {
-    pub(crate) fn from_fava_membership(channel: &str, signer: &str) -> Self {
+    pub(crate) fn from_confirmed_membership(channel: &str, signer: &str) -> Self {
         Self {
             channel: channel.to_string(),
             signer: signer.to_string(),
@@ -28,7 +28,7 @@ impl ConfirmedGroupScope {
         }
     }
 
-    pub(crate) fn from_fava_removal(channel: &str, signer: &str) -> Self {
+    pub(crate) fn from_confirmed_removal(channel: &str, signer: &str) -> Self {
         Self {
             channel: channel.to_string(),
             signer: signer.to_string(),
@@ -48,7 +48,7 @@ impl Nip29Provider {
     /// channel state. Creation and membership repair belong exclusively to
     /// explicit create/join flows.
     ///
-    /// Read entirely from the retained Fava group observation. The gate is on
+    /// Read entirely from the current decoded group view. The gate is on
     /// the publish hot path — once per status, chat message and reaction — and
     /// must not pay a second relay read there.
     ///
@@ -84,14 +84,14 @@ mod tests {
 
     #[test]
     fn a_removal_result_can_expire_status_but_never_authorize_live_publication() {
-        let removed = ConfirmedGroupScope::from_fava_removal("channel", "signer");
+        let removed = ConfirmedGroupScope::from_confirmed_removal("channel", "signer");
 
         assert!(removed.permits("channel", "signer", false));
         assert!(!removed.permits("channel", "signer", true));
         assert!(!removed.permits("other", "signer", false));
         assert!(!removed.permits("channel", "other", false));
 
-        let admitted = ConfirmedGroupScope::from_fava_membership("channel", "signer");
+        let admitted = ConfirmedGroupScope::from_confirmed_membership("channel", "signer");
         assert!(admitted.permits("channel", "signer", false));
         assert!(admitted.permits("channel", "signer", true));
     }

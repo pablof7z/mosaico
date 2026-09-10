@@ -250,7 +250,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
         observed_channel_members("#tmp").is_some(),
-        "the durable agent's root channel must be visible through the daemon's Fava view"
+        "the durable agent's root channel must be visible through the daemon's Nostr runtime view"
     );
     for pubkey in [&first_id, &third_id] {
         let session = store.get_session(pubkey).unwrap().unwrap();

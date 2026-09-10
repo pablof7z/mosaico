@@ -18,7 +18,7 @@ fn create_current(conn: &Connection) {
         conn.execute_batch(part).unwrap();
     }
     restore_relay_derived_tables(conn);
-    conn.execute("DROP TABLE session_coaching", []).unwrap();
+    conn.execute("DROP TABLE session_notice", []).unwrap();
 }
 
 fn downgrade_launch_admission_to_v22(conn: &Connection) {
@@ -50,7 +50,7 @@ pub(super) fn downgrade_messages_to_v19(conn: &Connection) {
     downgrade_launch_admission_to_v22(conn);
     restore_relay_group_tables(conn);
     restore_relay_message_tables(conn);
-    conn.execute("DROP TABLE session_coaching", []).unwrap();
+    conn.execute("DROP TABLE session_notice", []).unwrap();
     conn.execute_batch(
         r#"
         DROP INDEX IF EXISTS idx_messages_author_pubkey;

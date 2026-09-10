@@ -151,9 +151,6 @@ pub(super) async fn invite_agent(
         }));
     }
 
-    // A durable (`perSessionKey: false`) agent has one fixed pubkey; if it's
-    // already running (in this channel or another), admit that live session
-    // into `channel_h` instead of racing it with a second launch attempt.
     if let Some(rec) = durable_agent::running_durable_session(state, &target.slug) {
         durable_agent::admit_running_agent(state, &rec, channel_h).await?;
         let online = wait_local_session_online(state, channel_h, &rec.pubkey).await?;
@@ -191,10 +188,7 @@ pub(super) async fn invite_agent(
     }))
 }
 
-/// Cap on the (otherwise unbounded) channel-readiness probe run on the invite
-/// RPC's synchronous path. Without it, an unreachable relay wedges the whole
-/// invite call — and the client connection with it — indefinitely. Modeled on
-/// `rpc/channel.rs`'s `CHANNEL_MEMBER_READY_TIMEOUT`.
+/// Cap the remote-backend readiness probe on the invite RPC's synchronous path.
 const BACKEND_ADMIN_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
 pub(super) async fn ensure_backend_admin(
@@ -206,18 +200,21 @@ pub(super) async fn ensure_backend_admin(
     if channel.is_empty() {
         anyhow::bail!("channel metadata is incomplete; refresh channel state and try again");
     }
-    let mgmt = state.backend_keys();
-    let mgmt_hex = mgmt.public_key().to_hex();
+    let management = state.backend_keys();
+    let management_pubkey = management.public_key().to_hex();
     let parent = state
-        .with_store(|s| s.channel_parent(channel_h).unwrap_or(None))
-        .filter(|p| !p.is_empty());
+        .with_store(|store| store.channel_parent(channel_h).unwrap_or(None))
+        .filter(|parent| !parent.is_empty());
     let provider = state.provider();
-    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-        channel: channel_h,
-        expect_member: &mgmt_hex,
-        parent_hint: parent.as_deref(),
-        name: None,
-    });
+    let ready = provider.ensure_channel_ready(
+        crate::fabric::nip29::readiness::ChannelCtx {
+            channel: channel_h,
+            expect_member: &management_pubkey,
+            parent_hint: parent.as_deref(),
+            name: None,
+        },
+        &management,
+    );
     let gate = tokio::time::timeout(BACKEND_ADMIN_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -227,38 +224,32 @@ pub(super) async fn ensure_backend_admin(
             )
         })?;
     gate.require_ready(format!("preparing channel {channel} for remote invite"))?;
-    let published = provider
-        .grant_admin_published(channel_h, backend_pubkey)
-        .await;
-    published.require_published(format!(
-        "granting backend {} access to channel {}",
-        crate::util::pubkey_short(backend_pubkey),
-        channel
-    ))
+    provider
+        .grant_admin_published(channel_h, backend_pubkey, &management)
+        .await
+        .require_published(format!(
+            "granting backend {} access to channel {}",
+            crate::util::pubkey_short(backend_pubkey),
+            channel
+        ))
 }
 
-async fn publish_invite_orchestration(
+pub(super) async fn publish_invite_orchestration(
     state: &Arc<DaemonState>,
     channel_h: &str,
     target: crate::fabric::nip29::orchestration::AddTarget,
 ) -> Result<String> {
     let keys = state.backend_keys();
-    let prose = if target.session_pubkey.is_some() {
-        format!("resume {} in this channel", target.slug)
-    } else {
-        format!("add {} to this channel", target.slug)
-    };
+    let prose = format!("resume {} in this channel", target.slug);
     let builder = crate::fabric::nip29::orchestration::build_add_agents_event(
         channel_h,
         channel_h,
         std::slice::from_ref(&target),
         &prose,
     )?;
-    // The directive reaches this backend's own orchestration listener through
-    // the group subscription Fava injects the accepted row into (#1182), the
-    // same path a peer's directive takes.
     Ok(state
-        .fava()
-        .publish_group(channel_h, builder, keys.public_key())?
+        .provider()
+        .publish_group(channel_h, builder, &keys)
+        .await?
         .to_hex())
 }

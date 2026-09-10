@@ -101,14 +101,7 @@ pub(super) fn start_monitor(state: Arc<DaemonState>) {
                 Ok(false) => {}
                 Ok(true) => {
                     tracing::info!("native agent catalog changed");
-                    if let Err(error) =
-                        super::backend_profile::publish_backend_profile(&state).await
-                    {
-                        tracing::warn!(
-                            error = %format!("{error:#}"),
-                            "native agent catalog backend profile publish failed"
-                        );
-                    }
+                    state.schedule_backend_profile_refresh();
                 }
                 Err(error) => tracing::warn!(
                     error = %format!("{error:#}"),

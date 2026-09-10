@@ -46,13 +46,12 @@ Each profile owns:
 .container-state/<profile>/mosaico/presets.json
 .container-state/<profile>/mosaico/agents/<slug>.json
 .container-state/<profile>/mosaico/state.db*
-.container-state/<profile>/mosaico/fava.redb
 ```
 
 `write-container-profiles` resets the disposable `mosaico/` directory by
-default while preserving provider home and build caches. This clears both the
-SQLite daemon state and Fava's `fava.redb`; carrying either store onto a fresh
-relay can produce stale membership or event projections. Set
+default while preserving provider home and build caches. This clears local
+SQLite continuity; relay membership and event projections always rebuild from
+the current relay. Set
 `MOSAICO_DEV_RESET_PROFILE_STATE=0` only to diagnose that exact existing state.
 
 Never run two containers against the same profile concurrently. Their daemons
@@ -67,8 +66,7 @@ The writer creates a device config shaped like:
 ```json
 {
   "whitelistedPubkeys": ["<human-owner-pubkey>"],
-  "relays": ["ws://192.168.64.1:<lab-port>"],
-  "indexerRelay": "ws://192.168.64.1:<lab-port>",
+  "relay": "ws://192.168.64.1:<lab-port>",
   "backendName": "claude-acp",
   "userNsec": "<relay-owner-secret>",
   "mosaicoPrivateKey": "<distinct-profile-backend-secret>"
@@ -84,7 +82,7 @@ authority comes from the backend management-key lifecycle.
 Inspect only safe fields:
 
 ```bash
-jq '{relays,indexerRelay,backendName,whitelistedPubkeys}' \
+jq '{relay,backendName,whitelistedPubkeys}' \
   .container-state/claude-acp/mosaico/config.json
 ```
 

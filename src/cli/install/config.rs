@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/mosaico.ts");
 pub const PI_EXTENSION_TS: &str = include_str!("../../../integrations/pi/mosaico.ts");
+pub const PI_COMMAND_TS: &str = include_str!("../../../integrations/pi/command.ts");
+pub const PI_DAEMON_TS: &str = include_str!("../../../integrations/pi/daemon.ts");
 pub const PI_DELIVERY_TS: &str = include_str!("../../../integrations/pi/delivery.ts");
 pub const PI_PANEL_TS: &str = include_str!("../../../integrations/pi/panel.ts");
 pub const PI_PANEL_MODEL_TS: &str = include_str!("../../../integrations/pi/panel-model.ts");
@@ -14,6 +16,8 @@ pub const PI_STATUS_TS: &str = include_str!("../../../integrations/pi/status.ts"
 pub const PI_TOOLS_TS: &str = include_str!("../../../integrations/pi/tools.ts");
 pub const PI_EXTENSION_FILES: &[(&str, &str)] = &[
     ("index.ts", PI_EXTENSION_TS),
+    ("command.ts", PI_COMMAND_TS),
+    ("daemon.ts", PI_DAEMON_TS),
     ("delivery.ts", PI_DELIVERY_TS),
     ("panel.ts", PI_PANEL_TS),
     ("panel-model.ts", PI_PANEL_MODEL_TS),

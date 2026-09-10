@@ -10,8 +10,7 @@ pub(super) fn baseline_document() -> Value {
         // Which hosted MCP clients may register a redirect target for an
         // authorization code. Loopback is always allowed and is not listed here.
         "mcpRedirectOrigins": [],
-        "relays": [],
-        "indexerRelay": crate::config::DEFAULT_INDEXER_RELAY,
+        "relay": "",
         "backendName": crate::config::hostname(),
         "mosaicoPrivateKey": crate::config::generate_mosaico_private_key(),
         "perSessionRooms": false,
@@ -35,20 +34,23 @@ pub(super) fn read_document(path: &Path) -> Result<Value> {
 }
 
 pub(super) fn has_overrides(opts: &InstallOpts) -> bool {
-    !opts.relay.is_empty()
+    opts.relay.is_some()
         || opts.host_label.is_some()
         || opts.operator_pubkeys.is_some()
         || opts.clear_operators
         || opts.operator_nsec_file.is_some()
         || opts.clear_operator_nsec
-        || opts.indexer_relay.is_some()
         || opts.per_session_rooms.is_some()
 }
 
 pub(super) fn apply_overrides(doc: &mut Value, opts: &InstallOpts) -> Result<()> {
     let object = doc.as_object_mut().expect("configuration is an object");
-    if !opts.relay.is_empty() {
-        object.insert("relays".into(), json!(normalize_relays(&opts.relay)?));
+    if let Some(relay) = &opts.relay {
+        object.insert("relay".into(), json!(normalize_relay(relay)?));
+        // `setup --relay` is the one-shot config migration. Runtime parsing
+        // accepts only `relay`, so the old keys cannot become a fallback.
+        object.remove("relays");
+        object.remove("indexerRelay");
     }
     if let Some(label) = &opts.host_label {
         object.insert("backendName".into(), json!(normalize_label(label)?));
@@ -68,9 +70,6 @@ pub(super) fn apply_overrides(doc: &mut Value, opts: &InstallOpts) -> Result<()>
             .with_context(|| format!("reading operator signing key from {}", path.display()))?;
         object.insert("userNsec".into(), json!(normalize_secret(&secret)?));
     }
-    if let Some(relay) = &opts.indexer_relay {
-        object.insert("indexerRelay".into(), json!(normalize_relay(relay)?));
-    }
     if let Some(enabled) = opts.per_session_rooms {
         object.insert("perSessionRooms".into(), json!(enabled));
     }
@@ -80,13 +79,11 @@ pub(super) fn apply_overrides(doc: &mut Value, opts: &InstallOpts) -> Result<()>
 pub(super) fn ensure_complete(doc: &mut Value) -> Result<()> {
     let config =
         crate::config::Config::from_json_str(&doc.to_string(), &crate::config::hostname())?;
-    let relays = normalize_relays(&config.relays)?;
-    let indexer = normalize_relay(&config.indexer_relay)?;
+    let relay = normalize_relay(&config.relay)?;
     let host = normalize_label(&config.host)?;
     let operators = normalize_pubkey_list(&config.whitelisted_pubkeys)?;
     let object = doc.as_object_mut().expect("configuration is an object");
-    object.insert("relays".into(), json!(relays));
-    object.insert("indexerRelay".into(), json!(indexer));
+    object.insert("relay".into(), json!(relay));
     object.insert("backendName".into(), json!(host));
     object.insert("whitelistedPubkeys".into(), json!(operators));
     object.insert("perSessionRooms".into(), json!(config.per_session_rooms));
@@ -114,8 +111,7 @@ pub(super) fn print_summary(doc: &Value) {
     let config = crate::config::Config::from_json_str(&doc.to_string(), &crate::config::hostname())
         .expect("validated configuration");
     println!("  host label: {}", config.host);
-    println!("  relay(s): {}", config.relays.join(", "));
-    println!("  profile indexer: {}", config.indexer_relay);
+    println!("  relay: {}", config.relay);
     println!("  operators: {}", config.whitelisted_pubkeys.len());
     println!(
         "  CLI operator signing key: {}",
@@ -135,13 +131,6 @@ pub(super) fn normalize_label(label: &str) -> Result<String> {
         bail!("host label cannot be empty");
     }
     Ok(label.to_string())
-}
-
-pub(super) fn normalize_relays(relays: &[String]) -> Result<Vec<String>> {
-    if relays.is_empty() {
-        bail!("configure at least one externally operated relay URL");
-    }
-    relays.iter().map(|relay| normalize_relay(relay)).collect()
 }
 
 pub(super) fn normalize_relay(relay: &str) -> Result<String> {

@@ -108,14 +108,14 @@ fn pty_spawn_bootstraps_session_without_child_session_start_hook() {
             .map(|locator| locator.locator_value.clone()),
         Some(pty_id.clone())
     );
-    // Membership is Fava-owned, so observe it through the daemon's retained Fava
+    // Membership is relay-owned, so observe it through the daemon current view.
     // view rather than reopening SQLite as a relay-state cache.
     let channel_path = format!("#{channel}");
     assert!(
         wait_until(Duration::from_secs(25), || {
             observed_channel_has_role(&channel_path, &rec.pubkey, "member")
         }),
-        "agent {} was not delivered by Fava as a member of {channel}; daemon_log={}",
+        "agent {} was not delivered by Nostr runtime as a member of {channel}; daemon_log={}",
         rec.pubkey,
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<unreadable: {e}>"))

@@ -1,426 +1,173 @@
-# mosaico: isolated daemon-instance design
+# Daemon design
 
-Status: implemented. Replaces the **per-session process** with
-[**one daemon per selected instance**](daemon-instances.md), owning `state.db`,
-Fava observation lifetimes, publication, local delivery, presence, and pruning.
-Fava solely owns relay state; none of it is copied to SQLite.
+The daemon is the single owner of local Mosaico coordination. Harness hooks and
+CLI clients are thin RPC clients; detached PTY supervisors are independent
+processes that the daemon can re-adopt after restart.
 
-## 1. Why
+## Process topology
 
-The earlier per-session process model let every agent session and CLI invocation
-open its own `rusqlite` connection to `~/.mosaico/state.db`. Under about 16
-concurrent writers this corrupted `state.db` in a real incident. The root cause
-was multiple independent processes treating the same database as theirs to own,
-alongside one relay stack per session.
-
-The fix: collapse each selected instance to **one daemon** that is the sole owner
-of that instance's database and relay-facing clients. Every CLI invocation and every
-per-session engine becomes a **thin client** that talks to the daemon over a
-Unix domain socket. One writer by construction → corruption window goes to
-zero; N per-session network stacks collapse to one daemon-owned acquisition and
-provider stack.
-
-This is a pure-internal change: **external CLI behavior and output are
-preserved** (the Python hooks in `integrations/` and the parallel
-Claude channel adapter shell out to these verbs and parse their stdout).
-
-## 2. Stages (sequenced, each independently reviewable)
-
-0. **Build/green baseline.** The implementation started from a green unit +
-   relay-backed integration baseline. Current test tiers are documented in the
-   README: CI uses `just test-unit`; local relay integrations use `just test`;
-   public-relay probes are ignored and run only by explicit command.
-1. `src/state.rs` uses `journal_mode=WAL`, `synchronous=NORMAL`, and
-   `busy_timeout=5000`.
-2. The UDS daemon owns startup locking, socket reclamation, the version
-   handshake, and one `Store`; CLI verbs are thin RPC clients.
-3. Per-session engines run as daemon-owned async tasks. The daemon's Fava host
-   owns relay acquisition and group publication; `session_start` spawns an
-   in-process `SessionTask`.
-
-## 3. Process model
-
-```
-              ┌──────────────────── selected instance ──────────────────────────┐
-              │                                                                   │
-  hook /      │   ┌─────────────┐   UDS    ┌──────────────────────────────────┐  │
-  CLI    ───▶ │   │ thin client │ ───────▶ │  mosaico daemon (single proc) │  │
- (one-shot)   │   │ (CLI verb)  │ ◀─────── │                                  │  │
-              │   └─────────────┘  JSON    │  • owns state.db (one Store)     │  │   one
-              │                            │  • owns Fava reads + writes ──────┼──┼──▶ relays
-              │                            │  • per-session async tasks       │  │
-              │                            │  • local delivery / lifecycle    │  │
-              │                            │  • retained Fava observations     │  │
-              │                            └──────────────────────────────────┘  │
-              └───────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    C["CLI and harness hooks"] -->|Unix RPC| D["mosaico daemon"]
+    D --> N["NostrRuntime"]
+    N <--> R["configured relay"]
+    D <--> DB["state.db"]
+    D --> P["detached PTY supervisors"]
+    P --> A["agent processes"]
 ```
 
-- The daemon is a normal `mosaico` invocation: `mosaico daemon`.
-- The daemon runs the **tokio multi-thread runtime** (already how `main` builds
-  it). It holds exactly one `Store` (single SQLite connection → one writer by
-  construction) and one Fava engine for acquisition, account signing, and every
-  runtime/profile write. Those writes enter Fava through the durable
-  publish queue, which owns routing, receipts, and retries. Bounded
-  resolution reads use that same engine; the daemon has no second relay client.
-- Per-session work runs as a tokio task inside the daemon (`SessionTask`), keyed
-  by a private run key.
-
-### Spawn-if-absent
-
-Any invocation that needs state does `Daemon::connect_or_spawn()`:
-
-1. Resolve the selected instance, then try its `daemon.sock`.
-2. If that succeeds → return the client.
-3. If it fails (no listener, or stale socket) → acquire the startup lock (§4),
-   re-check (another racer may have just bound), and if still absent, **spawn**
-   the daemon (double-fork / `setsid`, detach stdio to the selected `daemon.log`),
-   then poll-connect with a short timeout.
-
-### Managed-session lifecycle
-
-The daemon owns one durable lifecycle aggregate for each managed session. The
-aggregate separates four facts that must not be inferred from one another:
-
-- runtime incarnation and endpoint;
-- presentation (`headed`, `headless`, or `unavailable`) plus attachment epoch;
-- work (`working` or `idle`) and its generation-fenced eviction deadline;
-- recovery authority and per-channel fabric standing.
-
-PTY supervisors report attachment edges and child exit status. They also expose
-an atomic conditional stop that succeeds only when the expected attachment
-epoch is still headless, so an attach at the ten-minute boundary wins safely.
-The daemon never treats a failed supervisor probe as headlessness. It persists
-the presentation as `unavailable`, clears idle eligibility, and retains the
-runtime for retry.
-
-Every termination request for an admitted runtime enters one coordinator.
-Automatic PTY termination is authorized only by the supervisor's atomic
-zero-client check at the expected attachment epoch; an unavailable control
-channel fails closed and has no raw-process fallback. Startup reconciliation
-may inspect exact supervisor ownership to retain a runtime, but never uses that
-ownership proof as permission to kill it. Explicit operator kill/forget may
-terminate an attached runtime. Transport-specific PTY, ACP, and app-server
-termination mechanics remain private executors behind that boundary, and the
-durable stopped edge is committed only after process exit is confirmed.
-
-When a headless, idle runtime has no pending delivery for ten minutes, the
-lifecycle coordinator stops that exact incarnation. Runtime stop, including a
-clean successful child exit while headed, preserves channel membership,
-standing, exact recovery identity, and route affinity without a deadline. Only
-explicit leave or forget/revoke removes membership; forget/revoke also destroys
-recovery authority.
-
-Membership intents are serialized with lifecycle reconciliation. A stale or
-failed admission keeps only the local standing/cleanup obligation needed to
-retry through Fava; it never persists a relay member row. Membership comes only
-from the retained Fava group observation. An observed message explicitly
-p-tagging a daemon-owned pubkey is parked before execution selection; publish
-acceptance creates no inbox work. A stopped recoverable identity resumes its
-native harness or fresh-launches under the same pubkey. An unlaunchable target
-stays pending. Timers and supervisor presentation reconcile after restart.
-
-### Daemon process lifetime
-
-The daemon remains running until an explicit stop, service-manager stop, or
-protocol-skew re-exec. Runtime count does not control daemon lifetime: standing
-expiry, exact p-tag recovery, relay retry work, and persisted supervisor-exit
-reports all require an owner while no agent process is running.
-
-Detached PTY supervisors survive daemon replacement and are re-adopted. ACP and
-app-server children instead use daemon-owned stdio, which cannot be reattached
-after process replacement. An orderly daemon shutdown therefore terminates and
-confirms every owned RPC process group and marks those runtime generations
-superseded before releasing the registry. Their native resume locators and
-standing remain available for exact recovery; no wrapper or provider process is
-left orphaned.
-
-## 4. Socket, lock, stale-reclaim, version handshake
-
-Files (all under the selected instance root):
-
-| file          | role                                                        |
-|---------------|-------------------------------------------------------------|
-| `daemon.sock` | the UDS the daemon binds; clients connect here              |
-| `daemon.lock` | `flock`'d during startup to serialize racing spawners       |
-| `daemon.log`  | detached daemon stdout+stderr                               |
-| `state.db`    | the one SQLite db, owned solely by the daemon               |
-
-### Race-safe startup
-
-```
-connect_or_spawn():
-  if connect(sock) ok: return client
-  lock = open("daemon.lock"); flock(lock, LOCK_EX)        # winner proceeds, losers wait
-  if connect(sock) ok: unlock; return client              # someone bound while we waited
-  if sock path exists:                                    # stale-socket case
-      # a file is present but connect refused → previous daemon died uncleanly
-      unlink(sock)                                         # safe: we hold the lock
-  spawn_detached_daemon()                                  # binds sock under the same lock discipline
-  unlock(lock)                                             # released AFTER spawn returns; daemon re-flocks on its own
-  poll_connect(sock, deadline=~3s): return client
-```
-
-The **daemon** itself, on startup, also `flock`s `daemon.lock`, unlinks any
-stale `daemon.sock`, binds, and only then begins serving — so even if two
-daemons are spawned by a pathological race, only one can bind. The lock is held
-by the daemon for its whole lifetime (advisory; cheap), which doubles as a
-"is a daemon running" probe.
-
-### Stale-socket case
-
-Socket file exists but `connect()` is refused (ECONNREFUSED / ENOENT on the
-peer) → the previous daemon crashed without cleaning up. Resolution: under the
-lock, `unlink` the socket and reclaim. (Bind would otherwise fail with
-EADDRINUSE.)
-
-### Protocol version + version-skew handshake
-
-The first line a client sends and the first line the daemon replies are a
-**handshake** carrying a `protocol` integer:
-
-```jsonc
-// client → daemon, first frame
-{"hello": {"protocol": 3, "client_version": "0.1.0"}}
-// daemon → client, first frame
-{"welcome": {"protocol": 3, "daemon_version": "0.1.0"}}
-```
-
-- `PROTOCOL_VERSION` is a `const u32` bumped on any breaking RPC change.
-- **Newer client, older daemon** (binary upgraded under a running daemon — the
-  human cutover): the client sees `welcome.protocol < its own` and sends a
-  `{"please_exit": {"protocol": <new>}}` control frame. The old daemon, on
-  seeing a request protocol it doesn't understand, replies
-  `{"error": {"code": "protocol_skew", ...}}`, finishes draining, and exits
-  (releasing the socket/lock). The client then loops back into
-  `connect_or_spawn()`, which now spawns the **new** binary's daemon. Net: a
-  newer client transparently re-execs the daemon to its own version rather than
-  speaking a stale protocol.
-- **Older client, newer daemon**: the client refuses (prints a clear "restart
-  your session / reinstall" error). This is the rarer direction and not silently
-  bridged.
-
-Rationale: we never want a stale-protocol conversation to half-succeed. A
-single version int + an exit-and-respawn handshake is the minimum that makes the
-human cutover (drop a new binary in place, restart sessions) safe even while an
-old daemon is live.
-
-## 5. Wire protocol
-
-Newline-delimited JSON over the UDS (one JSON object per line). Chosen over
-length-prefixed for debuggability (`socat` / `nc` can talk to it) and because
-all payloads are small. Each request is one line; each response is one or more
-lines (see streaming, below) terminated by an `end` frame.
-
-### Frame shapes
-
-```jsonc
-// request
-{"id": 1, "method": "who", "params": { ... }}
-// single response
-{"id": 1, "ok": { ... }}
-{"id": 1, "error": {"code": "...", "message": "..."}}
-// streaming response (N frames then an end marker)
-{"id": 1, "item": { ... }}
-{"id": 1, "item": { ... }}
-{"id": 1, "end": true}
-```
-
-`id` correlates responses to requests (allows pipelining; in practice each thin
-CLI client issues one request and exits). The **streaming** shape (`item`* then
-`end`) exists because `tail` needs server-push. One-shot verbs simply emit a
-single `ok` and no `item`/`end`.
-
-### Why the streaming framing matters (the key design call)
-
-Walking each verb's true I/O shape:
-
-| verb               | shape                | mechanism                                            |
-|--------------------|----------------------|------------------------------------------------------|
-| `session_start`    | one-shot             | daemon spawns a `SessionTask`, returns its public `pubkey` |
-| `session_end`      | one-shot             | daemon stops the `SessionTask`                       |
-| `turn_start`       | one-shot (may be big)| daemon drains chat + builds context, returns text    |
-| `turn_check`       | one-shot, read-only  | peek chat; no writes                                 |
-| `turn_end`         | one-shot             | flip turn state                                      |
-| `channel_send`       | one-shot             | daemon publishes kind:9 chat event on the relay      |
-| `channel_read`        | one-shot             | daemon returns chat history for the session/project  |
-| `channel_search`      | one-shot             | daemon searches the current Fava-delivered message view |
-| `who`              | one-shot             | snapshot rows                                        |
-| `who --live`       | client-side poll     | client calls `who` each refresh; renders terminal    |
-| `tail`             | **stream**           | daemon pushes decoded fabric events until disconnect |
-
-`tail` forces the protocol beyond simple req/resp: the client cannot open its own relay
-  observation anymore (the daemon owns Fava acquisition), so the
-  daemon must stream decoded events to the client as they arrive, indefinitely,
-  until the client disconnects (Ctrl-C). This is what makes the `item`*/`end`
-  streaming shape mandatory rather than optional.
-
-Client disconnect (EOF / broken pipe on the UDS) is the universal cancel signal:
-it drops a `tail` subscription forwarder.
-
-## 6. RPC surface
-
-The full method catalog lives in [daemon-rpc-surface.md](daemon-rpc-surface.md). The daemon design here keeps the process, ownership, and lifecycle model.
-## 7. Engine ownership inside the daemon
-
-The `session_start` RPC makes the daemon spawn a tokio task running
-`runtime::run_session`:
-
-- It uses the daemon's **shared** `Store` through the ownership model in §8.
-- It declares per-session and per-channel live-query demand through the daemon's
-  shared Fava host. Fava owns relay planning, connection repair, deduplication,
-  replacement selection, source evidence, removal, and observation lifetimes.
-  Complete snapshots and row deltas update process-local views; no relay-derived
-  group, profile, status, event, message, recipient, or reaction reaches SQLite.
-  Observed additions are demuxed once into local session queues. Direct p-tags
-  use one ownership classifier across observed relay and local messages,
-  covering running, stopped, stable, and revoked identities; only the executor
-  consults runtime state after durable parking.
-- Profile publication, presence-lease renewal, and `watch_pid` death detection
-  run in the per-session task. Managed lifecycle edges directly reconcile the
-  generation-owned presence publication; there is no periodic semantic-state
-  poll. The corresponding current status is shown only after Fava observes it.
-  One non-blocking worker keeps first-pending order across pubkeys and
-  only the latest queued full state per pubkey, so a stalled relay cannot delay
-  lifecycle RPCs or form a renewal FIFO. Every runtime and kind:0 profile write
-  is signed and accepted through the shared Fava host's durable publish queue.
-- Peer-staleness pruning is a single daemon-level periodic task.
-
-`EngineParams` is reused largely as-is, minus `store_path` (the task gets the
-shared store) and with the daemon provider/Fava host injected.
-
-## 8. State ownership & the single-writer guarantee
-
-The **single SQLite connection** lives in the daemon and is the sole writer by
-construction — that is the whole point. Concurrency model inside the daemon:
-
-- One `Store` behind the daemon's request loop. Two viable shapes:
-  1. **`Arc<Mutex<Store>>`** shared by the request handlers and session tasks.
-     Simple; rusqlite `Connection` is not `Sync` so a `Mutex` (or
-     `tokio::sync::Mutex`) is required anyway. All db access is short.
-  2. **DB actor task**: a single task owns the `Store`; everyone sends
-     `oneshot`-replied commands over an `mpsc`. Cleaner serialization, no lock
-     held across `.await`.
-
-  Decision: start with **`std::sync::Mutex<Store>`** (lock only around the
-  synchronous rusqlite calls, never across `.await`). It is the smallest change
-  from today's code and already guarantees one writer. Revisit the actor shape
-  only if lock contention shows up (unlikely at this call frequency).
-
-- The Fava engine owns live queries, relay acquisition, current relay state,
-  local account capabilities, and the durable publish queue for all runtime and
-  profile writes. Its retained observations are the only group, profile, status,
-  event, message, recipient, and reaction source. The daemon owns process-local
-  adapters. No other component opens a relay connection.
-
-Because there is exactly one writer process, the
-multi-writer corruption class is eliminated regardless of WAL (WAL stays as
-defense-in-depth + a small perf win).
-
-## 8a. Multi-agent relay ownership
-
-The daemon hosts one-pubkey identities, each with at most one active runtime. Fava
-observes their shared demand publicly because Mosaico-created groups are public
-and closed: anyone may read them, while only admitted members may write. Each author
-registers a signer plus exact-account AUTH policy. Per-write identity overrides
-authenticate as the frozen author; account changes never retarget another session's
-accepted write. Relay sessions belong to Fava, never to an agent runtime.
-
-1. **Cross-pubkey delivery.** A connection authenticated (NIP-42) as agent A
-   *does* receive events p-tagged to a different agent B. The relay does **not**
-   scope ordinary public event delivery to the connection's authed identity.
-   Mosaico pins one shared public read demand to configured hosts; NIP-42 protected reads remain a Fava capability, not the product acquisition path for public groups.
-2. **Multi-key publish.** Fava freezes the draft author at acceptance, selects the
-   exact registered capability named by the write override, validates the signed
-   result, authenticates the relay session as that author when challenged, and
-   routes it to the NIP-29 host. Paths that immediately seed an exact local
-   read-model row use Fava's serialized sign-only operation first, then hand that
-   same signed event back to Fava as the durable payload.
-
-## 8b. Demux + routing for multiple local agents (correctness)
-
-Inside the daemon, "me" is the **set** of daemon-owned agent pubkeys:
-
-- `is_self` = `local_pubkeys.contains(event.pubkey)` — skip our own
-  profile/presence/activity/status for **any** hosted key.
-- An observed direct p-tag routes by exact pubkey. The daemon first parks one
-  inbox fact for every owned target, then selects an executor if one is
-  available. Pending delivery remains with that pubkey across route removal,
-  revocation, and runtime replacement; recipients remain in Fava's message view.
-- Current profile/presence/status from peers (non-local pubkeys) comes directly
-  from Fava observations. Retraction removes it; there is no SQLite fallback.
-
-Test (added): a chat mention to A must land only in A's inbox, never B's; if A's
-runtime is replaced before delivery, the replacement claims the same pending row.
-
-## 8c. Session reconciliation on daemon (re)start (correctness)
-
-Protocol-skew re-exec, service restart, or a daemon crash can stop a daemon while session
-rows are still `runtime_state='running'`, and the new daemon's in-process
-`SessionTask`s don't exist yet. On startup the daemon first replays persisted
-supervisor-exit reports, resumes any fenced `stopping` eviction, and then
-reconciles each running row:
-
-- `watch_pid` set and `pid_alive(watch_pid)` → respawn a `SessionTask` for it;
-- else → atomically stop that generation while preserving its channel memberships.
-
-Restart restores only local session, route, join-fence, inbox/claim, and
-attachment-directory facts. Relay views repopulate only from Fava observations;
-local standing never fills that gap.
-
-## 8d. Clientful-but-sessionless connections
-
-The streaming `tail` RPC and `who --live` hold a client connection open
-without owning a session. They do not affect runtime lifecycle or standing;
-the daemon already persists independently until an explicit stop or re-exec.
-
-## 8e. Working directory in presence and awareness (implemented)
-
-Agents may run in different working directories or git worktrees on the same
-backend. Presence/status therefore carries `rel_cwd`, computed relative to the
-workspace root, so peers can distinguish `worktree1` from `worktree2` without
-publishing an absolute home-directory path. Fava's current status observation
-supplies it to `who` and `my session`; Mosaico persists no status row.
-
-- The wire tag is `["rel-cwd", <rel>]` and is omitted for an empty value.
-- Workspace-root cwd is represented as `.`.
-- If no workspace base resolves, publishing falls back to the cwd basename.
-- `host` is the configured backend label, not a DNS hostname.
-- `remote` is derived by comparing exact backend labels.
-
-Human `who` renders terminal-oriented fabric text and supports `--live`. Agent
-`my session` and turn hooks share one capture, cursor-aware assembly, canonical
-document, and XML renderer. Cursor `0` selects full state; later cursors select
-per-node deltas while preserving the same schema, values, nesting, and escaping.
-
-## 9. Landmines preserved (must not regress)
-
-- **rustls ring CryptoProvider** install in `main()` stays — the daemon is now
-  the process that touches the relay, so the install must run on its path too
-  (it already runs in `main` before dispatch; `daemon` goes through `main`).
-- **Identical standard-Nostr wire output** — the codec seam
-  (`fabric::nip29::wire`) remains the event-shape authority; group writes route
-  through Fava.
-- **One Fava relay plane** serves standing observations, bounded resolution
-  reads, and every runtime or profile write. Writes are durably accepted into
-  the publish queue; no direct client,
-  parallel relay pool, or SQLite relay cache may be reintroduced.
-- **NIP-29 membership semantics** — group creation, owner admin backfill, and
-  agent member admission remain provider-owned and relay-authoritative. Local
-  allow/block files are not part of the active NIP-29 path.
-
-## 10. Tests
-- **Daemon spawn race**: N threads call `connect_or_spawn()` simultaneously;
-  assert exactly one daemon binds and all clients connect.
-- **Stale-socket reclaim**: create a `daemon.sock` file with no listener; assert
-  `connect_or_spawn()` unlinks + reclaims and connects.
-- **RPC round-trip**: start a daemon (test home), issue `who` / `channel_send` /
-  `channel_read` RPCs, assert results.
-- **Version-skew handshake**: client with `protocol = N+1` against a daemon
-  pinned to `N` → daemon exits, client respawns and succeeds; assert the old
-  daemon process is gone.
-- **Concurrency / corruption repro**: ~16 concurrent clients issue writes via
-  the RPC path; assert a single writer (one daemon pid) and `PRAGMA
-  integrity_check = ok` afterward. Keep a direct-`Store` stress test as the
-  original-corruption regression repro so the thing we're fixing stays asserted.
-- Keep the unit and local-relay integration suites green. Public-relay probes
-  stay explicit because they publish disposable data to the configured relay.
+Each selected instance has exactly one daemon, guarded by its startup lock and
+Unix socket. The daemon owns:
+
+- the current configuration and backend key;
+- one Nostr runtime and one decoded NIP-29 view;
+- one SQLite connection behind the daemon store lock;
+- live session engines and their runtime generations;
+- subscription coverage and product reconcilers;
+- RPC routing, inbox delivery, and tail events.
+
+The daemon and PTY supervisors are the same executable invoked with different
+subcommands. A normal restart therefore stops only the `mosaico daemon`
+process. It must never kill by bare executable name. On systemd,
+`KillMode=process` preserves detached supervisors.
+
+## Nostr runtime
+
+The daemon constructs one `NostrRuntime` for the configured relay. It owns the
+only `nostr-sdk` client, relay connection, bounded in-memory raw event database,
+SDK subscription ids, and notification task. Product code never owns sockets
+or opens an independent client.
+
+The decoded `Nip29View` is a complete process-local level derived from active
+filters. Notifications wake a full reread; they are never applied as deltas.
+The view starts empty on every daemon start and cannot fall back to SQLite.
+See [fabric-architecture.md](fabric-architecture.md) for exact ownership,
+demand limits, signing, and acknowledgement rules.
+
+## Session lifecycle
+
+A session is identified by its Nostr pubkey. A runtime generation fences stale
+callbacks and ensures only the current engine can mutate lifecycle state.
+Durable session rows contain execution continuity—not relay state—including:
+
+- agent/harness identity and workspace root;
+- encrypted or derived signer custody;
+- active runtime generation and native locator;
+- local channel routes and join fences;
+- semantic state, idle deadlines, and accumulated busy time.
+
+Starting or re-adopting a session reopens the product demands implied by local
+coverage. Channel readiness verifies the current relay-derived group view and,
+when authorized, publishes the minimum required NIP-29 management operations
+with the backend key. The local route is committed only after the corresponding
+management operation receives a positive relay acknowledgement.
+
+Stopping a session ends local execution but does not silently rewrite relay
+membership. Explicit leave/revocation paths own member removal. Their local
+standing ledgers make those product actions recoverable without storing signed
+events or creating a generic outbox.
+
+## Subscription and view flow
+
+Coverage is recomputed from local sessions, explicit roots, known managed
+groups, and current decoded rosters. The reconciler produces stable product
+demands:
+
+- one broad `h` demand for chat, reactions, status, and addressed management
+  commands;
+- one bounded group-record demand;
+- one exact-author profile demand.
+
+Changing coverage replaces the affected SDK subscription by stable id. One
+view-rebuild task queries all active filters and atomically swaps the decoded
+level. Demux, read/search RPCs, channel readiness, presence, and profile
+resolution reread that level after wakes.
+
+No application retained-handle abstraction exists. A few serialized one-shot
+reads use stable temporary demand ids for an exact profile, group, or reference
+question, then close them.
+
+## Inbound delivery
+
+Observed events flow through one demux:
+
+1. read the complete content level;
+2. record the event-id arrival fence before product dispatch;
+3. decode product messages, reactions, statuses, and orchestration commands;
+4. create local inbox or claim rows only for daemon-owned execution work;
+5. wake the exact local session or schedule recovery.
+
+The arrival ledger stores ids and sequence only. Public reads continue to come
+from the current NIP-29 view, so a relay removal retracts a message even when a
+local idempotency or inbox record remains.
+
+## Outbound flow
+
+Every write begins with an already-selected `Keys` value. Product code finishes
+all tags and signs once. The runtime sends to the configured relay and reports:
+
+- accepted: positive `OK` for the exact event id;
+- rejected: negative `OK`;
+- unconfirmed: timeout, disconnect, AUTH demand, or transport failure.
+
+An accepted write is not inserted into the read view. It must return through an
+active subscription before it can drive demux or public reads. Chat, reply,
+reaction, group create/edit/delete, and role operations have no background
+retry or durable signed-event storage.
+
+Presence and profiles are replaceable desired state. Their daemon-owned workers
+may coalesce to the latest desired value and retry within an explicit bound.
+That exception is product policy and cannot be generalized to arbitrary events.
+
+## RPC behavior
+
+RPC handlers separate three milestones:
+
+1. local command validation and authority selection;
+2. exact relay acknowledgement for writes;
+3. later relay observation for shared-state reads and inbound effects.
+
+Handlers must not report milestone 3 merely because milestone 2 succeeded.
+Readiness flows may wait for a complete observed group level where their product
+contract requires it, but they do not poll or seed a local group/message cache.
+
+Hooks fail open when the daemon is unavailable. Operator commands fail clearly
+when the selected daemon or relay cannot complete the requested contract.
+
+## Configuration reload
+
+The daemon watches the selected `config.json`. Non-runtime policy changes swap
+the provider configuration. Relay or backend-key changes construct and start a
+fresh runtime/view/provider set, atomically install it, reopen coverage, then
+shut down the previous SDK client. Invalid edits leave the last valid runtime
+in service.
+
+Reload has no publication-store recovery, signer restoration, compatibility
+mode, or dual runtime. An old `publications.redb` file is unowned and ignored.
+
+## Shutdown and reset
+
+Normal shutdown:
+
+1. stops accepting RPC connections;
+2. asks live session engines to settle;
+3. leaves detached PTY supervisors alive unless an explicit destructive reset
+   requested their removal;
+4. closes product demands and shuts down the SDK client;
+5. releases the daemon lock on process exit.
+
+`daemon reset-state` is destructive for current Mosaico continuity: SQLite,
+session runtime directories, logs, transient sockets, and attachment contents.
+It preserves configuration and ignores files the current architecture does not
+own. It audits exact targets before stopping processes or deleting data.
+
+## Non-negotiable invariants
+
+- One daemon writer for local mutable state.
+- One SDK client and one raw event database per selected instance.
+- One complete decoded product view; no relay-state SQLite replica.
+- One exact author per signed event; no signer registry or fallback.
+- Positive relay acknowledgement before synchronous write success.
+- No generic durable publication queue or signed-event replay.
+- No polling for shared semantic state.
+- Daemon restart never kills detached supervisors.

@@ -181,7 +181,7 @@ fn root_input<'a>(
     }
 }
 
-/// The full agent-facing snapshot from the current retained Fava views.
+/// The full agent-facing snapshot from the current current NIP-29 views.
 pub(crate) fn render_full_session_state(
     store: &Store,
     session: &Session,

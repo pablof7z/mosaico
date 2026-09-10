@@ -13,6 +13,7 @@ pub(super) struct DirectMention<'a> {
 
 pub(super) struct RouteReport {
     pub(super) owned_targets: Vec<String>,
+    pub(super) newly_parked: bool,
 }
 
 /// Persist and schedule one direct mention using pubkey ownership alone.
@@ -60,6 +61,7 @@ pub(super) fn route(state: &Arc<DaemonState>, mention: DirectMention<'_>) -> Res
 
     Ok(RouteReport {
         owned_targets: targets,
+        newly_parked,
     })
 }
 

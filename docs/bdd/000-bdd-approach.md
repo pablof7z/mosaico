@@ -86,7 +86,7 @@ The current eight scenarios passed admission independently:
 
 | Product contract | Why Cucumber earns its cost | Public or independent witness |
 |---|---|---|
-| Relay membership warms peer identity without exposing backend authority | Joins the retained Fava group/profile observations, roster rendering, and the management-identity boundary | Rendered roster plus relay-only peer |
+| Relay membership warms peer identity without exposing backend authority | Joins the complete group/profile view, roster rendering, and the management-identity boundary | Rendered roster plus relay-only peer |
 | A backend-addressed management request produces a public result | Joins operator-authored relay input, backend routing, command execution, and reply publication | Independently queried relay reply |
 | Addressed work produces one harness-visible delivery during controlled execution | Joins operator addressing, relay delivery, daemon routing, PTY injection, and bounded duplicate observation | Deterministic native-harness capture |
 | An explicit sender session overrides ambient process hints | Protects signer authority across CLI selection, ambient state, and relay publication | Relay event author |
@@ -99,7 +99,7 @@ Current-observation search does not by itself earn a Cucumber scenario. Query
 filtering, grouping, pagination, and rendering belong in typed Rust and
 real-binary integration tests. A behavior-contract scenario is warranted only
 when it exercises the cross-boundary ownership promise through public evidence,
-such as a controlled Fava removal making relay state disappear or publish
+such as a controlled view retraction making relay state disappear or publish
 acceptance producing no local delivery before observation. Such a scenario
 must control the observation boundary and use CLI, relay, or harness output as
 its oracle; it must never inspect SQLite to prove the absence of replication.

@@ -2,9 +2,9 @@
 //!
 //! Nothing in this module composes a wire row. It states what Mosaico wants —
 //! the avatar URL, the visibility a workspace has — and produces a
-//! `MetadataEdit` for the caller to publish via `FavaHost`.
+//! `MetadataEdit` for the caller to publish through the NIP-29 provider.
 
-use fava_simple_groups::{GroupAccess, MetadataEdit};
+use super::management::MetadataEdit;
 
 /// Mosaico's own avatar policy.
 fn picture_url(seed: &str) -> String {
@@ -23,7 +23,7 @@ pub fn group_lock_closed(group: &str, name: &str) -> MetadataEdit {
     MetadataEdit {
         name: Some(name.to_string()),
         picture: Some(picture_url(group)),
-        access: Some(GroupAccess::Closed),
+        closed: true,
         ..MetadataEdit::default()
     }
 }
@@ -31,14 +31,11 @@ pub fn group_lock_closed(group: &str, name: &str) -> MetadataEdit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fava_simple_groups::GroupVisibility;
-
     #[test]
     fn group_lock_closed_is_closed_and_public() {
         let edit = group_lock_closed("mosaico", "mosaico");
         assert_eq!(edit.name.as_deref(), Some("mosaico"));
-        assert_eq!(edit.access, Some(GroupAccess::Closed));
-        assert!(edit.visibility.is_none() || edit.visibility == Some(GroupVisibility::Public));
+        assert!(edit.closed);
         assert_eq!(
             edit.picture.as_deref(),
             Some("https://api.dicebear.com/10.x/stripes/svg?seed=mosaico")
@@ -49,7 +46,7 @@ mod tests {
     fn a_subgroup_lock_names_it_and_seeds_the_avatar_from_the_group_id() {
         let edit = group_lock_closed("subgroup-support-a1b2c3d4", "subgroup support");
         assert_eq!(edit.name.as_deref(), Some("subgroup support"));
-        assert_eq!(edit.access, Some(GroupAccess::Closed));
+        assert!(edit.closed);
         assert_eq!(
             edit.picture.as_deref(),
             Some("https://api.dicebear.com/10.x/stripes/svg?seed=subgroup-support-a1b2c3d4")

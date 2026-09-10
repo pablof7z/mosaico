@@ -1,13 +1,13 @@
 use crate::daemon_harness::shared_nip29_relay_url;
-use crate::fava_client::FavaRelayClient;
+use crate::nostr_client::NostrRelayClient;
 use mosaico::fabric::nip29::wire::KIND_PROFILE;
 use nostr::event::{EventBuilder, FinalizeEvent as _, Kind, Tag};
 use nostr::key::Keys;
 
 pub(super) async fn publish_profile(keys: &Keys, name: &str, agent_slug: &str) {
-    let client = FavaRelayClient::connect(keys.clone(), &shared_nip29_relay_url())
+    let client = NostrRelayClient::connect(keys.clone(), &shared_nip29_relay_url())
         .await
-        .expect("connect Fava relay client");
+        .expect("connect Nostr relay client");
     let builder = EventBuilder::new(
         Kind::from(KIND_PROFILE),
         serde_json::json!({ "name": name }).to_string(),

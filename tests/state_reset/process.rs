@@ -215,6 +215,9 @@ fn full_reset_stops_only_the_selected_live_daemon_and_supervisor() {
     let fixture = tempfile::tempdir().expect("temporary root");
     let home = selected_home(fixture.path());
     let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
+    let legacy = home.join("publications.redb");
+    seed_ignored_legacy_file(&legacy);
+    let legacy_before = std::fs::read(&legacy).unwrap();
     let sibling_home = fixture.path().join(".mosaico-instances/relay2");
     std::fs::create_dir_all(&sibling_home).unwrap();
 
@@ -248,9 +251,10 @@ fn full_reset_stops_only_the_selected_live_daemon_and_supervisor() {
     assert!(sibling_socket.exists(), "sibling PTY socket was removed");
     assert!(!selected_socket.exists(), "selected PTY socket survived");
     assert!(!home.join("state.db").exists(), "selected SQLite survived");
-    assert!(
-        !home.join("fava.redb").exists(),
-        "selected Fava store survived"
+    assert_eq!(
+        std::fs::read(&legacy).unwrap(),
+        legacy_before,
+        "ignored legacy file was unexpectedly touched"
     );
     assert!(
         !home.join("sessions").exists(),

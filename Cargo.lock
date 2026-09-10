@@ -8,7 +8,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
 dependencies = [
- "crypto-common 0.1.7",
+ "crypto-common",
  "generic-array",
 ]
 
@@ -119,6 +119,38 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "async-utility"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "188f83b9a198af8c336e505611edb00d6d2ac5c694241c5a4f9a12316938cfe9"
+dependencies = [
+ "futures-util",
+ "gloo-timers",
+ "tokio",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "async-wsocket"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c713e1f14c7b82e32ea159af1c6e2f070cfadbdf23fb2512acce9af0a26f1a2"
+dependencies = [
+ "futures",
+ "futures-util",
+ "js-sys",
+ "tokio",
+ "tokio-happy-eyeballs",
+ "tokio-rustls",
+ "tokio-socks",
+ "tokio-tungstenite",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -301,15 +333,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "block-buffer"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
-dependencies = [
- "hybrid-array",
-]
-
-[[package]]
 name = "block-padding"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -327,6 +350,12 @@ dependencies = [
  "memchr",
  "serde_core",
 ]
+
+[[package]]
+name = "btreecap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6160c957d8aa33d0a8ba1dbab98e3cb57023ad9374c501441e88559f99e6c4c9"
 
 [[package]]
 name = "bumpalo"
@@ -447,7 +476,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
- "crypto-common 0.1.7",
+ "crypto-common",
  "inout",
  "zeroize",
 ]
@@ -544,12 +573,6 @@ dependencies = [
  "unicode-width",
  "windows-sys 0.59.0",
 ]
-
-[[package]]
-name = "const-oid"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "convert_case"
@@ -670,15 +693,6 @@ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
-]
-
-[[package]]
-name = "crypto-common"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
-dependencies = [
- "hybrid-array",
 ]
 
 [[package]]
@@ -839,20 +853,9 @@ version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
- "block-buffer 0.10.4",
- "crypto-common 0.1.7",
+ "block-buffer",
+ "crypto-common",
  "subtle",
-]
-
-[[package]]
-name = "digest"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
-dependencies = [
- "block-buffer 0.12.1",
- "const-oid",
- "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -950,396 +953,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
-name = "fava"
-version = "0.1.0"
-dependencies = [
- "fava-delivery",
- "fava-diagnostics",
- "fava-event-cache",
- "fava-event-cache-memory",
- "fava-fetch-cache",
- "fava-observe",
- "fava-publication",
- "fava-publisher",
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-runtime",
- "fava-session",
- "fava-signer",
- "fava-state",
- "fava-subscriptions",
- "fava-transport",
- "fava-write",
- "fava-write-store",
- "nostr",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-delivery"
-version = "0.1.0"
-dependencies = [
- "fava-write",
-]
-
-[[package]]
-name = "fava-delivery-standard"
-version = "0.1.0"
-dependencies = [
- "fava-delivery",
- "fava-write",
-]
-
-[[package]]
-name = "fava-diagnostics"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-state",
- "fava-wire",
- "nostr",
-]
-
-[[package]]
-name = "fava-event-cache"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-state",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-event-cache-memory"
-version = "0.1.0"
-dependencies = [
- "fava-event-cache",
- "fava-query",
- "fava-relay",
- "fava-state",
- "nostr",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-fetch-cache"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "fava-ingest"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-observe"
-version = "0.1.0"
-dependencies = [
- "fava-diagnostics",
- "fava-event-cache",
- "fava-ingest",
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-runtime",
- "fava-state",
- "fava-subscriptions",
- "fava-transport",
- "fava-wire",
- "futures-util",
- "nostr",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-publication"
-version = "0.1.0"
-dependencies = [
- "fava-delivery",
- "fava-publisher",
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-session",
- "fava-signer",
- "fava-state",
- "fava-transport",
- "fava-write",
- "fava-write-store",
- "nostr",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-publisher"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "fava-transport",
- "fava-write",
-]
-
-[[package]]
-name = "fava-publisher-nip01"
-version = "0.1.0"
-dependencies = [
- "fava-publisher",
- "fava-relay",
- "fava-session",
- "fava-signer",
- "fava-state",
- "fava-transport",
- "fava-wire",
- "fava-write",
- "nostr",
- "tokio",
-]
-
-[[package]]
-name = "fava-query"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "fava-write",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-query-standard"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-state",
- "fava-write",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-relay"
-version = "0.1.0"
-dependencies = [
- "nostr",
-]
-
-[[package]]
-name = "fava-router-app-relays"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-state",
- "nostr",
- "tokio",
-]
-
-[[package]]
-name = "fava-routing"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-state",
- "fava-write",
- "nostr",
- "serde",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-runtime"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "futures-util",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-session"
-version = "0.1.0"
-dependencies = [
- "fava-signer",
- "fava-write",
- "nostr",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-signer"
-version = "0.1.0"
-dependencies = [
- "fava-write",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-signer-local"
-version = "0.1.0"
-dependencies = [
- "fava-signer",
- "fava-write",
- "nostr",
- "tokio",
-]
-
-[[package]]
-name = "fava-simple-groups"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-state",
- "fava-write",
- "nostr",
-]
-
-[[package]]
-name = "fava-state"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "nostr",
-]
-
-[[package]]
-name = "fava-subscriptions"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-state",
- "fava-transport",
- "fava-wire",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-subscriptions-no-grouping"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "fava-subscriptions",
- "fava-wire",
- "nostr",
-]
-
-[[package]]
-name = "fava-transport"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "nostr",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-transport-websocket"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "fava-transport",
- "futures-util",
- "nostr",
- "tokio",
- "tokio-tungstenite",
-]
-
-[[package]]
-name = "fava-wire"
-version = "0.1.0"
-dependencies = [
- "nostr",
- "serde_json",
-]
-
-[[package]]
-name = "fava-write"
-version = "0.1.0"
-dependencies = [
- "fava-relay",
- "fava-state",
- "nostr",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "fava-write-store"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-state",
- "fava-write",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-write-store-memory"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-state",
- "fava-write",
- "fava-write-store",
- "nostr",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "fava-write-store-redb"
-version = "0.1.0"
-dependencies = [
- "fava-query",
- "fava-relay",
- "fava-routing",
- "fava-state",
- "fava-write",
- "fava-write-store",
- "nostr",
- "redb",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "filedescriptor"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1388,9 +1001,9 @@ dependencies = [
 
 [[package]]
 name = "futures"
-version = "0.3.34"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
+checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -1419,9 +1032,9 @@ checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
 
 [[package]]
 name = "futures-executor"
-version = "0.3.34"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031b47cf1a3c6cc8bc2fc76cd437f521619387907d469316e7c0bc278f1f5432"
+checksum = "1e28d1d997f585e54aebc3f97d39e72338912123a67330d723fdbb564d646c9f"
 dependencies = [
  "futures-core",
  "futures-task",
@@ -1436,13 +1049,13 @@ checksum = "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
 
 [[package]]
 name = "futures-macro"
-version = "0.3.34"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
+checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.4",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1459,9 +1072,9 @@ checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
 
 [[package]]
 name = "futures-util"
-version = "0.3.34"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
+checksum = "9fa08315bb612088cc391249efdc3bc77536f16c91f6cf495e6fbe85b20a4a81"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -1471,6 +1084,7 @@ dependencies = [
  "futures-task",
  "memchr",
  "pin-project-lite",
+ "pin-utils",
  "slab",
 ]
 
@@ -1574,6 +1188,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1674,7 +1300,7 @@ version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
- "digest 0.10.7",
+ "digest",
 ]
 
 [[package]]
@@ -1727,15 +1353,6 @@ name = "humantime"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15cdd26707701c53297e2fa6afb323d55fbc1d0810c3aec078ae3ef0424c3c15"
-
-[[package]]
-name = "hybrid-array"
-version = "0.4.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
-dependencies = [
- "typenum",
-]
 
 [[package]]
 name = "hyper"
@@ -2342,27 +1959,14 @@ dependencies = [
  "crossterm 0.28.1",
  "cucumber",
  "dialoguer",
- "fava",
- "fava-delivery-standard",
- "fava-event-cache-memory",
- "fava-publisher-nip01",
- "fava-query",
- "fava-query-standard",
- "fava-router-app-relays",
- "fava-signer",
- "fava-signer-local",
- "fava-simple-groups",
- "fava-subscriptions-no-grouping",
- "fava-transport-websocket",
- "fava-write-store",
- "fava-write-store-memory",
- "fava-write-store-redb",
  "fuzzy-matcher",
  "hmac",
  "libc",
  "mime_guess",
  "nix 0.29.0",
  "nostr",
+ "nostr-memory",
+ "nostr-sdk",
  "notify",
  "owo-colors",
  "portable-pty",
@@ -2387,6 +1991,12 @@ dependencies = [
  "unicode-width",
  "url",
 ]
+
+[[package]]
+name = "negentropy"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81c353b400a5503efdcf398f11a83fb7aa84f59f5d76fc4bf5bbc1e4f5366caa"
 
 [[package]]
 name = "nix"
@@ -2435,9 +2045,9 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.45.3"
+version = "0.45.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0ba32ce43631188586469ba1a4c40bcfa63641f1ad5de89ef77f74d801cc17a"
+checksum = "67bacf4195a119bc55d576ec6b54cc103723cb46fff5f907b8bdac8fd29ac4a0"
 dependencies = [
  "base64",
  "bech32",
@@ -2456,6 +2066,61 @@ dependencies = [
  "universal-time",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "nostr-database"
+version = "0.45.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b1fdb9fcba732e32719662afad1b267e50322dbe89e506017ec13f24361bddf"
+dependencies = [
+ "nostr",
+ "opaquerr",
+]
+
+[[package]]
+name = "nostr-gossip"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa07539e52a71cb91fe0d693facaa298f03fcf9edcd66a521094e18e286e2336"
+dependencies = [
+ "nostr",
+ "opaquerr",
+]
+
+[[package]]
+name = "nostr-memory"
+version = "0.45.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd2b7b21ffca47ad6dc32474d06d7fd1e8f83f218f7b350f4309eb5f49e7f97d"
+dependencies = [
+ "btreecap",
+ "nostr",
+ "nostr-database",
+ "tokio",
+]
+
+[[package]]
+name = "nostr-sdk"
+version = "0.45.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "245f8642b10feecb0a40739a886ca1850e3be4e35dc6592b806ec437403ab9c9"
+dependencies = [
+ "async-utility",
+ "async-wsocket",
+ "faster-hex",
+ "futures",
+ "lru",
+ "negentropy",
+ "nostr",
+ "nostr-database",
+ "nostr-gossip",
+ "opaquerr",
+ "rand 0.10.2",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "universal-time",
 ]
 
 [[package]]
@@ -2672,6 +2337,12 @@ name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+
+[[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkg-config"
@@ -3326,9 +2997,9 @@ checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
 
 [[package]]
 name = "serde"
-version = "1.0.229"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
@@ -3336,29 +3007,29 @@ dependencies = [
 
 [[package]]
 name = "serde_core"
-version = "1.0.229"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+checksum = "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.229"
+version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.4",
+ "syn 2.0.119",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.151"
+version = "1.0.149"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
  "itoa",
  "memchr",
@@ -3431,18 +3102,7 @@ checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest 0.10.7",
-]
-
-[[package]]
-name = "sha1"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
-dependencies = [
- "cfg-if",
- "cpufeatures 0.3.0",
- "digest 0.11.3",
+ "digest",
 ]
 
 [[package]]
@@ -3453,7 +3113,7 @@ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
- "digest 0.10.7",
+ "digest",
 ]
 
 [[package]]
@@ -3864,6 +3524,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-happy-eyeballs"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8564c32dfb6f4257f8bc6edfc178a34af97520e0b7b9815500c55eb3d092f29f"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "tokio-macros"
 version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3885,6 +3554,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-socks"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7e2948f60dbe26b35f2c7fb74ac2854c1fddded0fe9d7548fcc674a246f7615"
+dependencies = [
+ "either",
+ "futures-util",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3898,9 +3579,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
-version = "0.30.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17a073bfed563fa236697a068031408a93cd9522e08abf9933ead3e73411bd71"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
 dependencies = [
  "futures-util",
  "log",
@@ -3908,7 +3589,7 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
- "tungstenite 0.30.0",
+ "tungstenite 0.28.0",
  "webpki-roots 0.26.11",
 ]
 
@@ -4080,6 +3761,25 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
+ "sha1",
+ "thiserror 2.0.20",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
@@ -4090,25 +3790,7 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
- "sha1 0.10.7",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
-dependencies = [
- "bytes",
- "data-encoding",
- "http",
- "httparse",
- "log",
- "rand 0.10.2",
- "rustls",
- "rustls-pki-types",
- "sha1 0.11.0",
+ "sha1",
  "thiserror 2.0.20",
 ]
 
@@ -4194,7 +3876,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
 dependencies = [
- "crypto-common 0.1.7",
+ "crypto-common",
  "subtle",
 ]
 
@@ -4228,6 +3910,12 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
+
+[[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8_iter"

@@ -71,7 +71,7 @@ fn private_artifact(name: &str) -> bool {
         "state.db"
             | "state.db-wal"
             | "state.db-shm"
-            | "fava.redb"
+            | "publications.redb"
             | ".claude"
             | ".claude.json"
             | ".claude.json.backup"

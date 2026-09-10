@@ -169,10 +169,10 @@ params: {"channel": "#root/child"|null}
 stream: {"item": {"category": "…", "channel": "#root/child", …}} // repeated
         … until client disconnects (Ctrl-C)
 ```
-The daemon resolves the requested full path, ensures Fava observation coverage,
-then forwards structured events from the current Fava-delivered view and daemon
-lifecycle. Initial rows and live changes share that retained observation; there
-is no SQLite event backfill. Fava removals therefore cannot remain visible as a
+The daemon resolves the requested full path, ensures SDK demand coverage,
+then forwards structured events from the current decoded view and daemon
+lifecycle. Initial rows and live changes share that complete view; there
+is no SQLite event backfill. View retractions therefore cannot remain visible as a
 local relay cache. Every streamed `channel` is a full public path; opaque
 protocol identifiers remain inside the daemon.
 

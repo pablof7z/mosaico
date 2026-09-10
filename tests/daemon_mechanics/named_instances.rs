@@ -18,8 +18,7 @@ impl NamedDaemon {
             serde_json::json!({
                 "whitelistedPubkeys": [],
                 "backendName": backend,
-                "relays": [relay],
-                "indexerRelay": relay,
+                "relay": relay,
                 "mosaicoPrivateKey": Keys::generate().secret_key().to_secret_hex(),
             })
             .to_string(),

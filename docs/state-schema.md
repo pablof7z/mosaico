@@ -1,7 +1,7 @@
 # State schema and upgrades
 
 `state.db` is daemon-owned local persistence. It is not a cache or replica of
-Nostr. Fava retained observations are the sole authority for current groups,
+Nostr. The complete decoded NIP-29 view is the sole authority for current groups,
 profiles, statuses, events, messages, recipients, and reactions.
 
 Installing a newer binary must not create an operator-visible database step.
@@ -17,11 +17,13 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 25
+## Current schema: 26
+
+Schema 26 renames `session_coaching` to `session_notice`. The rename is a
+one-way migration with no runtime alias or dual read.
 
 Schema 25 gives the host-local arrival ledger its product-owned
-`event_arrivals` name. The schema remains a one-way migration with no runtime
-alias or dual read.
+`event_arrivals` name.
 
 Schema 22 removes all relay-derived persistence:
 
@@ -32,8 +34,8 @@ Schema 22 removes all relay-derived persistence:
 - `messages` and `message_recipients`.
 
 The current schema validator requires those tables to be absent. Mosaico does
-not rebuild them after startup. Relay views repopulate only from active Fava
-observations and disappear when Fava removes them or their observation closes.
+not rebuild them after startup. Relay views repopulate only from active Nostr runtime
+SDK demands and disappear when the relay retracts them or their demand closes.
 
 The migration preserves exactly two small satellites from the former event and
 message tables:
@@ -46,13 +48,13 @@ message tables:
 The arrival sequence is a local route fence. It lets automatic ambient context
 distinguish events observed before and after a session joined without copying
 the event. The attachment directory is a local filesystem binding joined onto
-a Fava-owned message while that message is present.
+a view-owned message while that message is present.
 
 The remaining tables are product-local authority:
 
 | Class | Tables |
 |---|---|
-| Sessions and local identity | `sessions`, `session_coaching`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` |
+| Sessions and local identity | `sessions`, `session_notice`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` |
 | Routes and reconciliation | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` |
 | Delivery and execution | `inbox`, `event_claims`, `native_turn_attempts` |
 | Operational evidence | `channel_readiness_attempts`, `receipts` |
@@ -60,7 +62,7 @@ The remaining tables are product-local authority:
 `session_channels` stores durable channel affinity plus signed-time and
 arrival-sequence join fences. `session_standing` stores local desired standing
 and cleanup progress. Neither table is evidence of current relay membership;
-that comes only from the current Fava group observation.
+that comes only from the current decoded group view.
 
 The `inbox` is exact-recipient delivery state, not ambient history. Only an
 observed message explicitly p-tagging a daemon-owned pubkey may create a pending
@@ -69,10 +71,10 @@ when it predates registration or its route is later removed because local
 delivery belongs to the exact identity, independently of ambient membership.
 
 Completed offline-mention claims are compact durable tombstones keyed by event
-and exact recipient. They do not expire: Fava may redeliver an event after
+and exact recipient. They do not expire: the relay may redeliver an event after
 reconnection, and recovery or process launch must remain idempotent. The
-tombstone does not keep the relay event current or make it readable after Fava
-removes it.
+tombstone does not keep the relay event current or make it readable after Nostr runtime
+view retracts it.
 
 Runtime endpoint locators carry their owning generation. PTY supervisor
 attachment epochs and exit reports fence late callbacks, while persisted idle
@@ -92,8 +94,9 @@ preset configuration to rediscover a live runtime's transport.
 These entries describe the source shape of older deployments. They are not
 current read contracts.
 
+- **Schema 26** renamed `session_coaching` to `session_notice`.
 - **Schema 21** added `session_coaching`, a generation-scoped ledger of
-  progressive agent guidance already emitted.
+  progressive notice claims already emitted.
 - **Schema 24** replaced the historical launch-config admission field with the
   selected preset name. Harness and transport are independent admission facts.
 - **Schema 23** admitted Pi's native RPC transport and locator.
@@ -107,7 +110,7 @@ current read contracts.
   projection.
 - **Schema 17** moved host capability and workspace discovery into complete
   kind:0 profile snapshots. The historical profile cache is removed by schema
-  22; current profile state is read from Fava.
+  22; current profile state is read from the decoded view.
 - **Schema 16** removed transcript paths and the explicit-chat publication
   marker after transcript auto-publication was removed.
 - **Schema 15** added cumulative working time to session lifecycle state.
@@ -133,7 +136,6 @@ The schema-8-to-9 migration renamed `harness` to `observed_harness`, left
 `endpoint_provenance = 'migration'`. It inferred transport only from exact
 locators and remained explicit about facts the old schema could not preserve.
 
-The older schema-7 ownership handoff used an fsynced sidecar so accepted local
-write obligations could move into Fava's durable queue before superseded tables
-were dropped. That was a migration mechanism, not a current alternate write
-path.
+The older schema-7 ownership handoff used an fsynced sidecar before superseded
+tables were dropped. That historical migration mechanism is not a current read
+or write path.

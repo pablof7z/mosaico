@@ -1,330 +1,156 @@
-# mosaico — Fabric Architecture
+# Mosaico fabric architecture
 
-> Mosaico owns product policy and host-local continuity. Fava owns Nostr state
-> and transport guarantees. The boundary is enforced by ownership, not by
-> module names.
-
-## 1. The swap seam
-
-The former `Codec` seam swapped NIP layouts rather than fabrics. It combined
-wire mapping, relay acquisition, admission, state selection, and lifecycle
-side effects. A real provider seam separates those concerns:
-
-- the domain expresses product nouns and intents;
-- a provider maps those intents to one fabric;
-- the fabric substrate owns acquisition and shared-state semantics;
-- Mosaico owns local execution and continuity.
+Mosaico uses one configured Nostr relay as its shared coordination fabric. The
+architecture has four owners, each with a deliberately different lifetime.
 
 ```mermaid
-flowchart TD
-    subgraph HOST["Host adapters"]
-        H1["Claude Code hooks / CLI"]
-        H2["Codex"]
-        H3["OpenCode"]
-    end
+flowchart LR
+    R["Relay\nshared admitted events"]
+    N["NostrRuntime\none nostr-sdk client\none bounded raw store"]
+    V["Nip29View\ncomplete decoded current level"]
+    P["Nip29Provider\nproduct filters, policy, wire shapes, signing"]
+    S["state.db\nhost-local continuity only"]
+    D["daemon product flows"]
 
-    subgraph DOMAIN["Mosaico domain"]
-        POLICY["policy<br/>show · route · execute · reconcile"]
-        LOCAL["local continuity<br/>sessions · routes · inbox · claims"]
-        VIEWS["typed current views"]
-    end
-
-    SEAM{{"Fabric Provider"}}
-
-    subgraph NIP29["NIP-29 provider"]
-        Fava["Fava<br/>retained observations · signing<br/>durable writes · receipts · retries"]
-        RELAYS["Nostr relays"]
-        Fava <--> RELAYS
-    end
-
-    FUTURE["future fabric provider"]
-
-    HOST --> POLICY
-    LOCAL --> POLICY
-    VIEWS --> POLICY
-    POLICY -- intents --> SEAM
-    SEAM --> Fava
-    SEAM --> FUTURE
-    Fava -- current delivered state --> VIEWS
+    R <--> N
+    N -- "wake + exact-filter reread" --> V
+    P --> N
+    V --> P
+    P --> D
+    S --> D
+    D --> P
 ```
 
-Everything above the provider seam speaks product concepts. Everything below it
-owns the native protocol. A provider is not a second database or a place to
-reimplement the substrate's state machine.
+## Ownership
 
-## 2. The ownership rule
-
-**Fava retained observations are the sole authority for relay-derived state.**
-For the NIP-29 provider this includes:
-
-- group metadata, topology, admins, and members;
-- profiles and statuses;
-- events and messages, including recipients and reply relationships;
-- reactions;
-- replacement selection, source evidence, freshness, and removal.
-
-Mosaico may decode a Fava delivery into a process-local product shape. That
-shape has the observation's lifetime and authority: it is updated by delivered
-frames, removed by delivered retractions, and cleared when its observation
-closes. It cannot outlive Fava by falling back to SQLite.
-
-Mosaico must never:
-
-- copy relay groups, profiles, statuses, events, messages, recipients, or
-  reactions into `state.db` as a read cache;
-- merge relay records or choose a replaceable winner;
-- turn a publish receipt, local intent, route, or prior value into observed
-  relay state;
-- retain a relay fact after Fava removes it;
-- open an independent relay client for a product read or retry a write outside
-  Fava.
-
-### 2a. What `state.db` owns
-
-`~/.mosaico/state.db` contains only facts that this daemon must preserve and
-that the relay cannot reconstruct as product-local continuity:
-
-| Local class | Current tables | Meaning |
+| Owner | Owns | Explicitly does not own |
 |---|---|---|
-| Session and identity authority | `sessions`, `session_coaching`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` | Runtime generations, endpoints, local signers, aliases, and coaching already shown |
-| Route and reconciliation policy | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` | Local route affinity, join fences, desired standing, filesystem bindings, and unresolved local intents |
-| Delivery and execution ledgers | `inbox`, `event_claims`, `native_turn_attempts`, `receipts`, `channel_readiness_attempts` | Locally addressed work, idempotency claims, native execution outcomes, and bounded local attempt evidence |
-| Minimal relay correlation | `event_arrivals`, `message_attachments` | A durable event-id/arrival-sequence fence and the verified directory containing downloaded local files |
+| Relay | Admission and relay-authored NIP-29 state | Host sessions or filesystem state |
+| `NostrRuntime` | One `nostr-sdk` client, one relay connection, SDK subscription ids, reconnect behavior, a bounded `nostr-memory` database, and exact-relay sends | NIP-29 policy, key selection, durable writes, generic retries |
+| `Nip29Provider` and `fabric/nip29` | Product demand shapes, NIP-29 encoding/decoding, membership policy, and signing with caller-selected keys | Sockets, connection recovery, key selection, a second raw event store |
+| `Nip29View` | One atomically replaced decoded current level | Event history, deltas, persistence, invented absence |
+| `state.db` | Sessions, local routes and fences, signer custody, inbox/claims, filesystem bindings, attachment locations, and local receipts | Relay event payloads, group/profile/status/message caches, publication obligations |
 
-`event_arrivals` stores no event payload. `message_attachments` stores no
-attachment tag, URL, relay metadata, or message body. An `inbox` or
-`event_claims` row may retain the bounded payload required to execute one
-daemon-owned delivery; it is a product-local queue/claim, not a general message
-history or relay-state replica.
+This shape is intentionally not a generic Nostr framework. Mosaico has one
+product, one relay selection, and one NIP-29 wire contract. Abstractions exist
+only where ownership or lifetime changes.
 
-The local store has one daemon writer. That prevents SQLite corruption, but it
-does not turn local rows into relay evidence. In particular:
+## Reads: complete levels, never notification deltas
 
-- `session_channels` is a local route plus signed-time and arrival-sequence
-  admission fence, not current relay membership;
-- `session_standing` is lifecycle/reconciliation policy, not a copy of the
-  NIP-29 roster;
-- `inbox` is exact-recipient delivery state, not chat history;
-- Mosaico `receipts` explain local product operations and are not Fava publish
-  receipts.
+The runtime maintains stable product demands:
 
-## 3. Reads and intents are different contracts
+| Demand | Filter | Bound |
+|---|---|---:|
+| `mosaico-broad-h` | product kinds plus kind 5 deletion markers for every covered `h` | 4096 |
+| `mosaico-group-records` | relay-authored kinds 39000/39001/39002 plus kind 5 deletion markers | 1024 |
+| `mosaico-profiles` | kinds 0 and 5 from the current exact author set | 512 |
+| bounded reference read | requested kinds referencing one `e` id | 64 |
 
-### Reads
+The `nostr-memory` capacity is derived beside these limits and includes explicit
+headroom. It is the only raw event database and disappears on daemon restart.
 
-A product read joins sources without blurring them:
+SDK notifications and EOSE are wakes only. After every relevant wake, demand
+change, or NIP-40 expiration deadline, the rebuild task:
 
-| Question | Authoritative source |
-|---|---|
-| Which groups exist, and what are their names and topology? | Current Fava group observation |
-| Who is an admin or member? | Current Fava group observation |
-| What profile or status is current? | Current Fava row observation |
-| Which messages, recipients, replies, or reactions are current? | Current Fava row observation |
-| Which runtime can execute locally? | Mosaico session and locator state |
-| Which channels should that runtime receive ambiently? | Mosaico route and join-fence state, constrained by current observed fabric facts |
-| Which exact local delivery remains pending? | Mosaico inbox/claim ledgers |
-| Where are downloaded files on this host? | Mosaico attachment-directory satellite |
+1. queries the raw database with every currently active filter;
+2. unions events by id;
+3. excludes expired events and relies on the SDK database's Nostr
+   replacement/deletion rules;
+4. decodes content, group records, and profiles; and
+5. atomically swaps the complete `Nip29View` and wakes consumers.
 
-DTOs may combine these answers for presentation, but absence must remain
-honest. If Fava removes a group, profile, status, event, message, or reaction,
-the corresponding product view disappears. A stale local route, inbox row, or
-attachment directory cannot resurrect it.
+Replacing or closing a demand therefore retracts excluded values even if their
+raw bytes remain in bounded memory. Consumers cannot apply notification deltas
+or retain a previous row. Restart begins with an empty product view and
+repopulates it only through reopened relay subscriptions.
 
-### Observation topology (NIP-29 provider)
+Group, profile, status, message, recipient, reply, and reaction reads all use
+that complete view. SQLite never fills a missing relay value. Local routes and
+inbox rows may determine what this daemon should execute, but they do not prove
+that a group, membership, or message currently exists.
 
-The reconciler (`src/reconcile/subscriptions/mod.rs`) opens **three** standing
-Fava observations. Each delivered row is the sole authority for one slice of
-relay-derived state. The earlier N-per-channel model was collapsed to a single
-broad `#h` (mosaico#837) so that joining/leaving a channel `Replace`s one query
-instead of opening/closing N, and so that one row reaches the demux exactly
-once:
+## Writes: exact keys and honest relay acknowledgement
 
-| Observation | Fava query | Scope | Drives |
-|---|---|---|---|
-| `mosaico-broad-h` (`BROAD_H_ID`) | `GroupContentsMulti` over kinds `[9, 7, 30315, 9000]` and all known channel `#h`s | `#h`-scoped, every joined channel at once | chat/reaction/status delivery + kind:9000 management-command dispatch + demux dispatch |
-| retained `group_records` | `GroupPredicate` over kinds `[39000, 39001, 39002]` keyed on known group ids + addressed identities | `d`-scoped, not `#h` | `GroupObservation` → group topology, admins, members |
-| retained `ProfileFeed` | kind:0 over `authors:[current member set]` | author-scoped | `Store::get_profile` + profile list/resolve surfaces |
+The caller selects the exact `Keys` capability from backend, operator, or
+session custody. Product code completes the event shape—including every NIP-29
+`h` tag—and finalizes it once. The runtime has no signer registry, author
+override, fallback identity, or signing retry.
 
-The broad `#h` covers chat (9), reactions (7), status (30315), and the
-group-put-user management command (9000) across **every** currently known
-channel. Joining or leaving a channel re-runs `sync_subscriptions`, which
-`Replace`s the one broad `#h` with an updated channel set — the daemon enters
-or leaves the whole channel set once, not one observation per channel.
+The runtime sends the signed event to the configured relay through the SDK's
+typed single-relay API. That path does not save the outbound event into the SDK
+database. Outcomes are:
 
-Mentions are no longer a separate `#p` observation: a `#p`-tagged chat
-delivered under the broad `#h` is routed to the addressed agent's inbox by
-`direct_mentions::route` from the event's own `#p` tags, so an agent is
-mention-delivered in any observed channel without a per-pubkey query.
+- **accepted** only after a positive `OK` for the exact event id;
+- **rejected** after a negative `OK`, with relay text bounded before reporting;
+- **unconfirmed** after timeout, disconnect, authentication demand, or transport
+  failure.
 
-The status projection fans a kind:30315 event out to **every** channel it names
-in its own `#h` tags (decoded `status.channels`), not one channel per
-observation — see `Row retention` below.
+Chat, reply, reaction, and group-management RPCs return those outcomes
+synchronously. There is no generic publication ledger or background replay.
+A successful send is still not an observation: the event becomes visible only
+if an active read demand receives it from the relay.
 
-### Row retention (the bounded `RowViews` holder)
+Presence and profile are different because they are replaceable desired state.
+Their product workers may retain only the newest desired value and make bounded
+attempts. They never replay an old signed artifact, and that narrow policy must
+not become an outbox for other event types.
 
-Fava's `RowDelta::Removed(EventId)` carries only the event id — by contract the
-app already holds the row from an earlier `Added` (`fava_grammar::RowDelta`:
-*"the app is expected to already hold the event from an earlier `Added` … no
-second copy of the payload is kept around just to hand back on removal"*).
-Mosaico's `RowViews` (`src/observed_views/rows.rs`) is that fava-mandated row holder:
-`apply_departure` needs the departed row's signed event to decode the status
-and emit a `Leave` per channel the status named, and `Removed(id)` provides no
-payload. **The row holder cannot be deleted without changing fava's `RowDelta`
-contract.**
+## NIP-29 product ownership
 
-The holder is bounded, not an O(history) rebuild: the broad `#h` query has one
-newest-first 10,000-event result ceiling, so both Fava's snapshot and `RowViews`
-retain at most that delivered set. Deliberate history reads use the same current
-delivered set; there is no no-op expansion API or second backfill source.
+`fabric/nip29/wire` owns application event shapes. The adjacent management
+module owns kinds 9000, 9001, 9002, 9007, and 9008. Group projection owns
+relay-authored kinds 39000, 39001, and 39002. The SDK is transport and storage;
+it does not claim NIP-29 support.
 
-`RecentRows` (`src/recent_rows.rs`) is the sync-readable projection of the same
-delivered rows as lightweight `RelayEvent`s (id/kind/pubkey/channel_h/tags_json/
-content/created_at — no signed event). Chat (9), reaction (7), and generic-event
-reads route through `RecentRows` via `RelayEvent` decoders in
-`state/observed_decode.rs`. Status (30315) reads through `RowViews::
-observation_rows()` instead, because `Nip29WireCodec.decode_event` wants the
-signed event that only the retained `Row` carries; status is replaceable and
-the window bounds it, so this is not the RSS source.
+The selected product profile is intentionally small:
 
-### Intents
+- one configured relay;
+- public reads;
+- NIP-29 signed-event write authorization;
+- multiple exact author keys;
+- no connection-authenticated NIP-42.
 
-Opening a group, changing membership, publishing chat, or publishing status is
-an intent. The active provider encodes it and gives it to Fava. Fava owns:
+If a relay requires AUTH, the operation fails explicitly. Adding NIP-42 would
+need a new product decision because authentication is connection-scoped while
+Mosaico publishes as multiple identities.
 
-- the exact signing capability and author;
-- relay routing and authentication;
-- durable custody and retry;
-- per-destination receipts and terminal outcomes;
-- the observations that may later expose the resulting relay state.
+## Local continuity and delivery
 
-There are two independent milestones:
+`state.db` may retain exact-recipient inbox work, idempotency claims, local
+arrival ordering, route admission fences, and downloaded attachment paths.
+These are local execution facts, not a relay replica. In particular:
 
-1. **Publish acceptance or settlement:** Fava accepted responsibility or
-   reported a terminal relay result.
-2. **Observation:** an active Fava observation delivered the event or current
-   row.
+- a route is not proof of current membership;
+- an inbox row is not chat history;
+- a receipt explains a local operation and is not relay acceptance;
+- an attachment path cannot resurrect a removed message.
 
-The first milestone never substitutes for the second. A successful send does
-not insert a local message, recipient edge, inbox row, membership row, profile,
-status, or reaction. Product read state and inbound routing begin only from the
-observed delivery. This also prevents a locally accepted write from appearing
-when the relay never makes it observable.
+Direct mentions become durable local inbox work only after the message is
+observed in the current relay view. Ambient delivery additionally respects the
+local route's signed-time and arrival-sequence fences. A removed relay event
+immediately disappears from public read/search/reply surfaces even if a local
+execution ledger still refers to its id.
 
-## 4. Membership, routing, and direct delivery
+## Lifecycle and configuration reload
 
-Membership has two different meanings that must not be collapsed:
+Startup constructs an empty view and one runtime, starts the configured relay,
+opens product demands from current local coverage, and rebuilds from received
+events. Configuration changes that alter relay or backend identity construct
+and start a new runtime/view pair before swapping daemon references, then stop
+the old SDK client. No legacy store is opened, migrated, reset, or deleted.
 
-| Fact | Owner | Used for |
-|---|---|---|
-| Current NIP-29 member/admin set | Fava group observation | Relay-visible roster, authorization-aware product reads, readiness confirmation |
-| Local session route and join fence | Mosaico | Ambient context eligibility and restart continuity |
-| Desired local standing/cleanup | Mosaico | Lifecycle reconciliation and retrying product intent through Fava |
+Daemon shutdown closes product demands and the SDK client. Restart targets only
+the daemon process; detached PTY supervisors survive and are re-adopted.
 
-The relay enforces NIP-29 write admission. Mosaico does not repeat that decision
-from a stale roster. For another fabric, cryptographic membership or another
-native mechanism may supply the same product answer through its provider.
+## Coherence rules
 
-Direct delivery is separate from ambient membership. When a Fava observation
-delivers a message explicitly p-tagging a daemon-owned pubkey, Mosaico may park
-one durable inbox row for that exact identity, then choose an executor from
-local runtime state. A stopped identity may resume; a revoked or unavailable
-identity remains pending. Remote p-tags cause no local delivery. Publish
-acceptance without observation causes no delivery at all.
+A change violates this architecture if it introduces any of the following:
 
-Automatic ambient context also applies the local route's two fences:
-
-1. the event's local Fava arrival sequence must be later than the join watermark;
-2. the signed event time must be at or after the recorded join time.
-
-The arrival table preserves only this ordering evidence across restart. Event
-content remains in Fava.
-
-## 5. Provider responsibilities
-
-A provider bundles four narrow capabilities:
-
-| Capability | Responsibility | Must not |
-|---|---|---|
-| Lifecycle reactor | Translate product lifecycle intents into native setup, such as NIP-29 group create/lock/member operations | Decide when a workspace opens or invent success before observation |
-| Observation adapter | Declare Fava demand and expose delivered current state as typed product views | Persist relay rows, merge sources, select winners, manufacture absence/freshness, or ignore removal |
-| Codec | Pure conversion between product intent/data and provider-native envelopes | Open subscriptions, manage retries, or own state |
-| Diagnostic edge | Ask Fava for bounded connectivity/readback evidence | Become a second relay plane or a product write path |
-
-For NIP-29, app-owned relay filters are not part of the provider seam. Fava owns
-live queries, observation lifetimes, accounts, signing, the durable publish
-queue, receipts, retries, and connection repair.
-
-## 6. Representative workflows
-
-### Group creation and readiness
-
-```mermaid
-sequenceDiagram
-    participant D as Mosaico domain
-    participant P as NIP-29 provider
-    participant N as Fava
-    participant R as relay
-
-    D->>P: open group / admit member intent
-    P->>N: typed NIP-29 writes
-    N->>R: authenticated durable publication
-    R-->>N: relay result
-    N-->>P: receipt outcome
-    Note over D,P: receipt alone does not create group state
-    R-->>N: current group records
-    N-->>P: complete GroupSnapshot
-    P-->>D: readiness sees observed metadata/admin/member state
-```
-
-Readiness may retry bounded product orchestration, but it reads the current Fava
-snapshot every time. It never seeds or repairs a Mosaico group cache.
-
-### Chat and local delivery
-
-```mermaid
-sequenceDiagram
-    participant C as caller
-    participant D as Mosaico
-    participant N as Fava
-    participant R as relay
-    participant E as local executor
-
-    C->>D: send message intent
-    D->>N: signed-write request
-    N->>R: durable publish
-    R-->>N: relay result
-    N-->>D: terminal receipt
-    D-->>C: send result
-    Note over D: no message or inbox mutation yet
-    R-->>N: observed message
-    N-->>D: added current row
-    D->>D: record arrival cursor; classify owned p-tags
-    D->>D: park exact local inbox work
-    D->>E: deliver when an executor is available
-```
-
-A later Fava removal removes the message from read/search/reply views. It does
-not erase a delivery already parked in the local inbox or downloaded files;
-those have separate product-local lifecycles.
-
-### Restart
-
-After restart, Mosaico reopens its session, route, fence, inbox/claim, and local
-attachment-directory state. It has no persisted relay view to restore. Groups,
-profiles, statuses, events, messages, recipients, and reactions reappear only
-as Fava observations deliver them. Until then the honest shared-state answer is
-absent or unavailable, never a stale cached value.
-
-## 7. Boundary tests worth preserving
-
-- A removed Fava row immediately disappears from the corresponding public view.
-- Closing an observation cannot leave relay-derived state available from
-  `state.db`.
-- Publish acceptance without an observed event creates no inbox item and no
-  routable message.
-- Restart preserves a local route fence and attachment directory, while relay
-  views remain empty until Fava redelivers them.
-- A local standing or route row cannot make an absent pubkey appear in the
-  relay roster.
-- Every relay write, diagnostic read, and standing observation uses the shared
-  Fava host; no parallel relay client exists.
+- another relay client or raw event database;
+- persisted relay events or a durable generic outbox;
+- notification-delta product state;
+- a retained subscription-handle abstraction above the SDK;
+- signer lookup, author fallback, or post-sign mutation;
+- success before exact positive relay acknowledgement;
+- polling for semantic state;
+- compatibility aliases for the removed runtime.

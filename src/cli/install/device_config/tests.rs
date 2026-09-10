@@ -12,7 +12,7 @@ fn overrides_preserve_unknown_fields_and_secrets() {
         "unknown": "keep",
         "userNsec": operator.clone(),
         "mosaicoPrivateKey": backend.clone(),
-        "relays": ["wss://relay.example"],
+        "relay": "wss://relay.example",
         "attachmentReceiveDirectory": "/custom/shared-files",
     });
     let mut options = opts();
@@ -35,7 +35,7 @@ fn fresh_document_requires_an_explicit_relay_choice() {
     let mut doc = baseline_document();
     let error = ensure_complete(&mut doc).unwrap_err().to_string();
 
-    assert!(error.contains("externally operated relay URL"));
+    assert!(error.contains("invalid relay URL"));
 }
 
 #[test]

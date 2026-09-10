@@ -90,7 +90,7 @@ pub(in crate::cli) enum ChannelAction {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Search messages in the daemon's current Fava view.
+    /// Search messages in the daemon's current Nostr runtime view.
     Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {
@@ -113,7 +113,7 @@ pub(in crate::cli) enum ChannelAction {
         /// not repeat the agent label at the start of the message.
         #[arg(long = "tag", value_name = "AGENT")]
         tags: Vec<String>,
-        /// Publish intentional mention-like or `Name:` text without coaching.
+        /// Publish intentional mention-like or `Name:` text without notices.
         #[arg(long)]
         force: bool,
         /// Full channel path (e.g. #workspace/child). Quote in the shell:

@@ -3,43 +3,24 @@
 #[path = "state_reset/support.rs"]
 mod support;
 use support::*;
-
+#[path = "state_reset/control.rs"]
+mod control;
+#[path = "state_reset/external.rs"]
+mod external;
 #[path = "state_reset/process.rs"]
 mod process;
 
-#[path = "state_reset/external.rs"]
-mod external;
-
-#[path = "state_reset/control.rs"]
-mod control;
-
 #[test]
-fn incompatible_store_offers_one_full_reset_that_preserves_configuration() {
+fn reset_ignores_and_preserves_an_unowned_legacy_file() {
     let fixture = tempfile::tempdir().expect("temporary root");
     let home = selected_home(fixture.path());
     let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("fava.redb"));
+    seed_ignored_legacy_file(&home.join("publications.redb"));
+    let legacy_before = std::fs::read(home.join("publications.redb")).unwrap();
     let sibling = fixture.path().join(".mosaico-instances/relay2/state.db");
     write(&sibling, b"other instance");
 
-    let startup = command(fixture.path(), &["daemon"]);
-    assert!(
-        !startup.status.success(),
-        "retired Fava epoch must refuse startup"
-    );
-    let startup_evidence = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&startup.stderr),
-        std::fs::read_to_string(home.join("daemon.log")).unwrap_or_default()
-    );
-    assert!(
-        startup_evidence.contains(&format!("mosaico daemon reset-state {CONFIRM}")),
-        "startup must offer the exact coherent recovery: {startup_evidence}"
-    );
-    // Add sidecar sentinels only after startup has proved the incompatible Fava
-    // branch. Arbitrary sidecar bytes before that assertion could make SQLite
-    // fail first and turn this into a false-positive startup test.
     write(&home.join("state.db-wal"), b"runtime");
     write(&home.join("state.db-shm"), b"runtime");
     write(&home.join("state.db-journal"), b"runtime");
@@ -52,7 +33,7 @@ fn incompatible_store_offers_one_full_reset_that_preserves_configuration() {
         "reset must require confirmation"
     );
     assert!(home.join("state.db").exists());
-    assert!(home.join("fava.redb").exists());
+    assert!(home.join("publications.redb").exists());
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
     assert!(
@@ -66,7 +47,6 @@ fn incompatible_store_offers_one_full_reset_that_preserves_configuration() {
         "state.db-wal",
         "state.db-shm",
         "state.db-journal",
-        "fava.redb",
         "daemon.sock",
         "daemon.log",
         "sessions",
@@ -79,6 +59,10 @@ fn incompatible_store_offers_one_full_reset_that_preserves_configuration() {
     ] {
         assert!(!home.join(path).exists(), "runtime survived reset: {path}");
     }
+    assert_eq!(
+        std::fs::read(home.join("publications.redb")).unwrap(),
+        legacy_before
+    );
     for (path, bytes) in kept {
         assert_eq!(
             std::fs::read(&path).unwrap(),
@@ -109,7 +93,7 @@ fn reset_clears_a_configured_external_attachment_directory_without_changing_conf
     let attachments = fixture.path().join("received-attachments");
     let kept = seed_configuration(fixture.path(), &home, &attachments);
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("fava.redb"));
+    seed_ignored_legacy_file(&home.join("publications.redb"));
     write(&attachments.join("nested/received.bin"), b"attachment");
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
@@ -144,7 +128,7 @@ fn attachment_directory_inside_a_sibling_instance_refuses_without_touching_eithe
     let sibling_attachments = sibling.join("received-attachments");
     let kept = seed_configuration(fixture.path(), &home, &sibling_attachments);
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("fava.redb"));
+    seed_ignored_legacy_file(&home.join("publications.redb"));
     write(&sibling.join("config.json"), b"sibling config");
     write(&sibling.join("state.db"), b"sibling state");
     write(
@@ -152,7 +136,7 @@ fn attachment_directory_inside_a_sibling_instance_refuses_without_touching_eithe
         b"sibling attachment",
     );
     let selected_state = std::fs::read(home.join("state.db")).unwrap();
-    let selected_fava = std::fs::read(home.join("fava.redb")).unwrap();
+    let selected_legacy = std::fs::read(home.join("publications.redb")).unwrap();
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
     assert!(
@@ -164,8 +148,8 @@ fn attachment_directory_inside_a_sibling_instance_refuses_without_touching_eithe
         selected_state
     );
     assert_eq!(
-        std::fs::read(home.join("fava.redb")).unwrap(),
-        selected_fava
+        std::fs::read(home.join("publications.redb")).unwrap(),
+        selected_legacy
     );
     assert_eq!(
         std::fs::read(sibling.join("state.db")).unwrap(),
@@ -191,9 +175,9 @@ fn attachment_overlap_refuses_before_any_runtime_or_process_mutation() {
     std::os::unix::fs::symlink(&configured_agents, &attachment_link).unwrap();
     let kept = seed_configuration(fixture.path(), &home, &attachment_link);
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("fava.redb"));
+    seed_ignored_legacy_file(&home.join("publications.redb"));
     let before_state = std::fs::read(home.join("state.db")).unwrap();
-    let before_fava = std::fs::read(home.join("fava.redb")).unwrap();
+    let before_legacy = std::fs::read(home.join("publications.redb")).unwrap();
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
     assert!(
@@ -201,7 +185,10 @@ fn attachment_overlap_refuses_before_any_runtime_or_process_mutation() {
         "profile/config overlap must refuse reset"
     );
     assert_eq!(std::fs::read(home.join("state.db")).unwrap(), before_state);
-    assert_eq!(std::fs::read(home.join("fava.redb")).unwrap(), before_fava);
+    assert_eq!(
+        std::fs::read(home.join("publications.redb")).unwrap(),
+        before_legacy
+    );
     assert!(
         !home.join("daemon.inhibit").exists(),
         "preflight failure mutated process state"
@@ -217,28 +204,6 @@ fn attachment_overlap_refuses_before_any_runtime_or_process_mutation() {
 }
 
 #[test]
-fn fava_store_symlink_into_configuration_refuses_before_mutation() {
-    let fixture = tempfile::tempdir().expect("temporary root");
-    let home = selected_home(fixture.path());
-    let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
-    seed_runtime(&home);
-    let profile = home.join("agents/writer.json");
-    std::os::unix::fs::symlink(&profile, home.join("fava.redb")).unwrap();
-    let before_state = std::fs::read(home.join("state.db")).unwrap();
-
-    let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
-    assert!(
-        !reset.status.success(),
-        "Fava path escape must refuse reset"
-    );
-    assert_eq!(std::fs::read(home.join("state.db")).unwrap(), before_state);
-    assert!(!home.join("daemon.inhibit").exists());
-    for (path, bytes) in kept {
-        assert_eq!(std::fs::read(path).unwrap(), bytes);
-    }
-}
-
-#[test]
 fn fixed_runtime_symlink_outside_the_selected_home_refuses_before_mutation() {
     let fixture = tempfile::tempdir().expect("temporary root");
     let home = selected_home(fixture.path());
@@ -246,8 +211,8 @@ fn fixed_runtime_symlink_outside_the_selected_home_refuses_before_mutation() {
     let external_state = fixture.path().join("external-state.db");
     write(&external_state, b"external runtime bytes");
     std::os::unix::fs::symlink(&external_state, home.join("state.db")).unwrap();
-    superseded_epoch_store(&home.join("fava.redb"));
-    let before_fava = std::fs::read(home.join("fava.redb")).unwrap();
+    seed_ignored_legacy_file(&home.join("publications.redb"));
+    let before_legacy = std::fs::read(home.join("publications.redb")).unwrap();
 
     let reset = command(fixture.path(), &["daemon", "reset-state", CONFIRM]);
     assert!(
@@ -258,7 +223,10 @@ fn fixed_runtime_symlink_outside_the_selected_home_refuses_before_mutation() {
         std::fs::read(&external_state).unwrap(),
         b"external runtime bytes"
     );
-    assert_eq!(std::fs::read(home.join("fava.redb")).unwrap(), before_fava);
+    assert_eq!(
+        std::fs::read(home.join("publications.redb")).unwrap(),
+        before_legacy
+    );
     assert!(!home.join("daemon.inhibit").exists());
     for (path, bytes) in kept {
         assert_eq!(std::fs::read(path).unwrap(), bytes);
@@ -271,7 +239,7 @@ fn reset_refuses_while_the_selected_startup_lock_is_owned() {
     let home = selected_home(fixture.path());
     let kept = seed_configuration(fixture.path(), &home, &home.join("tmp/attachments"));
     seed_runtime(&home);
-    superseded_epoch_store(&home.join("fava.redb"));
+    seed_ignored_legacy_file(&home.join("publications.redb"));
 
     let lock = std::fs::OpenOptions::new()
         .create(true)
@@ -287,7 +255,7 @@ fn reset_refuses_while_the_selected_startup_lock_is_owned() {
         "owned state must not be reset concurrently"
     );
     assert!(home.join("state.db").exists());
-    assert!(home.join("fava.redb").exists());
+    assert!(home.join("publications.redb").exists());
     assert!(home.join("sessions/one/hook-calls.jsonl").exists());
     assert!(home.join("tmp/attachments/received.bin").exists());
     assert!(

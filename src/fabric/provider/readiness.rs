@@ -1,6 +1,7 @@
 use super::Nip29Provider;
 use crate::fabric::group_management::GroupMutationOutcome;
 use crate::fabric::nip29::readiness::{ChannelCtx, ChannelGate, ChannelReadinessError};
+use nostr::key::Keys;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -13,7 +14,11 @@ mod verify;
 
 impl Nip29Provider {
     /// Ensure `ctx.channel` exists on the relay and has `ctx.expect_member`.
-    pub(crate) async fn ensure_channel_ready<'a>(&'a self, ctx: ChannelCtx<'a>) -> ChannelGate {
+    pub(crate) async fn ensure_channel_ready<'a>(
+        &'a self,
+        ctx: ChannelCtx<'a>,
+        keys: &'a Keys,
+    ) -> ChannelGate {
         // Never provision an empty channel id: a 9007 create-group with an empty
         // `h`/`d` mints a junk relay group (kind:39000 with d=""). An empty
         // scope means "no channel resolved",
@@ -40,18 +45,19 @@ impl Nip29Provider {
             parent_hint: parent_hint.as_deref(),
             name: ctx.name,
         };
-        ensure_channel_ready_inner(self, normalized).await
+        ensure_channel_ready_inner(self, normalized, keys).await
     }
 }
 
 fn ensure_channel_ready_inner<'a>(
     provider: &'a Nip29Provider,
     ctx: ChannelCtx<'a>,
+    keys: &'a Keys,
 ) -> Pin<Box<dyn Future<Output = ChannelGate> + Send + 'a>> {
     Box::pin(async move {
         // No depth cap: a channel path may nest arbitrarily deep (mkdir -p style),
         // so provisioning walks the whole ancestor chain up to the channel root.
-        // Parent links are a strict acyclic ancestry delivered by Fava,
+        // Parent links are a strict acyclic ancestry delivered by Nostr runtime,
         // so this recursion terminates at the root (parent_hint == None).
 
         // Normalize: Some("") is the DB's sentinel for "known root channel" but
@@ -78,14 +84,14 @@ fn ensure_channel_ready_inner<'a>(
                 provider,
                 &ctx,
                 ChannelGate::Ready,
-                "channel readiness verified from Fava group state",
+                "channel readiness verified from Nostr runtime group state",
             );
         }
 
         let mgmt_pubkey = provider.management_pubkey();
 
         let parent_admins: Vec<String> = if let Some(parent) = parent_hint {
-            match ancestry::ensure_parent(provider, parent, &mgmt_pubkey).await {
+            match ancestry::ensure_parent(provider, parent, &mgmt_pubkey, keys).await {
                 Ok(admins) => admins,
                 Err(error) => {
                     return attempt::degraded_error(provider, &ctx, error);
@@ -95,10 +101,10 @@ fn ensure_channel_ready_inner<'a>(
             vec![]
         };
         // A locally reserved root/child id is exact product intent. If its
-        // retained Fava observation has no records yet, send the one create
-        // operation and let Fava's terminal result decide it; do not open a
+        // current NIP-29 view has no records yet, send the one create
+        // operation and let Nostr runtime's terminal result decide it; do not open a
         // second observation merely to prove absence. For an unrelated id,
-        // absence is not ours to invent, so the bounded Fava read still fails
+        // absence is not ours to invent, so the bounded Nostr runtime read still fails
         // closed.
         let managed = provider
             .with_store(|store| store.is_managed_channel(ctx.channel))
@@ -130,13 +136,14 @@ fn ensure_channel_ready_inner<'a>(
         let mut repaired = false;
         let mut admins_published_this_attempt = Vec::new();
         if !group_exists {
-            match provision::missing_group(provider, &ctx, parent_hint).await {
+            match provision::missing_group(provider, &ctx, parent_hint, keys).await {
                 Ok(true) => {
                     if let Err(error) = verify::initialize_created_group(
                         provider,
                         &ctx,
                         &mgmt_pubkey,
                         &parent_admins,
+                        keys,
                     )
                     .await
                     {
@@ -149,7 +156,7 @@ fn ensure_channel_ready_inner<'a>(
                         provider,
                         &ctx,
                         ChannelGate::Repaired,
-                        "channel creation and required role publications settled through Fava",
+                        "channel creation and required role publications settled through Nostr runtime",
                     );
                 }
                 Ok(false) => {}
@@ -171,7 +178,7 @@ fn ensure_channel_ready_inner<'a>(
                 }
             }
             // No optimistic local patch is needed: the relay accepted the
-            // mutation, and the retained group observation owns roster state.
+            // mutation, and the complete group view owns roster state.
             admins_published_this_attempt = required_admins;
             repaired = true;
         }
@@ -224,7 +231,7 @@ fn ensure_channel_ready_inner<'a>(
             }
         }
 
-        // Fava's group snapshot is the authority. Read it directly; readiness
+        // Nostr runtime's group snapshot is the authority. Read it directly; readiness
         // never depends on a Mosaico-owned channel copy.
         match provider.fetch_channel(ctx.channel).await {
             Ok(Some(_)) => {}
@@ -232,7 +239,7 @@ fn ensure_channel_ready_inner<'a>(
                 return attempt::degraded(
                     provider,
                     &ctx,
-                    "settled Fava group snapshot contained no kind:39000 metadata",
+                    "settled Nostr runtime group snapshot contained no kind:39000 metadata",
                 );
             }
             Err(error) => {
@@ -250,6 +257,7 @@ fn ensure_channel_ready_inner<'a>(
             &mgmt_pubkey,
             &parent_admins,
             &admins_published_this_attempt,
+            keys,
         )
         .await;
         if let Some(error) = invariant.degraded {

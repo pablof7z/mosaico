@@ -1,5 +1,6 @@
 use super::{ensure_channel_ready_inner, ChannelCtx, ChannelGate, Nip29Provider};
 use crate::fabric::nip29::readiness::ChannelReadinessError;
+use nostr::key::Keys;
 
 pub(in crate::fabric::provider) async fn stored_parent_hint(
     provider: &Nip29Provider,
@@ -43,6 +44,7 @@ pub(super) async fn ensure_parent(
     provider: &Nip29Provider,
     parent: &str,
     management_pubkey: &str,
+    keys: &Keys,
 ) -> Result<Vec<String>, ChannelReadinessError> {
     let grandparent = stored_parent_hint(provider, parent)
         .await
@@ -56,14 +58,16 @@ pub(super) async fn ensure_parent(
         parent_hint: grandparent.as_deref(),
         name: None,
     };
-    if let ChannelGate::Degraded(error) = ensure_channel_ready_inner(provider, parent_ctx).await {
+    if let ChannelGate::Degraded(error) =
+        ensure_channel_ready_inner(provider, parent_ctx, keys).await
+    {
         return Err(error.context(format!("parent channel {parent} readiness failed")));
     }
     let snapshot = provider.group_snapshot(parent).await.map_err(|error| {
         ChannelReadinessError::reason(format!("reading parent roster failed: {error:#}"))
     })?;
     Ok(
-        crate::observed_views::GroupProjection::new(std::slice::from_ref(&snapshot))
+        crate::group_projection::GroupProjection::new(std::slice::from_ref(&snapshot))
             .list_channel_members(parent)
             .into_iter()
             .filter(|member| member.role == "admin")

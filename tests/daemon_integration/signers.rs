@@ -28,8 +28,7 @@ fn rewrite_config_with_nak_relay(home: &Home) -> String {
     let body = serde_json::json!({
         "whitelistedPubkeys": [user_pk],
         "backendName": "test-host",
-        "relays": [relay],
-        "indexerRelay": relay,
+        "relay": relay,
         "userNsec": EXAMPLE_USER_NSEC,
         "mosaicoPrivateKey": EXAMPLE_BACKEND_SEC_HEX,
     });

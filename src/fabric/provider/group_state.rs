@@ -1,28 +1,25 @@
-use super::Nip29Provider;
-use anyhow::{Context, Result};
+use std::collections::BTreeSet;
 use std::time::Duration;
 
-use crate::group_snapshot::{GroupAvailability, GroupSnapshot};
+use anyhow::{Context, Result};
+use nostr::prelude::{Filter, Kind};
+
+use super::Nip29Provider;
+use crate::group_snapshot::{decode_snapshots, GroupAvailability, GroupSnapshot};
+use crate::nostr_runtime::GROUP_RECORD_LIMIT;
+
+const GROUP_READ_DEMAND: &str = "mosaico-group-read";
 
 impl Nip29Provider {
-    /// The current record-bearing value from the daemon's retained group
-    /// observation. An id-only Acquiring seed is not treated as group state.
     pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<GroupSnapshot> {
-        self.fava
-            .views()
-            .group_snapshots()
-            .into_iter()
-            .find(|snapshot| {
-                snapshot.id == group
-                    && (snapshot.metadata.is_some()
-                        || !snapshot.admins.is_empty()
-                        || !snapshot.members.is_empty())
-            })
+        self.view.group_snapshots().into_iter().find(|snapshot| {
+            snapshot.id == group
+                && (snapshot.metadata.is_some()
+                    || !snapshot.admins.is_empty()
+                    || !snapshot.members.is_empty())
+        })
     }
 
-    /// Fetch the declared parent without collapsing a transport failure into
-    /// `None`. Readiness uses this fail-closed surface before verifying the
-    /// reciprocal parent metadata.
     pub(crate) async fn try_fetch_group_parent(&self, group: &str) -> Result<Option<String>> {
         let snapshot = self.group_snapshot(group).await?;
         let Some(metadata) = snapshot.metadata else {
@@ -37,52 +34,43 @@ impl Nip29Provider {
         }))
     }
 
-    /// Read one complete group value from fava. Nothing is copied into SQLite.
     pub(crate) async fn group_snapshot(&self, group: &str) -> Result<GroupSnapshot> {
-        #[cfg(test)]
-        if let Some(scripted) = self.fava.take_scripted_group_snapshot(group) {
-            return scripted.context("reading scripted group snapshot");
-        }
-
-        // The daemon already owns one retained observation. A group with
-        // delivered records is read from that value directly rather than
-        // opening another query and waiting for the same rows to be projected
-        // again. An id-only Acquiring seed with no records is not an answer:
-        // the bounded group-scoped observation below is still needed to
-        // distinguish a genuinely absent group before creation.
         if let Some(snapshot) = self.current_group_snapshot(group) {
             return Ok(snapshot);
         }
-
-        let mut observation = self
-            .fava
-            .open_one_group_records_observation(group)
+        let _serial = self.group_read.lock().await;
+        let filter = Filter::new()
+            .kinds([
+                Kind::Custom(39_000),
+                Kind::Custom(39_001),
+                Kind::Custom(39_002),
+            ])
+            .identifier(group)
+            .limit(GROUP_RECORD_LIMIT.min(3));
+        self.runtime
+            .replace_demand(GROUP_READ_DEMAND, vec![filter])
             .await
-            .with_context(|| format!("opening group observation for {group}"))?;
-        tokio::time::timeout(Duration::from_secs(5), async {
-            use fava::ObservationClosed;
-
-            if let Some(snapshot) = settled_group_snapshot(&observation.current(), group) {
-                return snapshot;
-            }
-            loop {
-                let fava_snapshot = match observation.changed().await {
-                    Ok(s) => s,
-                    Err(ObservationClosed) => {
-                        anyhow::bail!("group observation closed before acquisition settled")
-                    }
-                };
-                if let Some(snapshot) = settled_group_snapshot(&fava_snapshot, group) {
-                    return snapshot;
-                }
-            }
-        })
-        .await
-        .with_context(|| format!("timed out reading group snapshot for {group}"))?
+            .with_context(|| format!("opening group read for {group}"))?;
+        let result = async {
+            self.runtime
+                .wait_for_eose(GROUP_READ_DEMAND, Duration::from_secs(5))
+                .await?;
+            let events = self.runtime.snapshot().await?.events;
+            Ok(decode_snapshots(
+                &events,
+                &BTreeSet::from([group.to_string()]),
+                GroupAvailability::Ready,
+            )
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| empty_snapshot(group)))
+        }
+        .await;
+        let close = self.runtime.close_demand(GROUP_READ_DEMAND).await;
+        close.context("closing group read")?;
+        result
     }
 
-    /// Read the current relay-authored metadata as a product channel value.
-    /// The value is returned to the caller; it is never materialized.
     pub async fn fetch_channel(&self, group: &str) -> Result<Option<crate::state::Channel>> {
         let snapshot = self.group_snapshot(group).await?;
         let Some(metadata) = snapshot.metadata else {
@@ -107,81 +95,12 @@ impl Nip29Provider {
     }
 }
 
-fn settled_group_snapshot(
-    fava_snapshot: &fava::QuerySnapshot,
-    group: &str,
-) -> Option<Result<GroupSnapshot>> {
-    use crate::group_snapshot::decode_snapshots;
-    use std::collections::BTreeSet;
-
-    let availability = crate::group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
-    let snapshot = decode_snapshots(fava_snapshot, &BTreeSet::new(), availability)
-        .into_iter()
-        .find(|snapshot| snapshot.id == group);
-    match snapshot {
-        Some(snapshot)
-            if matches!(
-                snapshot.availability,
-                GroupAvailability::Ready | GroupAvailability::CachedOnly
-            ) =>
-        {
-            Some(Ok(snapshot))
-        }
-        None if matches!(
-            availability,
-            GroupAvailability::Ready | GroupAvailability::CachedOnly
-        ) =>
-        {
-            Some(Ok(GroupSnapshot {
-                id: group.to_string(),
-                metadata: None,
-                admins: Vec::new(),
-                members: Vec::new(),
-                availability,
-            }))
-        }
-        _ => None,
-    }
-}
-
-pub(super) fn require_proven_projection(
-    read: &crate::fava_host::read::BoundedRead,
-    action: &str,
-) -> Result<()> {
-    if matches!(
-        read.termination,
-        crate::fava_host::read::BoundedReadTermination::RelaySettled
-    ) {
-        return Ok(());
-    }
-    anyhow::bail!(
-        "{action} ended as {:?}; relay did not settle before the deadline",
-        read.termination,
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::fava_host::read::{BoundedRead, BoundedReadTermination};
-
-    fn read(termination: BoundedReadTermination) -> BoundedRead {
-        BoundedRead {
-            rows: Vec::new(),
-            termination,
-        }
-    }
-
-    #[test]
-    fn relay_settled_proves_projection_but_timeout_does_not() {
-        assert!(require_proven_projection(
-            &read(BoundedReadTermination::RelaySettled),
-            "projection"
-        )
-        .is_ok());
-        assert!(
-            require_proven_projection(&read(BoundedReadTermination::TimedOut), "projection")
-                .is_err()
-        );
+fn empty_snapshot(group: &str) -> GroupSnapshot {
+    GroupSnapshot {
+        id: group.to_string(),
+        metadata: None,
+        admins: Vec::new(),
+        members: Vec::new(),
+        availability: GroupAvailability::Ready,
     }
 }

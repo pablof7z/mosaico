@@ -13,7 +13,7 @@ fn event(id: &str, created_at: u64) -> RelayEvent {
     }
 }
 
-/// A later Fava delivery omitting a removed row immediately changes reads.
+/// A later Nostr runtime delivery omitting a removed row immediately changes reads.
 #[test]
 fn retracting_an_event_removes_exactly_that_row() {
     let store = Store::open_memory().unwrap();

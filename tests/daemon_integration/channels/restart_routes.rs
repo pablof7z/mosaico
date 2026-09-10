@@ -23,31 +23,6 @@ fn local_routes(home: &Home, pubkey: &str) -> BTreeSet<String> {
         .collect()
 }
 
-fn who_session_projection(pubkey: &str, workspace: &str) -> (String, BTreeSet<String>) {
-    rt().block_on(async {
-        let mut c = Client::connect_or_spawn().await.expect("connect");
-        let v = c
-            .call("who", serde_json::json!({ "workspace": workspace }))
-            .await
-            .expect("who");
-        let rows = v["rows"].as_array().expect("who rows");
-        let ours = rows
-            .iter()
-            .filter(|row| row["pubkey"].as_str() == Some(pubkey))
-            .collect::<Vec<_>>();
-        let slug = ours
-            .first()
-            .and_then(|row| row["slug"].as_str())
-            .expect("who row for session")
-            .to_string();
-        let channels = ours
-            .iter()
-            .map(|row| row["channel"].as_str().expect("public channel").to_string())
-            .collect();
-        (slug, channels)
-    })
-}
-
 fn exact_state_is_current(
     home: &Home,
     pubkey: &str,
@@ -149,7 +124,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
                 child = observed_channel_h(&root, name);
                 child.is_some()
             }),
-            "Fava did not deliver child {name:?} under #{root}"
+            "Nostr runtime did not deliver child {name:?} under #{root}"
         );
         child_ids.push(child.expect("asserted above"));
     }
@@ -182,7 +157,9 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         Duration::from_secs(25),
     );
 
-    let (before_slug, before_channels) = who_session_projection(&session.pubkey, &root);
+    let (before_slug, before_channels) =
+        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
+            .expect("who row for session before restart");
     assert_eq!(before_slug, handle);
     assert_eq!(before_channels, expected_paths);
 
@@ -203,7 +180,11 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         session.runtime_generation,
         log_boundary,
     );
-    let (after_slug, after_channels) = who_session_projection(&session.pubkey, &root);
+    // The bounded SDK memory database starts empty after restart. Session adoption and
+    // relay-backed group rehydration are independent, so await the public level.
+    let (after_slug, after_channels) =
+        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
+            .expect("restarted daemon did not rehydrate the session's exact public routes");
     assert!(
         exact_state_is_current(
             &home,

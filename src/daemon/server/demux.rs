@@ -1,16 +1,11 @@
-//! Relay demux pipeline extracted from `server.rs` (issue #12, EPIC-server-001).
+//! Relay-to-product dispatch from the complete decoded NIP-29 view.
 //!
-//! One relay subscription feeds every hosted agent. `spawn_demux` drains the
-//! notification stream; incoming Fava rows are decoded once and derive
-//! real-time `TailEvent`s via `derive_and_emit_tail_events`. The two
-//! async side-channels (`handle_offline_agent_mention`, `handle_orchestration`)
-//! are dispatched off the demux loop.
-//!
-//! `spawn_demux` and `handle_orchestration` are `pub(super)` because the parent
-//! module calls them (the accept-loop bootstrap and the channel_create local
-//! fast-path); everything else is private to this module.
+//! Subscription notifications are wake-only. Every wake rereads the complete
+//! current level; the Nostr runtime remains the sole owner of raw relay truth. Durable
+//! arrival, inbox, and event-claim rows make local effects replay-safe.
 
 use super::*;
+use std::collections::BTreeSet;
 
 mod arrival;
 mod attachments;
@@ -34,74 +29,45 @@ pub(in crate::daemon::server) fn dispatch_offline_mentions(
 }
 
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
-    let mut transitions = state
-        .fava()
-        .take_view_transitions()
-        .expect("Fava view transition stream has one daemon owner");
+    let mut changes = state.nip29_view().subscribe_changes();
     tokio::spawn(async move {
-        while let Some(transition) = transitions.recv().await {
-            apply_transition(&state, transition).await;
+        loop {
+            apply_current(&state).await;
+            if changes.changed().await.is_err() {
+                return;
+            }
         }
     });
 }
 
-/// Apply one Fava frame's row transition.
-///
-/// **Removals first, additions second, always.** The frame is a set, not a
-/// sequence: Fava re-folds it through a `BTreeMap<EventId, _>` before delivery,
-/// so the order deltas arrive in is event-id ascending and says nothing about
-/// causality. A relay republishing an addressable event — which every NIP-29
-/// roster change is — sends `Removed(old)` and `Added(new)` in that one frame,
-/// and the view transition captures the departed Row before deindexing it.
-/// Acting on each Fava delta as it arrives can therefore blank a roster on
-/// nothing but hex ordering.
-///
-/// Removals-first is also what Fava's own coordinator does with the same
-/// problem (`fava_nip65::observe_current_delta`: *"Removals are applied before
-/// additions irrespective of delivery order. This lets a replaceable winner's
-/// removal reveal an older current row in the same batch without emitting a
-/// transient absence."*).
-async fn apply_transition(
-    state: &Arc<DaemonState>,
-    transition: crate::observed_views::RowTransition,
-) {
-    for departed in transition.removed {
-        apply_departure(state, departed);
+async fn apply_current(state: &Arc<DaemonState>) {
+    let events = state.nip29_view().content_events();
+    let hosted = locally_hosted_pubkeys(state);
+    let mut current_statuses = BTreeSet::new();
+
+    for event in events {
+        apply_current_status(state, &event, &hosted, &mut current_statuses);
+        let first_arrival = arrival::record_before_dispatch(state, &event.id.to_hex()).await;
+        inbound_dispatch::dispatch(state, &event, first_arrival);
     }
-    let mut hosted = None;
-    for entered in transition.entered {
-        apply_observation_entry(state, entered, &mut hosted);
-    }
-    for row in transition.added {
-        let event = row.event;
-        let event_id = event.id.to_hex();
-        arrival::record_before_dispatch(state, &event_id).await;
-        inbound_dispatch::dispatch(state, &event);
-    }
+
+    apply_status_departures(state, &current_statuses);
 }
 
-/// Turn one broad-`#h` status entry into peer tail state, once per channel the
-/// status names. Under the single broad `#h` observation a kind:30315 event
-/// enters exactly once (not once per channel-observation), so the channels it
-/// applies to are read from the event's own `#h` tags (`status.channels`)
-/// rather than from the observation id.
-fn apply_observation_entry(
+fn apply_current_status(
     state: &Arc<DaemonState>,
-    entered: crate::observed_views::EnteredRow,
-    hosted: &mut Option<Vec<String>>,
+    event: &Event,
+    hosted: &[String],
+    current: &mut BTreeSet<(String, String)>,
 ) {
-    if entered.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
-        return;
-    }
-    let event = entered.row.event;
     let Some(DomainEvent::Status(status)) = state
         .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(event))
+        .decode(&crate::fabric::RawEnvelope::Nostr(event.clone()))
     else {
         return;
     };
-    let hosted = hosted.get_or_insert_with(|| locally_hosted_pubkeys(state));
     for channel in &status.channels {
+        current.insert((status.agent.pubkey.clone(), channel.clone()));
         tail_projection::derive_and_emit_status_tail_event(
             state,
             &status,
@@ -123,33 +89,18 @@ fn locally_hosted_pubkeys(state: &Arc<DaemonState>) -> Vec<String> {
     hosted
 }
 
-/// Turn a broad-`#h` status departure into an immediate peer leave, once per
-/// channel the departed status named that is no longer current. A replacement
-/// delivered in the same frame is already installed in the Fava view, so
-/// `get_status` suppresses a transient Leave for channels the agent still
-/// occupies without introducing a Mosaico freshness or expiry clock.
-fn apply_departure(state: &Arc<DaemonState>, departed: crate::observed_views::DepartedRow) {
-    if departed.observation_id != crate::reconcile::subscriptions::BROAD_H_ID {
-        return;
-    }
-    let event = departed.row.event;
-    let Some(DomainEvent::Status(status)) = state
-        .provider()
-        .decode(&crate::fabric::RawEnvelope::Nostr(event))
-    else {
-        return;
-    };
+fn apply_status_departures(state: &Arc<DaemonState>, current: &BTreeSet<(String, String)>) {
+    let departed = state
+        .dedup
+        .peer_sessions
+        .lock()
+        .unwrap()
+        .keys()
+        .filter(|key| !current.contains(*key))
+        .cloned()
+        .collect::<Vec<_>>();
     let now = now_secs();
-    for channel in &status.channels {
-        let key = (status.agent.pubkey.clone(), channel.clone());
-        let still_current = state.with_store(|store| {
-            store
-                .get_status(&key.0, &key.1)
-                .is_ok_and(|status| status.is_some())
-        });
-        if still_current {
-            continue;
-        }
+    for key in departed {
         let tracked = state.dedup.peer_sessions.lock().unwrap().remove(&key);
         state.dedup.last_status.lock().unwrap().remove(&key);
         let Some(tracked) = tracked else {
@@ -171,22 +122,18 @@ fn finish_incoming(
     event: &Event,
     decoded: crate::fabric::ProductDecode,
     now: u64,
+    first_arrival: bool,
 ) {
-    // Each event reaches here exactly once. The ObservedViews `transition.added`
-    // set only carries rows newly added to the views, and under the single
-    // broad `#h` observation (mosaico#837) there is no overlapping delivery to
-    // re-add a row, so the per-process `first_sight` LRU that guarded this
-    // broadcast is retired. Durable idempotency across daemon restarts lives
-    // in `event_claims` + the `inbox` ledger.
     if let Some(de) = decoded.tail {
-        let kind = event.kind.as_u16();
-        // Presence-lease renewals (kind:30315) are too noisy for info.
-        if kind == 30315 {
-            tracing::debug!(kind, id = %&event.id.to_hex()[..8], "incoming");
-        } else {
-            tracing::info!(kind, id = %&event.id.to_hex()[..8], "incoming");
+        if first_arrival {
+            let kind = event.kind.as_u16();
+            if kind == 30315 {
+                tracing::debug!(kind, id = %&event.id.to_hex()[..8], "incoming");
+            } else {
+                tracing::info!(kind, id = %&event.id.to_hex()[..8], "incoming");
+            }
+            tail_projection::derive_and_emit_tail_events(state, &de, now);
         }
-        tail_projection::derive_and_emit_tail_events(state, &de, now);
         if event.kind.as_u16() == crate::fabric::nip29::wire::KIND_CHAT {
             if let DomainEvent::ChatMessage(ref chat) = de {
                 match super::direct_mentions::route(
@@ -201,7 +148,7 @@ fn finish_incoming(
                         attachments: &chat.attachments,
                     },
                 ) {
-                    Ok(report) if !report.owned_targets.is_empty() => {
+                    Ok(report) if report.newly_parked && !report.owned_targets.is_empty() => {
                         let st = state.clone();
                         let ev = event.clone();
                         tokio::spawn(async move {
@@ -212,7 +159,7 @@ fn finish_incoming(
                     Err(error) => tracing::error!(
                         event_id = %event.id,
                         %error,
-                        "direct mention routing failed; Fava row remains observed"
+                        "direct mention routing failed; Nostr runtime event remains current"
                     ),
                 }
             }
@@ -220,7 +167,3 @@ fn finish_incoming(
     }
     chat_ops::dispatch(state, event);
 }
-
-#[cfg(test)]
-#[path = "demux/tests.rs"]
-mod tests;

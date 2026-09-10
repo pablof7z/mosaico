@@ -1,10 +1,10 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { DaemonConnection, daemonCall, mosaicoHome } from "./protocol.ts"
-import { activityRow, panelSnapshot, type PanelSnapshot, type PanelSnapshotInput } from "./panel-model.ts"
+import { caller, daemonCall } from "./protocol.ts"
+import { panelSnapshot, type PanelSnapshot } from "./panel-model.ts"
 
 const POLL_MS = 5_000
 const PANEL_PACKAGE = "pi-panels"
@@ -17,57 +17,28 @@ export async function installMosaicoPanel(pi: ExtensionAPI): Promise<void> {
   if (!defineSidebar) return
 
   let stopped = true
+  let context: ExtensionContext | undefined
   let timer: ReturnType<typeof setInterval> | undefined
-  let closeTail: (() => void) | undefined
-  let activity: PanelSnapshot["activity"] = []
-  let daemonVersion = ""
-  const home = mosaicoHome()
   const sidebar = defineSidebar(pi, {
     id: "mosaico",
     title: "mosaico",
     view: new URL("./panel-view.ts", import.meta.url),
   }, { onMountChange: mounted => mounted ? start() : stop() })
 
-  const publish = (patch: PanelSnapshotInput) => sidebar.publish(panelSnapshot({
-    home,
-    activity,
-    daemonVersion,
-    ...patch,
-  }))
-
   async function refresh(): Promise<void> {
-    const relays = await configuredRelays(home)
+    if (!context) return
     try {
-      const [ping, sessions, channels] = await Promise.all([
-        daemonCall("ping", {}, AbortSignal.timeout(2_500)),
-        daemonCall("operator_sessions", {}, AbortSignal.timeout(2_500)),
-        daemonCall("channel_list", { all: true }, AbortSignal.timeout(2_500)),
-      ])
-      const version = ping && typeof ping === "object" ? (ping as { daemonVersion?: unknown }).daemonVersion : undefined
-      if (typeof version === "string") daemonVersion = version
-      publish({ running: true, relays, sessions, channels, error: "" })
-      if (!closeTail) void connectTail()
+      const overview = await daemonCall(
+        "my_session_overview",
+        caller(context),
+        AbortSignal.timeout(2_500),
+      )
+      sidebar.publish(panelSnapshot({ running: true, overview }))
     } catch (error) {
-      publish({ running: false, relays, sessions: {}, channels: {}, error: error instanceof Error ? error.message : "Mosaico daemon is unavailable." })
-    }
-  }
-
-  async function connectTail(): Promise<void> {
-    if (stopped || closeTail) return
-    try {
-      const connection = await DaemonConnection.open(AbortSignal.timeout(2_500))
-      if (stopped) return connection.close()
-      closeTail = connection.subscribe("tail", { backfill: 8 }, event => {
-        const row = activityRow(event)
-        if (!row) return
-        activity = [...activity, row].slice(-8)
-        void refresh()
-      }, () => {
-        closeTail = undefined
-        if (!stopped) setTimeout(() => void connectTail(), POLL_MS)
-      })
-    } catch {
-      if (!stopped) setTimeout(() => void connectTail(), POLL_MS)
+      sidebar.publish(panelSnapshot({
+        running: false,
+        error: error instanceof Error ? error.message : "Mosaico daemon is unavailable.",
+      }))
     }
   }
 
@@ -82,23 +53,16 @@ export async function installMosaicoPanel(pi: ExtensionAPI): Promise<void> {
     stopped = true
     if (timer) clearInterval(timer)
     timer = undefined
-    closeTail?.()
-    closeTail = undefined
   }
 
+  pi.on("session_start", (_event, ctx) => {
+    context = ctx
+    if (!stopped) void refresh()
+  })
   pi.on("session_shutdown", () => {
     stop()
     sidebar.dispose()
   })
-}
-
-async function configuredRelays(home: string): Promise<string[]> {
-  try {
-    const config = JSON.parse(await readFile(join(home, "config.json"), "utf8")) as { relays?: unknown }
-    return Array.isArray(config.relays) ? config.relays.filter((relay): relay is string => typeof relay === "string") : []
-  } catch {
-    return []
-  }
 }
 
 async function loadDefineSidebar(): Promise<DefineSidebar | undefined> {
@@ -113,8 +77,9 @@ async function loadDefineSidebar(): Promise<DefineSidebar | undefined> {
   return undefined
 }
 
-async function configuredPanelModule(): Promise<string | undefined> {
-  const agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent")
+export async function configuredPanelModule(
+  agentDir = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+): Promise<string | undefined> {
   try {
     const settings = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8")) as { packages?: unknown }
     for (const source of Array.isArray(settings.packages) ? settings.packages : []) {
@@ -123,8 +88,14 @@ async function configuredPanelModule(): Promise<string | undefined> {
         ? join(agentDir, "npm", "node_modules", PANEL_PACKAGE)
         : resolve(agentDir, source.replace(/^file:/, ""))
       try {
-        const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { name?: unknown }
-        if (manifest.name === PANEL_PACKAGE) return pathToFileURL(join(root, "extensions", PANEL_PACKAGE, "src", "sidebar.ts")).href
+        const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {
+          name?: unknown
+          exports?: Record<string, unknown>
+        }
+        const sidebar = manifest.exports?.["./sidebar"]
+        if (manifest.name === PANEL_PACKAGE && typeof sidebar === "string") {
+          return pathToFileURL(resolve(root, sidebar)).href
+        }
       } catch {
         continue
       }

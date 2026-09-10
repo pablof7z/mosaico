@@ -64,18 +64,8 @@ pub(super) fn write(path: &Path, bytes: &[u8]) {
     std::fs::write(path, bytes).unwrap();
 }
 
-pub(super) fn superseded_epoch_store(path: &Path) {
-    use redb::{Database, TableDefinition};
-
-    let database = Database::create(path).expect("create retired-epoch fixture");
-    let transaction = database.begin_write().expect("begin retired-epoch write");
-    {
-        let mut marker = transaction
-            .open_table(TableDefinition::<&str, u64>::new("schema_meta_v6"))
-            .expect("open retired marker table");
-        marker.insert("version", 10u64).expect("write marker");
-    }
-    transaction.commit().expect("commit retired marker");
+pub(super) fn seed_ignored_legacy_file(path: &Path) {
+    write(path, b"ignored legacy bytes");
 }
 
 pub(super) fn seed_configuration(
@@ -95,8 +85,7 @@ pub(super) fn seed_configuration_at(
     let config = serde_json::json!({
         "whitelistedPubkeys": [],
         "backendName": "reset-contract",
-        "relays": ["wss://relay.invalid"],
-        "indexerRelay": "wss://relay.invalid",
+        "relay": "wss://relay.invalid",
         "mosaicoPrivateKey": nostr::key::Keys::generate().secret_key().to_secret_hex(),
         "attachmentReceiveDirectory": attachment_directory,
     })

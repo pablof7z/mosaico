@@ -1,6 +1,6 @@
 //! Schema 22: all relay-derived state leaves Mosaico persistence.
 //!
-//! Fava owns current groups, profiles, statuses, events, messages, recipients,
+//! Nostr runtime owns current groups, profiles, statuses, events, messages, recipients,
 //! reactions, replacement selection, source evidence, and removal. This
 //! migration retains only host-local arrival order and downloaded paths.
 

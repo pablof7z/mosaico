@@ -14,6 +14,29 @@ fn write_executable(path: &std::path::Path) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
+#[test]
+fn profile_refresh_coalesces_requests_and_reclaims_release_races() {
+    let refresh = ProfileRefreshState::new();
+    assert!(refresh.request(), "first request owns the worker");
+    assert!(
+        !refresh.request(),
+        "later request only marks desired state dirty"
+    );
+    assert!(refresh.take_dirty());
+    assert!(!refresh.take_dirty());
+
+    assert!(
+        !refresh.request(),
+        "request racing with worker stays coalesced"
+    );
+    assert!(
+        refresh.release_or_reclaim(),
+        "worker must reclaim raced request"
+    );
+    assert!(refresh.take_dirty());
+    assert!(!refresh.release_or_reclaim());
+}
+
 #[tokio::test]
 async fn snapshot_owns_agents_and_workspaces_independently() {
     let home = tempfile::tempdir().unwrap();

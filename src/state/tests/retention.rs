@@ -69,29 +69,6 @@ fn retention_prune_preserves_pending_inbox() {
 }
 
 #[test]
-fn retention_keeps_offline_mention_replay_tombstones() {
-    let s = Store::open_memory().unwrap();
-    assert!(s
-        .claim_offline_mention("mention", "agent", "from", "room", "wake up", 1)
-        .unwrap());
-    s.complete_offline_mention("mention", "agent", 2).unwrap();
-    assert!(s
-        .claim_management_command("management", "from", "room", "who", 1)
-        .unwrap());
-    s.complete_management_command("management", 2).unwrap();
-
-    let report = s.prune_retained_state_before(3).unwrap();
-
-    assert_eq!(report.completed_event_claims, 1);
-    assert!(!s
-        .claim_offline_mention("mention", "agent", "from", "room", "wake up", 4)
-        .unwrap());
-    assert!(s
-        .claim_management_command("management", "from", "room", "who", 4)
-        .unwrap());
-}
-
-#[test]
 fn retention_prunes_finished_native_outcomes_but_keeps_open_attempts() {
     let s = Store::open_memory().unwrap();
     let finished = s

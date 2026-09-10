@@ -2,14 +2,13 @@
 //!
 //! The daemon supplies a complete coverage snapshot. This module computes the
 //! desired broad `#h` observation and returns the required Open/Replace/Close
-//! effects. Fava owns relay work behind the host seam.
+//! effects. `NostrRuntime` owns relay work behind the product seam.
 //!
 //! (mosaico#837) The N per-channel content observations collapsed into ONE broad
 //! bounded `GroupContentsMulti` `#h` over all known channels. The global
-//! kind:39000 group-metadata observation moved to the retained `group_records`
-//! observation, and per-author kind:0 profiles moved to the retained
-//! [`ProfileFeed`](crate::fava_host::ProfileFeed). What remains here is the broad
-//! `#h` alone — every other live query is a retained observation owned elsewhere.
+//! kind:39000 group metadata moved to the stable `group_records` demand, and
+//! per-author kind:0 profiles moved to one exact-author SDK demand. What remains
+//! here is the broad `#h` demand alone.
 
 #[cfg(test)]
 mod tests;
@@ -23,16 +22,10 @@ use serde::{Deserialize, Serialize};
 /// The distinction between the NIP-29 variants and the rest is not cosmetic.
 /// A NIP-29 question is answered by a RELAY, not by the network: the `h` tag
 /// is a label and two relays hosting the same group id are two independent
-/// groups. Fava mints those reads itself
-/// (`fava_nip29::Group::read` / `fava_nip29::groups_where_at`) precisely so
-/// both host-scoping axes get stamped — `ReadRouting::Explicit` for which
-/// relays are ASKED and `CacheMode::Strict` for which cached rows may ANSWER.
-/// Naming the group here rather than carrying a raw `('h', value)` tag is
-/// what lets `FavaHost` route each variant to the door that owns it; Fava's own
-/// door REFUSES a caller-supplied `#h` constraint, so a raw tag could not be
-/// handed to it at all.
+/// groups. Naming the product question here keeps filter construction inside
+/// the NIP-29/runtime boundary instead of leaking raw SDK filters into callers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SubscriptionQuery {
+pub enum SubscriptionSpec {
     /// The contents of SEVERAL groups at once, scoped by a multi-value `#h`.
     /// The single broad observation that replaces N per-channel
     /// `GroupContents` (mosaico#837). Self-authenticating content
@@ -52,17 +45,9 @@ pub enum SubscriptionQuery {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SubEffect {
-    Open {
-        id: String,
-        query: SubscriptionQuery,
-    },
-    Close {
-        id: String,
-    },
-    Replace {
-        id: String,
-        query: SubscriptionQuery,
-    },
+    Open { id: String, query: SubscriptionSpec },
+    Close { id: String },
+    Replace { id: String, query: SubscriptionSpec },
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,7 +55,7 @@ pub struct CoverageSnapshot {
     pub daemon_channels: BTreeSet<String>,
     /// Known groups whose relay-authored metadata and roster stay hydrated even
     /// when no local session has joined them. (Their kind:39000/39001/39002
-    /// records ride the retained `group_records` observation, not this
+    /// records ride the stable `group_records` demand, not this
     /// reconciler.)
     pub group_state_channels: BTreeSet<String>,
     pub addressed_pubkeys: BTreeSet<String>,
@@ -169,9 +154,9 @@ fn desired_h_groups(snapshot: &CoverageSnapshot) -> BTreeSet<String> {
     groups
 }
 
-fn broad_h_query(groups: &BTreeSet<String>) -> SubscriptionQuery {
+fn broad_h_query(groups: &BTreeSet<String>) -> SubscriptionSpec {
     use crate::fabric::nip29::wire::{KIND_CHAT, KIND_GROUP_PUT_USER, KIND_REACTION, KIND_STATUS};
-    SubscriptionQuery::GroupContentsMulti {
+    SubscriptionSpec::GroupContentsMulti {
         groups: groups.clone(),
         kinds: BTreeSet::from([KIND_CHAT, KIND_REACTION, KIND_STATUS, KIND_GROUP_PUT_USER]),
     }

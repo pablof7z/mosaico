@@ -118,11 +118,9 @@ fn timeout_result(timeout_secs: u64, channels: &[String]) -> serde_json::Value {
 }
 
 /// How long a reply wait will wait for its OWN message to come back before
-/// giving up on it. The message was published through Fava, which injects the
-/// accepted write into the subscription this daemon already holds (#1182), so
-/// the round trip is local and sub-millisecond -- but it is asynchronous, and
-/// `channel_send` returning is acceptance rather than observed delivery. Spending
-/// a slice of the wait's own budget on it is honest; failing on a race is not.
+/// giving up on it. `channel_send` returns after relay acknowledgement, while
+/// observation is the separate subscribed return path. Spending a slice of the
+/// wait's own budget on that asynchronous round trip avoids an observation race.
 const REPLY_ORIGIN_GRACE: Duration = Duration::from_secs(5);
 
 async fn wait_scope_and_cursor(

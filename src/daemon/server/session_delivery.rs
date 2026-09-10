@@ -30,6 +30,15 @@ struct AckParams {
     accepted: bool,
 }
 
+pub(super) fn rpc_open(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let rec = resolve_extension_session(state, params)?;
+    touch_extension_delivery(state, &rec);
+    Ok(serde_json::json!({"state": "live"}))
+}
+
 pub(super) async fn rpc_wait(
     state: &Arc<DaemonState>,
     params: &serde_json::Value,
@@ -39,28 +48,11 @@ pub(super) async fn rpc_wait(
         anyhow::bail!("session delivery timeout must be between 1 and 60 seconds");
     }
     let rec = resolve_extension_session(state, params)?;
-    let now = now_secs();
     let registry = state.runtime.extension_delivery.clone();
-    let became_live = {
+    touch_extension_delivery(state, &rec);
+    {
         let mut registry = registry.lock().expect("extension-delivery mutex poisoned");
-        let became_live = registry.touch(&rec, now);
         registry.begin_wait(&rec);
-        became_live
-    };
-    if became_live {
-        let presence = state.clone();
-        let pubkey = rec.pubkey.clone();
-        let generation = rec.runtime_generation;
-        tokio::spawn(async move {
-            super::presence::reconcile_generation(
-                &presence,
-                &pubkey,
-                generation,
-                "pi_extension_delivery_live",
-                None,
-            )
-            .await;
-        });
     }
     let _guard = ExtensionWaitGuard::new(registry.clone(), rec.clone());
     let mut rx = state.tail_subscribe();
@@ -83,6 +75,31 @@ pub(super) async fn rpc_wait(
             }
         }
     }
+}
+
+fn touch_extension_delivery(state: &Arc<DaemonState>, rec: &crate::state::Session) {
+    let became_live = state
+        .runtime
+        .extension_delivery
+        .lock()
+        .expect("extension-delivery mutex poisoned")
+        .touch(rec, now_secs());
+    if !became_live {
+        return;
+    }
+    let presence = state.clone();
+    let pubkey = rec.pubkey.clone();
+    let generation = rec.runtime_generation;
+    tokio::spawn(async move {
+        super::presence::reconcile_generation(
+            &presence,
+            &pubkey,
+            generation,
+            "pi_extension_delivery_live",
+            None,
+        )
+        .await;
+    });
 }
 
 pub(super) async fn rpc_ack(

@@ -1,10 +1,10 @@
-//! Fabric abstraction layer around Fava I/O and product event decoding.
+//! Fabric abstraction layer around Nostr I/O and product event decoding.
 //!
 //! Layering intent:
-//!   Acquisition + all durable writes ← Fava
-//!   Profile indexer + bounded reads  ← Fava
+//!   Acquisition + explicit sends     ← NostrRuntime
+//!   Complete profile reads           ← Nip29View
 //!   NostrEventCodec (encode, decode)  ← Nip29WireCodec
-//!   Process-local presentation views  ← Fava deliveries
+//!   Product DTOs from current levels  ← Nip29View
 
 pub(crate) mod group_management;
 pub mod nip29;
@@ -42,9 +42,9 @@ pub struct ProductDecode {
 
 // ── Top-level dispatcher ──────────────────────────────────────────────────────
 
-/// Decode one Fava-delivered envelope for product side effects.
+/// Decode one Nostr runtime-delivered envelope for product side effects.
 ///
-/// Relay-derived state remains in Fava's delivered view. This function may read
+/// Relay-derived state remains in Nostr runtime's delivered view. This function may read
 /// that view to enrich a display value, but it never persists a second copy.
 pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> ProductDecode {
     use crate::domain::DomainEvent;
@@ -52,8 +52,8 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
 
     let RawEnvelope::Nostr(event) = env;
 
-    // Group records are projected by Fava's GroupObservation, not decoded into
-    // product events here.
+    // Group records are projected from the complete NIP-29 view, not decoded
+    // into product events here.
     if matches!(event.kind.as_u16(), 39000..=39002) {
         return ProductDecode::default();
     }
@@ -85,7 +85,7 @@ pub fn decode_product_event(env: &RawEnvelope, store: &crate::state::Store) -> P
             }
         }
 
-        // Reactions (kind:7) are passive awareness read from the Fava reaction
+        // Reactions (kind:7) are passive awareness read from the Nostr runtime reaction
         // projection, so they never enter direct-mention routing,
         // wake an idle agent, or inject mid-turn. No tail (nothing live-delivers).
         DomainEvent::Reaction(_) => {
@@ -169,7 +169,7 @@ mod tests {
             .admins(Vec::new())
             .members(vec![sender_pk.clone(), receiver_pk.clone()])]));
 
-        // Ambient message (no p-tag): observed by Fava, inbox stays empty.
+        // Ambient message (no p-tag): observed by Nostr runtime, inbox stays empty.
         let ambient = build_event(
             &sender_keys,
             9,

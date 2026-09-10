@@ -1,9 +1,9 @@
-//! Kind:9 chat projection read through the active Fava view.
+//! Kind:9 chat projection read through the active Nostr runtime view.
 //!
-//! Message identity, content, ordering, and `p`-tag recipients belong to Fava.
+//! Message identity, content, ordering, and `p`-tag recipients belong to Nostr runtime.
 //! SQLite retains only the independently keyed local attachment directory.
 
-use super::observed_decode::{decode_message, MessageProjection};
+use super::relay_decode::{decode_message, MessageProjection};
 use super::*;
 use crate::fabric::nip29::wire::KIND_CHAT;
 use std::collections::BTreeMap;
@@ -12,14 +12,11 @@ mod attachments;
 mod wait_cursor;
 
 impl Store {
-    /// All retained kind:9 chat rows decoded into the message projection, read
-    /// from the bounded recent-rows window. The mirror's `messages()` is
-    /// retired; this is its sync successor.
+    /// All retained kind:9 chat rows decoded from the current Nostr runtime level.
     pub(super) fn message_projections(&self) -> Vec<MessageProjection> {
-        self.observed_views
-            .recent_rows()
-            .events_by_kind(KIND_CHAT, u32::MAX)
+        self.relay_events()
             .into_iter()
+            .filter(|event| event.kind == KIND_CHAT as u32)
             .filter_map(decode_message)
             .collect()
     }
@@ -27,9 +24,9 @@ impl Store {
     /// One chat projection by id, or `None` if the id is absent or not a chat
     /// row in the retained window.
     pub(super) fn message_projection_by_id(&self, message_id: &str) -> Option<MessageProjection> {
-        self.observed_views
-            .recent_rows()
-            .event(message_id)
+        self.relay_events()
+            .into_iter()
+            .find(|event| event.id == message_id)
             .filter(|event| event.kind == KIND_CHAT as u32)
             .and_then(decode_message)
     }
