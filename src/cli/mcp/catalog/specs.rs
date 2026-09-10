@@ -29,12 +29,12 @@ pub(super) const SPECS: &[ToolSpec] = &[
         description: "Wait for the next matching message without polling. Returns a message or \
                       timeout outcome.",
         props: &[
-            Prop::new("timeout_seconds", "integer", "Maximum seconds to wait."),
+            Prop::new("seconds", "integer", "Maximum seconds to wait."),
             Prop::new("channels", "array", "Optional joined channels to watch."),
             Prop::new("from", "string", "Optional human or agent author filter."),
             SESSION_PROP,
         ],
-        required: &["timeout_seconds"],
+        required: &["seconds"],
         read_only: true,
         destructive: false,
     },
@@ -138,7 +138,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             ),
             SESSION_PROP,
             Prop::new(
-                "wait_seconds",
+                "seconds",
                 "integer",
                 "After sending, wait this many seconds for a correlated reply.",
             ),
@@ -164,7 +164,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "Full absolute path for the new leaf (#workspace/epic/child).",
             ),
             Prop::new("about", "string", "Short stable channel description."),
-            Prop::new("agents", "array", "Agent targets as slug@backend strings."),
+            Prop::new("agents", "array", "Agent targets: slug for local agents, slug@backend for remote agents."),
             SESSION_PROP,
         ],
         required: &["channel", "about"],
@@ -177,11 +177,11 @@ pub(super) const SPECS: &[ToolSpec] = &[
                       acknowledgement that never interrupts the target's turn. Prefer \
                       this over a chat reply for a bare ack (\"got it\", 👍, ✅).",
         props: &[
-            Prop::new("message_id", "string", "Target message id or short prefix."),
+            Prop::new("id", "string", "Target message id (6-char prefix)."),
             Prop::new("emoji", "string", "Reaction emoji (e.g. 👍 ✅ 👀) or +/-."),
             SESSION_PROP,
         ],
-        required: &["message_id", "emoji"],
+        required: &["id", "emoji"],
         read_only: false,
         destructive: false,
     },
@@ -194,7 +194,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "target",
                 "string",
-                "Agent target as agent or agent@backend-label.",
+                "Agent slug, or slug@backend for remote agents.",
             ),
             Prop::new("workspace", "string", "Workspace/root channel to run in."),
             Prop::new(

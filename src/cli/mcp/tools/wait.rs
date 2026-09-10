@@ -5,8 +5,8 @@ pub(super) async fn ambient(args: &Value, identity: &Value) -> Result<Value> {
 }
 
 pub(super) fn send_timeout(args: &Value) -> Result<Option<u64>> {
-    args.get("wait_seconds")
-        .map(|_| required_timeout(args, "wait_seconds"))
+    args.get("seconds")
+        .map(|_| required_timeout(args, "seconds"))
         .transpose()
 }
 
@@ -26,7 +26,7 @@ pub(super) async fn for_reply(
 }
 
 fn ambient_params(args: &Value) -> Result<Value> {
-    let timeout_seconds = required_timeout(args, "timeout_seconds")?;
+    let timeout_seconds = required_timeout(args, "seconds")?;
     Ok(with_session(
         json!({
             "timeout_secs": timeout_seconds,

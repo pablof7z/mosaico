@@ -20,7 +20,7 @@ fn channel_send_projects_correlated_wait_intent_to_the_daemon() {
     let waiting = channel_send_params(
         &json!({
             "message": "hello",
-            "wait_seconds": 30,
+            "seconds": 30,
         }),
         false,
     )

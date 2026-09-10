@@ -13,11 +13,8 @@ fn timeouts_must_be_positive_integers() {
 #[test]
 fn send_timeout_is_optional_but_validated_when_present() {
     assert_eq!(send_timeout(&json!({})).unwrap(), None);
-    assert_eq!(
-        send_timeout(&json!({ "wait_seconds": 9 })).unwrap(),
-        Some(9)
-    );
-    assert!(send_timeout(&json!({ "wait_seconds": 0 })).is_err());
+    assert_eq!(send_timeout(&json!({ "seconds": 9 })).unwrap(), Some(9));
+    assert!(send_timeout(&json!({ "seconds": 0 })).is_err());
 }
 
 #[test]
@@ -32,7 +29,7 @@ fn string_arrays_default_to_empty() {
 #[test]
 fn ambient_params_preserve_filters_and_session() {
     let params = ambient_params(&json!({
-        "timeout_seconds": 60,
+        "seconds": 60,
         "channels": ["#mosaico/work"],
         "from": "agent",
         "session": "actor",
