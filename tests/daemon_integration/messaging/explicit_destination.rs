@@ -131,7 +131,10 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
     let event_id = sent["event_id"].as_str().unwrap().to_string();
 
     let published = await_observed_chat(&event_id);
-    assert_eq!(published["from_ref"].as_str(), Some(sender_identity.display_slug().as_str()));
+    assert_eq!(
+        published["from_ref"].as_str(),
+        Some(sender_identity.display_slug().as_str())
+    );
     assert_eq!(published["channel"], "#tmp");
     let published_body = published["body"].as_str().expect("published body");
     assert!(published_body.contains(original_body), "{published}");
