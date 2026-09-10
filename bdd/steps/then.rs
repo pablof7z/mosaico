@@ -97,11 +97,3 @@ async fn same_identity_no_sibling(world: &mut MosaicoWorld, agent: String) {
         world.last_run().combined()
     );
 }
-
-#[then(regex = r#"^the relay message "([^"]+)" is authored by the explicitly selected session$"#)]
-async fn explicit_session_authored_message(world: &mut MosaicoWorld, body: String) {
-    assert!(
-        world.relay_message_was_authored_by_explicit_session(&body),
-        "relay never exposed {body:?} under the explicitly selected signer"
-    );
-}

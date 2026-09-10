@@ -51,8 +51,3 @@ async fn management_command(world: &mut MosaicoWorld, body: String) {
 async fn stop_exact_session(world: &mut MosaicoWorld) {
     world.stop_active_session();
 }
-
-#[when(regex = r#"^I send "([^"]+)" with the second session explicitly selected$"#)]
-async fn explicit_session_send(world: &mut MosaicoWorld, body: String) {
-    world.send_with_explicit_session_anchor(&body);
-}

@@ -2,21 +2,6 @@
 
 These examples show how the evidence families answer different uncertainties.
 
-## Explicit session authority
-
-Claim:
-
-> An explicitly selected sender session overrides ambient process hints.
-
-Evidence:
-
-- unit tests cover parsing and precedence combinations;
-- an admitted black-box contract launches isolated sessions, sends through the
-  exact binary, and verifies relay authorship.
-
-Why both: the unit tests localize the rule; the relay oracle proves authority
-across the supported path.
-
 ## Native profile selectors
 
 Claim:

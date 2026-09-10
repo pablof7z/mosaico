@@ -83,17 +83,14 @@ async fn wait_ambient(args: &Value, identity: &Value) -> Result<String> {
 async fn channel_list(args: &Value, identity: &Value) -> Result<String> {
     let v = daemon_identity(
         "channel_list",
-        with_session(
-            json!({
-                "workspace": opt_string(args, "workspace"),
-                "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
-                "recursive": args
-                    .get("recursive")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            }),
-            args,
-        ),
+        json!({
+            "workspace": opt_string(args, "workspace"),
+            "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
+            "recursive": args
+                .get("recursive")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
         identity,
     )
     .await?;
@@ -105,7 +102,6 @@ async fn channel_read(args: &Value, identity: &Value) -> Result<String> {
         json!({
             "id": opt_string(args, "id"),
             "channel": opt_string(args, "channel"),
-            "session": opt_string(args, "session"),
             "since": since_arg(args),
             "limit": args.get("limit").and_then(Value::as_u64).unwrap_or(20),
             "offset": args.get("offset").and_then(Value::as_u64).unwrap_or(0),
@@ -127,19 +123,16 @@ async fn channel_read(args: &Value, identity: &Value) -> Result<String> {
 }
 
 async fn dispatch(args: &Value, identity: &Value) -> Result<String> {
-    let params = with_session(
-        json!({
-            "target": required_string(args, "target")?,
-            "workspace": required_string(args, "workspace")?,
-            "channels": args
-                .get("channels")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            "message": required_string(args, "message")?,
-        }),
-        args,
-    );
+    let params = json!({
+        "target": required_string(args, "target")?,
+        "workspace": required_string(args, "workspace")?,
+        "channels": args
+            .get("channels")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        "message": required_string(args, "message")?,
+    });
     let v = daemon_identity("dispatch", params, identity).await?;
     let dispatch_id = crate::idref::event_short_id(v["dispatch_event_id"].as_str().unwrap_or("?"));
     let message_id = crate::idref::event_short_id(v["message_event_id"].as_str().unwrap_or("?"));
@@ -151,13 +144,10 @@ async fn dispatch(args: &Value, identity: &Value) -> Result<String> {
 }
 
 async fn react(args: &Value, identity: &Value) -> Result<String> {
-    let params = with_session(
-        json!({
-            "id": required_string(args, "id")?,
-            "emoji": required_string(args, "emoji")?,
-        }),
-        args,
-    );
+    let params = json!({
+        "id": required_string(args, "id")?,
+        "emoji": required_string(args, "emoji")?,
+    });
     let v = daemon_identity("channel_react", params, identity).await?;
     let id = v["id"].as_str().unwrap_or("?");
     let target = v["target"].as_str().unwrap_or("?");
@@ -168,14 +158,11 @@ async fn react(args: &Value, identity: &Value) -> Result<String> {
 async fn channel_create(args: &Value, identity: &Value) -> Result<String> {
     let v = daemon_identity(
         "channel_create",
-        with_session(
-            json!({
-                "channel": required_string(args, "channel")?,
-                "about": required_string(args, "about")?,
-                "agents": agent_specs(args)?,
-            }),
-            args,
-        ),
+        json!({
+            "channel": required_string(args, "channel")?,
+            "about": required_string(args, "about")?,
+            "agents": agent_specs(args)?,
+        }),
         identity,
     )
     .await?;
@@ -196,10 +183,7 @@ async fn channel_create(args: &Value, identity: &Value) -> Result<String> {
 async fn channel_mutation(method: &str, args: &Value, identity: &Value) -> Result<String> {
     let v = daemon_identity(
         method,
-        with_session(
-            json!({ "channel": required_string(args, "channel")? }),
-            args,
-        ),
+        json!({ "channel": required_string(args, "channel")? }),
         identity,
     )
     .await?;
@@ -215,13 +199,6 @@ async fn channel_mutation(method: &str, args: &Value, identity: &Value) -> Resul
         let channel = v["channel"].as_str().unwrap_or("?");
         Ok(format!("left channel {channel}"))
     }
-}
-
-fn with_session(mut value: Value, args: &Value) -> Value {
-    if let (Some(obj), Some(session)) = (value.as_object_mut(), opt_string(args, "session")) {
-        obj.insert("session".into(), json!(session));
-    }
-    value
 }
 
 fn agent_specs(args: &Value) -> Result<Vec<Value>> {

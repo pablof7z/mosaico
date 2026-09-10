@@ -11,15 +11,10 @@ mod envelope;
 #[cfg(test)]
 pub(super) use envelope::{format_envelope, EnvelopeView};
 
-pub(super) async fn channel_react(
-    id: String,
-    emoji: String,
-    session: Option<String>,
-) -> Result<()> {
+pub(super) async fn channel_react(id: String, emoji: String) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "id": id,
         "emoji": emoji.clone(),
-        "session": session,
     }));
     let v = daemon_call_async("channel_react", params).await?;
     let id = v["id"].as_str().unwrap_or("?");
@@ -37,7 +32,6 @@ pub(super) struct ChannelReadRequest {
     pub tail: bool,
     pub live: bool,
     pub channel: Option<String>,
-    pub session: Option<String>,
 }
 
 pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
@@ -57,7 +51,6 @@ pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "id": req.id,
         "channel": req.channel,
-        "session": req.session,
         "since": since_ts,
         "limit": effective_limit,
         "offset": req.offset.unwrap_or(0),

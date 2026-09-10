@@ -2,7 +2,7 @@ use super::*;
 use clap::Parser;
 
 #[test]
-fn accepts_repeated_tags_and_explicit_session_anchor() {
+fn accepts_repeated_tags_with_channel_and_wait() {
     let cli = crate::cli::args::Cli::try_parse_from([
         "mosaico",
         "channel",
@@ -19,8 +19,6 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
         "--force",
         "--channel",
         "#ops",
-        "--session",
-        "session-1",
         "--wait",
         "600",
     ])
@@ -35,7 +33,6 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
                     tags,
                     force,
                     channel,
-                    session,
                     wait,
                     ..
                 },
@@ -55,7 +52,6 @@ fn accepts_repeated_tags_and_explicit_session_anchor() {
             assert_eq!(tags, vec!["agent1", "agent2"]);
             assert!(force);
             assert_eq!(channel.as_deref(), Some("#ops"));
-            assert_eq!(session.as_deref(), Some("session-1"));
             assert_eq!(wait, Some(600));
         }
         _ => panic!("expected channel send command"),

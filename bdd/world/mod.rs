@@ -29,7 +29,6 @@ pub struct MosaicoWorld {
     relay_peer: Option<(String, String)>,
     active_workspace: Option<String>,
     active_session_pubkey: Option<String>,
-    ambient_session_pubkey: Option<String>,
 }
 
 impl fmt::Debug for MosaicoWorld {
@@ -49,13 +48,6 @@ impl fmt::Debug for MosaicoWorld {
                 "active_session_pubkey",
                 &self
                     .active_session_pubkey
-                    .as_ref()
-                    .map(|pubkey| &pubkey[..8]),
-            )
-            .field(
-                "ambient_session_pubkey",
-                &self
-                    .ambient_session_pubkey
                     .as_ref()
                     .map(|pubkey| &pubkey[..8]),
             )

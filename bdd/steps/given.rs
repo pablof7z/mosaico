@@ -55,13 +55,3 @@ async fn live_claude_agent(world: &mut MosaicoWorld, agent: String, workspace: S
 async fn stable_claude_agent(world: &mut MosaicoWorld, agent: String, workspace: String) {
     world.configure_stable_claude_agent(&agent, &workspace);
 }
-
-#[given(regex = r#"^Claude agents "([^"]+)" and "([^"]+)" are live in workspace "([^"]+)"$"#)]
-async fn two_live_claude_agents(
-    world: &mut MosaicoWorld,
-    first: String,
-    second: String,
-    workspace: String,
-) {
-    world.configure_two_claude_agents(&first, &second, &workspace);
-}

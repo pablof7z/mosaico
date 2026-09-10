@@ -66,15 +66,6 @@ fn remote_mcp_cannot_read_local_attachment_paths() {
 }
 
 #[test]
-fn explicit_session_remains_an_operator_override() {
-    let params = caller_params(
-        json!({ "session": "explicit" }),
-        &json!({ "session": "remote-actor" }),
-    );
-    assert_eq!(params["session"], "explicit");
-}
-
-#[test]
 fn remote_actor_is_the_default_session() {
     let params = caller_params(json!({}), &json!({ "session": "remote-actor" }));
     assert_eq!(params["session"], "remote-actor");

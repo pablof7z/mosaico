@@ -27,26 +27,23 @@ fn string_arrays_default_to_empty() {
 }
 
 #[test]
-fn ambient_params_preserve_filters_and_session() {
+fn ambient_params_preserve_filters() {
     let params = ambient_params(&json!({
         "seconds": 60,
         "channels": ["#mosaico/work"],
-        "from": "agent",
-        "session": "actor",
+        "from": ["agent"],
     }))
     .unwrap();
     assert_eq!(params["timeout_secs"], 60);
     assert_eq!(params["channels"], json!(["#mosaico/work"]));
-    assert_eq!(params["from"], "agent");
-    assert_eq!(params["session"], "actor");
+    assert_eq!(params["from_labels"], json!(["agent"]));
 }
 
 #[test]
 fn reply_params_contain_reply_to_and_timeout() {
-    let params = reply_params("sent-event", 120, &json!({ "session": "actor" }));
+    let params = reply_params("sent-event", 120);
     assert_eq!(params["timeout_secs"], 120);
     assert_eq!(params["reply_to"], "sent-event");
-    assert_eq!(params["session"], "actor");
     assert!(params.get("from_pubkeys").is_none());
     assert!(params.get("from_labels").is_none());
 }

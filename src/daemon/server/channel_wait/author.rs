@@ -9,11 +9,7 @@ pub(super) struct AuthorFilter {
 }
 
 impl AuthorFilter {
-    pub(super) fn from_params(
-        state: &Arc<DaemonState>,
-        scopes: &[String],
-        params: &WaitParams,
-    ) -> Result<Self> {
+    pub(super) fn from_params(params: &WaitParams) -> Result<Self> {
         let mut filter = Self {
             pubkeys: HashSet::new(),
             labels: params
@@ -23,45 +19,6 @@ impl AuthorFilter {
                 .filter(|label| !label.is_empty())
                 .collect(),
         };
-        if let Some(raw) = params.from.as_deref().map(clean_label) {
-            if raw.is_empty() {
-                anyhow::bail!("--from must not be empty");
-            }
-            let first_scope = &scopes[0];
-            let mut resolved_any = false;
-            if let Ok(resolved) = state.with_store(|store| {
-                super::super::channel_send::resolve_recipient(
-                    store,
-                    first_scope,
-                    &state.host(),
-                    &raw,
-                )
-            }) {
-                resolved_any = true;
-                filter.pubkeys.insert(resolved.pubkey);
-            }
-            state.with_store(|store| {
-                for scope in scopes {
-                    for member in store.list_channel_members(scope).unwrap_or_default() {
-                        let profile = store.get_profile(&member.pubkey).ok().flatten();
-                        let session = store.get_session(&member.pubkey).ok().flatten();
-                        if identity_matches(
-                            &raw,
-                            profile.as_ref(),
-                            session.as_ref(),
-                            &member.pubkey,
-                        ) {
-                            resolved_any = true;
-                            filter.pubkeys.insert(member.pubkey);
-                        }
-                    }
-                }
-            });
-            if !resolved_any {
-                anyhow::bail!("can't resolve --from {raw:?} in the selected channels");
-            }
-            filter.labels.push(raw);
-        }
         filter.labels.sort();
         filter.labels.dedup();
         Ok(filter)
