@@ -63,6 +63,22 @@ pub(super) fn redundant_prefix(label: String) -> Notice {
     }
 }
 
+pub(super) fn recipient_suspension(label: Option<&str>, subject: String) -> Notice {
+    Notice {
+        level: "warn",
+        code: "recipient_suspension",
+        summary: format!(
+            "Reminder: {subject} is suspended and will receive this message after manual resumption."
+        ),
+        channel: None,
+        tagged_agent: label.map(str::to_string),
+        typed_label: None,
+        candidates: Vec::new(),
+        matched_agent: None,
+        matched_agent_state: None,
+    }
+}
+
 pub(super) fn ack_like(message: &str) -> Option<Notice> {
     is_ack_like(message).then(|| Notice {
         level: "info",
