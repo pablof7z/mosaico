@@ -88,7 +88,9 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         now_secs(),
     );
     notices.extend(
-        state.with_store(|store| super::recipient_notice::reply_suspension_notices(store, &original))?,
+        state.with_store(|store| {
+            super::recipient_notice::reply_suspension_notices(store, &original)
+        })?,
     );
     let mut result = serde_json::json!({"id": crate::util::short_id(&published.event_id)});
     if !notices.is_empty() {
