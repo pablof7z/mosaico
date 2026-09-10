@@ -39,14 +39,12 @@ pub(super) async fn wait_for_reply(
     timeout_secs: u64,
     session: Option<String>,
 ) -> Result<()> {
-    let event_id = send_result["event_id"]
+    let event_id = send_result["id"]
         .as_str()
-        .context("channel send returned no event id")?;
+        .context("channel send returned no id")?;
     let params = crate::cli::rpc_params(serde_json::json!({
         "timeout_secs": timeout_secs,
         "reply_to": event_id,
-        "from_pubkeys": send_result["mentioned_pubkeys"],
-        "from_labels": send_result["mentioned_labels"],
         "session": session,
     }));
     let result = daemon_call_async("channel_wait", params).await?;
@@ -100,7 +98,7 @@ fn render_wait_message(message: &serde_json::Value, now: u64) -> String {
         &mut out,
         4,
         &crate::agent_xml::MessageElement {
-            event_id: message["event_id"].as_str().unwrap_or_default(),
+            event_id: message["id"].as_str().unwrap_or_default(),
             from,
             recipients: &recipients,
             attachment_dir: message["attachment_dir"].as_str().unwrap_or_default(),

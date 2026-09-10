@@ -15,6 +15,8 @@ pub(super) struct CoachingNotice {
     pub(super) code: &'static str,
     pub(super) summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tagged_agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     typed_label: Option<String>,
@@ -34,6 +36,7 @@ pub(super) fn unhosted_no_return_path() -> CoachingNotice {
                   A later response will queue but cannot resume you. Read \
                   `~/.agents/skills/mosaico/references/unhosted.md`."
             .to_string(),
+        channel: None,
         tagged_agent: None,
         typed_label: None,
         candidates: Vec::new(),
@@ -51,6 +54,7 @@ pub(super) fn redundant_prefix(label: String) -> CoachingNotice {
              `--tag {label}` already adds the @{label} mention; \
              do not include it at the start of `--message`."
         ),
+        channel: None,
         tagged_agent: Some(label),
         typed_label: None,
         candidates: Vec::new(),
@@ -67,6 +71,7 @@ pub(super) fn ack_like(message: &str) -> Option<CoachingNotice> {
             "INFO: Was this simply an ACK? Next time use \
              `mosaico channel react <message-id> \"👍\"`. Read `{COORDINATION_GUIDE}`."
         ),
+        channel: None,
         tagged_agent: None,
         typed_label: None,
         candidates: Vec::new(),
@@ -79,6 +84,7 @@ pub(super) fn untagged_agent_prefix(
     store: &Store,
     message: &str,
     channel: &str,
+    channel_ref: String,
     self_pubkey: &str,
     backend_pubkey: &str,
 ) -> Result<Option<CoachingNotice>> {
@@ -112,6 +118,7 @@ pub(super) fn untagged_agent_prefix(
                 "WARN: This message published but won't tag anyone. \
                  \"{typed_label}:\" matches multiple agents: {shown}. No recipient was inferred."
             ),
+            channel: None,
             tagged_agent: None,
             typed_label: Some(typed_label),
             candidates: names,
@@ -139,6 +146,7 @@ pub(super) fn untagged_agent_prefix(
             candidate.handle,
             idle_note.as_deref().unwrap_or_default()
         ),
+        channel: Some(channel_ref),
         tagged_agent: None,
         typed_label: Some(typed_label),
         candidates: vec![candidate.handle.clone()],

@@ -23,7 +23,7 @@ async fn start(client: &mut Client, agent: &str) -> String {
 }
 
 fn notice<'a>(result: &'a serde_json::Value, code: &str) -> Option<&'a serde_json::Value> {
-    result["coaching"]
+    result["notices"]
         .as_array()
         .into_iter()
         .flatten()
@@ -94,7 +94,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
         receiver_handle
     );
     assert!(notice(&redundant, "unhosted_no_return_path").is_some());
-    let event_id = redundant["event_id"].as_str().unwrap();
+    let event_id = redundant["id"].as_str().unwrap();
     assert!(
         wait_until(Duration::from_secs(10), || super::observed_message(
             event_id
@@ -135,7 +135,7 @@ fn send_publishes_then_returns_structured_message_coaching() {
             .await
             .expect("ACK-like chat must still publish")
     });
-    assert!(ack["event_id"].as_str().is_some());
+    assert!(ack["id"].as_str().is_some());
     let ack_notice = notice(&ack, "ack_like_chat").expect("ACK coaching");
     assert!(ack_notice["summary"]
         .as_str()
@@ -157,7 +157,6 @@ fn send_publishes_then_returns_structured_message_coaching() {
             .await
             .expect("untagged name-prefix chat must publish")
     });
-    assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
     let prefix = notice(&ambient, "untagged_agent_prefix").expect("prefix coaching");
     assert_eq!(prefix["matched_agent"], receiver_handle);
 

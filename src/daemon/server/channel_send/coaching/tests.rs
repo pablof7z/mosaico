@@ -78,28 +78,47 @@ fn ack_detector_is_deliberately_narrow() {
 #[test]
 fn unique_prefix_matches_an_idle_agent_and_excludes_non_agents() {
     let store = store_with_members();
-    let notice = untagged_agent_prefix(&store, "Drift: hello", "room", "self-pk", "backend-pk")
-        .unwrap()
-        .unwrap();
+    let notice = untagged_agent_prefix(
+        &store,
+        "Drift: hello",
+        "room",
+        "#room".to_string(),
+        "self-pk",
+        "backend-pk",
+    )
+    .unwrap()
+    .unwrap();
 
     assert_eq!(notice.code, "untagged_agent_prefix");
     assert_eq!(notice.matched_agent.as_deref(), Some("drift-codex"));
     assert_eq!(notice.matched_agent_state, Some("idle"));
     assert!(notice.summary.contains("won't tag anyone"));
 
-    assert!(
-        untagged_agent_prefix(&store, "Pablo: hello", "room", "self-pk", "backend-pk")
-            .unwrap()
-            .is_none()
-    );
+    assert!(untagged_agent_prefix(
+        &store,
+        "Pablo: hello",
+        "room",
+        "#room".to_string(),
+        "self-pk",
+        "backend-pk"
+    )
+    .unwrap()
+    .is_none());
 }
 
 #[test]
 fn ambiguous_prefix_lists_candidates_without_guessing() {
     let store = store_with_members();
-    let notice = untagged_agent_prefix(&store, "Dr: hello", "room", "self-pk", "backend-pk")
-        .unwrap()
-        .unwrap();
+    let notice = untagged_agent_prefix(
+        &store,
+        "Dr: hello",
+        "room",
+        "#room".to_string(),
+        "self-pk",
+        "backend-pk",
+    )
+    .unwrap()
+    .unwrap();
 
     assert_eq!(notice.code, "untagged_agent_prefix_ambiguous");
     assert_eq!(
@@ -137,9 +156,16 @@ fn exact_handle_wins_over_longer_prefix_matches() {
             "backend-pk".into(),
             "short-pk".into(),
         ])]));
-    let notice = untagged_agent_prefix(&store, "DR: hello", "room", "self-pk", "")
-        .unwrap()
-        .unwrap();
+    let notice = untagged_agent_prefix(
+        &store,
+        "DR: hello",
+        "room",
+        "#room".to_string(),
+        "self-pk",
+        "",
+    )
+    .unwrap()
+    .unwrap();
 
     assert_eq!(notice.matched_agent.as_deref(), Some("dr"));
     assert_eq!(notice.matched_agent_state, None);
@@ -155,7 +181,7 @@ fn only_a_single_leading_token_and_colon_is_considered() {
         "@drift: hello",
     ] {
         assert!(
-            untagged_agent_prefix(&store, message, "room", "self-pk", "")
+            untagged_agent_prefix(&store, message, "room", "#room".to_string(), "self-pk", "")
                 .unwrap()
                 .is_none(),
             "{message}"
@@ -181,9 +207,14 @@ fn local_self_is_not_a_candidate() {
         })
         .unwrap();
     store.allocate_handle("self-pk", "drift", 1).unwrap();
-    assert!(
-        untagged_agent_prefix(&store, "Drift: hi", "room", "self-pk", "")
-            .unwrap()
-            .is_none()
-    );
+    assert!(untagged_agent_prefix(
+        &store,
+        "Drift: hi",
+        "room",
+        "#room".to_string(),
+        "self-pk",
+        ""
+    )
+    .unwrap()
+    .is_none());
 }

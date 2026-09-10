@@ -1,5 +1,4 @@
 use super::super::*;
-use super::recipient_notice;
 use super::self_target;
 use anyhow::{bail, Context, Result};
 use nostr::key::PublicKey;
@@ -51,8 +50,6 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     )
     .await?;
     let body = reply_body(&original.author_pubkey, &prepared_message)?;
-    let recipient_reminders =
-        state.with_store(|store| recipient_notice::reply_suspension_reminders(store, &original))?;
     let chat = ChatMessage {
         from: instance.agent_ref(),
         channel: original.channel_h.clone(),
@@ -87,8 +84,6 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             .with_store(|store| store.set_message_attachment_dir(&published.event_id, directory)),
         None => Ok(false),
     });
-    let channel_ref = state
-        .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
     let coaching = super::unhosted_coaching::notices(
         state,
         &rec,
@@ -97,14 +92,11 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         false,
         now_secs(),
     );
-    Ok(serde_json::json!({
-        "event_id": published.event_id,
-        "reply_to": reply_to,
-        "channel": channel_ref,
-        "mentioned_pubkey": original.author_pubkey,
-        "recipient_reminders": recipient_reminders,
-        "coaching": coaching,
-    }))
+    let mut result = serde_json::json!({"id": crate::util::short_id(&published.event_id)});
+    if !coaching.is_empty() {
+        result["notices"] = serde_json::json!(coaching);
+    }
+    Ok(result)
 }
 
 fn reply_body(author_pubkey: &str, message: &str) -> Result<String> {
