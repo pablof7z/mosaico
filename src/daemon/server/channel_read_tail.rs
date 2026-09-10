@@ -190,6 +190,70 @@ fn channel_read_scopes(state: &Arc<DaemonState>, scope: &str) -> Vec<String> {
     state.with_store(|s| channel_read_scopes_for_store(s, scope))
 }
 
+/// Non-streaming batch read for the Pi tool surface.  Returns the same JSON
+/// rows as the streaming path but without live tailing.
+pub(in crate::daemon::server) async fn channel_read_snapshot(
+    state: &Arc<DaemonState>,
+    params: &serde_json::Value,
+) -> Result<Vec<serde_json::Value>> {
+    let p: ChatReadParams = serde_json::from_value(params.clone()).unwrap_or_default();
+    if let Some(event_id) = p.id.as_deref().filter(|s| !s.trim().is_empty()) {
+        let row = state
+            .with_store(|s| s.get_message_by_prefix(event_id))
+            .with_context(|| format!("reading chat message {event_id}"))?
+            .with_context(|| format!("chat message not found: {event_id}"))?;
+        return Ok(vec![chat_row_to_json(state, &row, false)]);
+    }
+    let rec = resolve_session_inner(
+        state,
+        &CallerAnchor::from_params(params),
+        ResolveScope::Channel,
+    )?;
+    let target = resolve_chat_target(state, &rec, p.channel.as_deref(), "channel read")?;
+    let scope = target.channel_h;
+    let since = p.since.unwrap_or(0);
+    let offset = p.offset.unwrap_or(0);
+    let _ = ensure_subscription(state, &scope).await;
+    let read_scopes = channel_read_scopes(state, &scope);
+    let backend_pubkey = state.backend_pubkey();
+    let rows = state.with_store(|s| {
+        let mut rows: Vec<Message> = read_scopes
+            .iter()
+            .flat_map(|sc| {
+                s.chat_messages_for_channel(sc, since, CHANNEL_READ_CAP)
+                    .unwrap_or_default()
+            })
+            .filter(|row| !is_backend_row(s, &backend_pubkey, row))
+            .collect();
+        rows.sort_by(|a, b| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.message_id.cmp(&b.message_id))
+        });
+        if p.tail {
+            let limit = p.limit.unwrap_or(10) as usize;
+            let start = rows
+                .len()
+                .saturating_sub(limit.saturating_add(offset as usize));
+            let end = rows.len().saturating_sub(offset as usize);
+            rows = rows.get(start..end).unwrap_or(&[]).to_vec();
+        } else {
+            let start = offset as usize;
+            let end = p
+                .limit
+                .map(|limit| start.saturating_add(limit as usize))
+                .unwrap_or(rows.len())
+                .min(rows.len());
+            rows = rows.get(start..end).unwrap_or(&[]).to_vec();
+        }
+        rows
+    });
+    Ok(rows
+        .iter()
+        .map(|row| chat_row_to_json(state, row, true))
+        .collect())
+}
+
 /// Render chat JSON, resolving the author from Nostr runtime views and rewriting
 /// `nostr:npub1…`/`nostr:nprofile1…` mentions in the body to `@name`, matching
 /// the hook-injected fabric snapshot (`fabric_context::capture`).

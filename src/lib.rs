@@ -21,6 +21,7 @@ mod channel_about;
 mod channel_name;
 mod channel_nudge;
 mod channel_ref;
+pub(crate) mod channel_render;
 pub mod command_forensics;
 pub mod config;
 pub(crate) mod console_style;

@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
-import { execute, readChannel } from "./protocol.ts"
+import { execute } from "./protocol.ts"
 
 type Schema = Parameters<ExtensionAPI["registerTool"]>[0]["parameters"]
 
@@ -38,7 +38,7 @@ function object(properties: Record<string, Schema>, required: string[] = []) {
   } as Schema
 }
 
-const AGENT_SLUG_DESC = "Agent address as slug@backend, e.g. worker-claude@mosaico-local-e2e."
+const AGENT_SLUG_DESC = "Agent slug, or slug@backend for an agent on another backend."
 const TIME_DESC =
   "Unix timestamp or duration string such as 2h, 30m, 10s, or 7d. Durations subtract from current time."
 
@@ -68,7 +68,7 @@ const tools: ToolSpec[] = [
         type: "array",
         items: { type: "string" },
         description:
-          "Agent identifiers (slug, name, or slug@backend) to filter by sender. Matched against channel members.",
+          "Slugs, names, or slug@backend (for another backend) to filter by sender. Matched against channel members.",
       } as Schema,
     }, ["seconds"]),
   },
@@ -118,7 +118,7 @@ const tools: ToolSpec[] = [
       from: {
         type: "array",
         items: { type: "string" },
-        description: "Author identifiers (slug, name, or slug@backend) to filter by sender.",
+        description: "Slugs, names, or slug@backend (for another backend) to filter by sender.",
       } as Schema,
       to: strings,
       contains: {
@@ -156,7 +156,7 @@ const tools: ToolSpec[] = [
         type: "array",
         items: { type: "string" },
         description:
-          "Agent slugs or slug@backend references to tag; delivers the message to their directed inboxes.",
+          "Agent slug to tag, or slug@backend for an agent on another backend; delivers the message to their directed inbox.",
       } as Schema,
       attachments,
       force: {
@@ -255,9 +255,7 @@ export function registerMosaicoTools(pi: ExtensionAPI) {
         "Reply for substantive context; react for a bare acknowledgement.",
       ],
       execute: async (_id, params, signal, _update, ctx) =>
-        tool.name === "mosaico_channel_read"
-          ? readChannel(params as Record<string, unknown>, signal, ctx)
-          : execute(tool.name, params as Record<string, unknown>, signal, ctx),
+        execute(tool.name, params as Record<string, unknown>, signal, ctx),
     })
   }
 }
