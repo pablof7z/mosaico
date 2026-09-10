@@ -45,11 +45,8 @@ fn ambient_params_preserve_filters_and_session() {
 }
 
 #[test]
-fn reply_params_correlate_to_send_and_mentioned_recipients() {
-    let send = json!({
-        "event_id": "sent-event",
-        "mentioned": ["agent"],
-    });
+fn reply_params_contain_reply_to_and_timeout() {
+    let send = json!({ "event_id": "sent-event" });
     let params = reply_params(
         &send,
         send["event_id"].as_str().unwrap(),
@@ -58,6 +55,6 @@ fn reply_params_correlate_to_send_and_mentioned_recipients() {
     );
     assert_eq!(params["timeout_secs"], 120);
     assert_eq!(params["reply_to"], "sent-event");
-    assert_eq!(params["from_labels"], json!(["agent"]));
+    assert!(params.get("from_labels").is_none());
     assert_eq!(params["session"], "actor");
 }

@@ -124,10 +124,6 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             .to_string()
     });
     assert!(bare.contains("must be a full path"), "{bare}");
-    assert_eq!(
-        sent["mentioned"],
-        serde_json::json!([&receiver_handle, &second_receiver_handle])
-    );
     let event_id = sent["event_id"].as_str().unwrap().to_string();
 
     let published = await_observed_chat(&event_id);
@@ -182,7 +178,6 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             .await
             .expect("send inline text without an explicit tag")
     });
-    assert_eq!(ambient["mentioned"], serde_json::json!([]));
     let ambient_id = ambient["event_id"].as_str().unwrap().to_string();
     let ambient_event = await_observed_chat(&ambient_id);
     assert_eq!(ambient_event["body"], inline_body);

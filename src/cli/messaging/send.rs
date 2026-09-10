@@ -39,21 +39,6 @@ pub(in crate::cli) async fn channel_send(req: ChannelSendRequest) -> Result<()> 
         return super::wait::wait_for_reply(&v, timeout_secs, session).await;
     }
     let event_id = v["event_id"].as_str().unwrap_or("?");
-    let labels = v["mentioned"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|label| label.as_str())
-        .collect::<Vec<_>>();
-    if labels.is_empty() {
-        println!("sent chat {}", event_short_id(event_id));
-    } else {
-        let labels = labels
-            .iter()
-            .map(|label| format!("@{label}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!("sent chat {} tagging {labels}", event_short_id(event_id));
-    }
+    println!("sent chat {}", event_short_id(event_id));
     Ok(())
 }

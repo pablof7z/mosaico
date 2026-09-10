@@ -89,9 +89,6 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
     });
     let channel_ref = state
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
-    let mentioned_ref = state.with_store(|store| {
-        crate::fabric_context::refs::pubkey_ref(store, &original.author_pubkey, &state.host())
-    });
     let coaching = super::unhosted_coaching::notices(
         state,
         &rec,
@@ -104,7 +101,6 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
         "event_id": published.event_id,
         "reply_to": reply_to,
         "channel": channel_ref,
-        "mentioned": [mentioned_ref],
         "recipient_reminders": recipient_reminders,
         "coaching": coaching,
     }))
