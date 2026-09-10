@@ -19,8 +19,6 @@ pub(super) struct WaitParams {
     #[serde(default)]
     channels: Vec<String>,
     #[serde(default)]
-    from: Option<String>,
-    #[serde(default)]
     reply_to: Option<String>,
     #[serde(default)]
     from_labels: Vec<String>,
@@ -37,9 +35,6 @@ pub(super) async fn rpc_channel_wait(
         anyhow::bail!("wait duration must be at least 1 second");
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(p.timeout_secs);
-    if p.from.is_some() && !p.from_labels.is_empty() {
-        anyhow::bail!("channel_wait author filters are mutually exclusive");
-    }
 
     let rec = resolve_session_inner(
         state,
@@ -53,7 +48,7 @@ pub(super) async fn rpc_channel_wait(
             .map(|scope| crate::channel_ref::full_channel_ref(store, scope))
             .collect::<Vec<_>>()
     });
-    let author_filter = AuthorFilter::from_params(state, &scopes, &p)?;
+    let author_filter = AuthorFilter::from_params(&p)?;
     let own_pubkeys = own_pubkeys(&rec);
     let backend_pubkey = state.backend_pubkey();
 
@@ -128,8 +123,8 @@ async fn wait_scope_and_cursor(
     deadline: tokio::time::Instant,
 ) -> Result<(Vec<String>, u64, Option<String>)> {
     if let Some(reply_to) = params.reply_to.as_deref().filter(|id| !id.is_empty()) {
-        if !params.channels.is_empty() || params.from.is_some() {
-            anyhow::bail!("reply waits cannot also set channels or --from");
+        if !params.channels.is_empty() {
+            anyhow::bail!("reply waits cannot also set channels");
         }
         let original = await_own_message(state, reply_to, deadline)
             .await?

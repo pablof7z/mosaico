@@ -28,7 +28,7 @@ fn top_level_wait_parses_repeated_channels_and_author() {
         crate::cli::args::Cmd::Wait(args) => {
             assert_eq!(args.timeout_secs, 60);
             assert_eq!(args.channels, ["x", "y"]);
-            assert_eq!(args.from.as_deref(), Some("agent5"));
+            assert_eq!(args.from, vec!["agent5"]);
         }
         _ => panic!("expected wait command"),
     }

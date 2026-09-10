@@ -13,13 +13,12 @@ pub(super) fn send_timeout(args: &Value) -> Result<Option<u64>> {
 pub(super) async fn for_reply(
     send: &Value,
     timeout_seconds: u64,
-    args: &Value,
     identity: &Value,
 ) -> Result<Value> {
     let event_id = send["id"].as_str().context("channel send returned no id")?;
     daemon_identity(
         "channel_wait",
-        reply_params(event_id, timeout_seconds, args),
+        reply_params(event_id, timeout_seconds),
         identity,
     )
     .await
@@ -27,24 +26,18 @@ pub(super) async fn for_reply(
 
 fn ambient_params(args: &Value) -> Result<Value> {
     let timeout_seconds = required_timeout(args, "seconds")?;
-    Ok(with_session(
-        json!({
-            "timeout_secs": timeout_seconds,
-            "channels": string_array(args, "channels"),
-            "from": opt_string(args, "from"),
-        }),
-        args,
-    ))
+    Ok(json!({
+        "timeout_secs": timeout_seconds,
+        "channels": string_array(args, "channels"),
+        "from_labels": string_array(args, "from"),
+    }))
 }
 
-fn reply_params(event_id: &str, timeout_seconds: u64, args: &Value) -> Value {
-    with_session(
-        json!({
-            "timeout_secs": timeout_seconds,
-            "reply_to": event_id,
-        }),
-        args,
-    )
+fn reply_params(event_id: &str, timeout_seconds: u64) -> Value {
+    json!({
+        "timeout_secs": timeout_seconds,
+        "reply_to": event_id,
+    })
 }
 
 fn required_timeout(args: &Value, key: &str) -> Result<u64> {

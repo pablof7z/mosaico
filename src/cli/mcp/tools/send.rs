@@ -11,14 +11,11 @@ pub(super) async fn channel_send(
         if wait_seconds.is_some() {
             anyhow::bail!("seconds is only valid when sending a new message");
         }
-        let params = with_session(
-            json!({
-                "id": reply_to,
-                "message": required_string(args, "message")?,
-                "attachments": attachment_specs(args, allow_local_attachments)?,
-            }),
-            args,
-        );
+        let params = json!({
+            "id": reply_to,
+            "message": required_string(args, "message")?,
+            "attachments": attachment_specs(args, allow_local_attachments)?,
+        });
         let v = daemon_identity("channel_reply", params, identity).await?;
         let id = v["id"].as_str().unwrap_or("?");
         let notices =
@@ -41,7 +38,7 @@ pub(super) async fn channel_send(
         lines.extend(notices);
         return Ok(lines.join("\n"));
     };
-    let outcome = wait::for_reply(&send, timeout_seconds, args, identity).await?;
+    let outcome = wait::for_reply(&send, timeout_seconds, identity).await?;
     let wait_text = crate::channel_render::format_wait_result(&outcome, crate::util::now_secs())?;
     let mut lines = vec![format!("sent chat {id}")];
     lines.extend(notices);
@@ -51,23 +48,18 @@ pub(super) async fn channel_send(
 
 pub(super) fn channel_send_params(args: &Value, allow_local_attachments: bool) -> Result<Value> {
     validate_channel_send_args(args, allow_local_attachments)?;
-    Ok(with_session(
-        json!({
-            "message": required_string(args, "message")?,
-            "attachments": attachment_specs(args, allow_local_attachments)?,
-            "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
-            "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
-            "channel": opt_string(args, "channel"),
-            "wait_intent": args.get("seconds").is_some(),
-        }),
-        args,
-    ))
+    Ok(json!({
+        "message": required_string(args, "message")?,
+        "attachments": attachment_specs(args, allow_local_attachments)?,
+        "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
+        "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
+        "channel": opt_string(args, "channel"),
+        "wait_intent": args.get("seconds").is_some(),
+    }))
 }
 
 fn validate_channel_send_args(args: &Value, allow_local_attachments: bool) -> Result<()> {
-    const ALLOWED: &[&str] = &[
-        "message", "tags", "force", "channel", "session", "seconds", "reply_to",
-    ];
+    const ALLOWED: &[&str] = &["message", "tags", "force", "channel", "seconds", "reply_to"];
     let object = args
         .as_object()
         .context("mosaico.channel_send arguments must be an object")?;

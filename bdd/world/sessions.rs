@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use super::{nak_bin, MosaicoWorld};
+use super::MosaicoWorld;
 
 impl MosaicoWorld {
     pub fn stop_active_session(&mut self) {
@@ -38,86 +38,6 @@ impl MosaicoWorld {
                 if agent_rows.len() == 1
                     && agent_rows[0]["pubkey"] == pubkey
                     && agent_rows[0]["running"] == true
-                {
-                    return true;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        false
-    }
-
-    pub fn send_with_explicit_session_anchor(&mut self, body: &str) {
-        let workspace = self.active_workspace().to_string();
-        let explicit = self.active_session_pubkey().to_string();
-        let ambient = self
-            .ambient_session_pubkey
-            .as_ref()
-            .expect("an ambient session exists")
-            .clone();
-        let cwd = self
-            .current_backend()
-            .workspace(&workspace)
-            .expect("resolve active workspace");
-        let channel = format!("#{workspace}");
-        // An idempotent explicit join is the product-owned readiness door: it
-        // returns only after the selected signer is locally publish-ready.
-        let joined = self
-            .current_backend()
-            .run_in(
-                &["channel", "join", &channel, "--session", &explicit],
-                None,
-                Duration::from_secs(25),
-                &cwd,
-                &[],
-            )
-            .expect("confirm explicit session membership");
-        assert!(
-            joined.success(),
-            "explicit session membership was not ready: {}",
-            joined.combined()
-        );
-        let result = self
-            .current_backend()
-            .run_in(
-                &[
-                    "channel",
-                    "send",
-                    "--message",
-                    body,
-                    "--channel",
-                    &channel,
-                    "--session",
-                    &explicit,
-                ],
-                None,
-                Duration::from_secs(15),
-                &cwd,
-                &[("MOSAICO_PUBKEY", &ambient)],
-            )
-            .expect("send with explicit session anchor");
-        assert!(
-            result.success(),
-            "explicit session send failed: {}",
-            result.combined()
-        );
-        self.last_run = Some(result);
-    }
-
-    pub fn relay_message_was_authored_by_explicit_session(&self, body: &str) -> bool {
-        let workspace = self.active_workspace();
-        let explicit = self.active_session_pubkey();
-        let deadline = std::time::Instant::now() + Duration::from_secs(25);
-        while std::time::Instant::now() < deadline {
-            if let Ok(output) = std::process::Command::new(nak_bin())
-                .args(["req", "-k", "9", "-h", workspace, self.relay_url()])
-                .output()
-            {
-                let expected_author = format!(r#""pubkey":"{explicit}""#);
-                if output.status.success()
-                    && String::from_utf8_lossy(&output.stdout)
-                        .lines()
-                        .any(|line| line.contains(body) && line.contains(&expected_author))
                 {
                     return true;
                 }

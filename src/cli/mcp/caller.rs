@@ -17,12 +17,7 @@ pub(super) async fn resolve(
     params: &Value,
     write: bool,
 ) -> Result<String> {
-    let descriptor = describe(
-        authenticated,
-        headers,
-        params,
-        write_requires_conversation(params, write),
-    )?;
+    let descriptor = describe(authenticated, headers, params, write)?;
     let fields = descriptor
         .fields
         .iter()
@@ -52,15 +47,6 @@ pub(super) async fn resolve(
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
         .context("daemon returned no MCP actor pubkey")
-}
-
-fn write_requires_conversation(params: &Value, write: bool) -> bool {
-    let explicit_override = params
-        .get("arguments")
-        .and_then(|arguments| arguments.get("session"))
-        .and_then(Value::as_str)
-        .is_some_and(|session| !session.trim().is_empty());
-    write && !explicit_override
 }
 
 fn describe(
@@ -187,14 +173,5 @@ mod tests {
             .err()
             .unwrap();
         assert!(error.to_string().contains("stable conversation"));
-    }
-
-    #[test]
-    fn explicit_operator_session_exempts_write_from_conversation_requirement() {
-        let mut headers = HeaderMap::new();
-        headers.insert("user-agent", "openai-mcp/1.0.0".parse().unwrap());
-        let params = json!({ "arguments": { "session": "@exact-codex" } });
-        assert!(!write_requires_conversation(&params, true));
-        assert!(describe(&authenticated(), &headers, &params, false).is_ok());
     }
 }

@@ -5,14 +5,6 @@ mod list;
 // ── channels (NIP-29 subgroup task rooms) ────────────────────────────────────
 
 pub async fn channels(action: ChannelAction) -> Result<()> {
-    fn with_session(mut params: serde_json::Value, session: Option<&str>) -> serde_json::Value {
-        if let Some(session) = session.filter(|s| !s.is_empty()) {
-            if let Some(obj) = params.as_object_mut() {
-                obj.insert("session".into(), serde_json::json!(session));
-            }
-        }
-        params
-    }
     match action {
         ChannelAction::Add(args) => return super::channel_add::channel_add(args).await,
         ChannelAction::Read {
@@ -23,7 +15,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             tail,
             live,
             channel,
-            session,
         } => {
             crate::cli::messaging::channel_read(crate::cli::messaging::ChannelReadRequest {
                 id,
@@ -33,7 +24,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 tail,
                 live,
                 channel,
-                session,
             })
             .await?;
         }
@@ -45,7 +35,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             tags,
             force,
             channel,
-            session,
             wait,
         } => {
             let message =
@@ -57,7 +46,6 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 tags,
                 force,
                 channel,
-                session,
                 wait,
             })
             .await?;
@@ -67,38 +55,29 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
             message,
             message_flag,
             attachments,
-            session,
         } => {
             let message =
                 crate::cli::messaging::resolve_send_message_body(message_flag.or(message))?;
             let attachments = crate::attachment::canonicalize(attachments)?;
-            crate::cli::messaging::channel_reply(id, message, attachments, session).await?;
+            crate::cli::messaging::channel_reply(id, message, attachments).await?;
         }
-        ChannelAction::React { id, emoji, session } => {
-            crate::cli::messaging::channel_react(id, emoji, session).await?;
+        ChannelAction::React { id, emoji } => {
+            crate::cli::messaging::channel_react(id, emoji).await?;
         }
         ChannelAction::Create {
             path,
             about,
             agents,
-            session,
         } => {
-            return super::channel_create::channel_create(path, about, agents, session).await;
+            return super::channel_create::channel_create(path, about, agents).await;
         }
-        ChannelAction::Edit {
-            channel,
-            about,
-            session,
-        } => {
+        ChannelAction::Edit { channel, about } => {
             let v = daemon_call_async(
                 "channel_edit",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({
-                        "channel": channel.clone(),
-                        "about": about.clone(),
-                    }),
-                    session.as_deref(),
-                )),
+                crate::cli::rpc_params(serde_json::json!({
+                    "channel": channel.clone(),
+                    "about": about.clone(),
+                })),
             )
             .await?;
             let id = v["id"].as_str().unwrap_or("");
@@ -137,13 +116,10 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
         } => {
             list::run(workspace, all, recursive).await?;
         }
-        ChannelAction::Join { channel, session } => {
+        ChannelAction::Join { channel } => {
             let v = daemon_call_async(
                 "channel_join",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({ "channel": channel.clone() }),
-                    session.as_deref(),
-                )),
+                crate::cli::rpc_params(serde_json::json!({ "channel": channel.clone() })),
             )
             .await?;
             println!(
@@ -157,24 +133,18 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 println!("{notice}");
             }
         }
-        ChannelAction::Leave { channel, session } => {
+        ChannelAction::Leave { channel } => {
             let v = daemon_call_async(
                 "channel_leave",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({ "channel": channel.clone() }),
-                    session.as_deref(),
-                )),
+                crate::cli::rpc_params(serde_json::json!({ "channel": channel.clone() })),
             )
             .await?;
             println!("left channel {}", v["channel"].as_str().unwrap_or(&channel));
         }
-        ChannelAction::Archive { channel, session } => {
+        ChannelAction::Archive { channel } => {
             let v = daemon_call_async(
                 "channel_archive",
-                crate::cli::rpc_params(with_session(
-                    serde_json::json!({ "channel": channel.clone() }),
-                    session.as_deref(),
-                )),
+                crate::cli::rpc_params(serde_json::json!({ "channel": channel.clone() })),
             )
             .await?;
             let removed = v["removed_members"].as_u64().unwrap_or(0);

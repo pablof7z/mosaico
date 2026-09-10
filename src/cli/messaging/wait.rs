@@ -10,9 +10,9 @@ pub(in crate::cli) struct WaitArgs {
     /// Narrow the wait to a joined channel. Repeat for several channels.
     #[arg(long = "channel", value_name = "CHANNEL")]
     pub(in crate::cli) channels: Vec<String>,
-    /// Only return chat authored by this human or agent.
+    /// Only return chat authored by this human or agent. Repeat to match any author.
     #[arg(long = "from", value_name = "MEMBER")]
-    pub(in crate::cli) from: Option<String>,
+    pub(in crate::cli) from: Vec<String>,
 }
 
 pub(in crate::cli) fn parse_wait_seconds(raw: &str) -> std::result::Result<u64, String> {
@@ -29,7 +29,7 @@ pub(in crate::cli) async fn wait(args: WaitArgs) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "timeout_secs": args.timeout_secs,
         "channels": args.channels,
-        "from": args.from,
+        "from_labels": args.from,
     }));
     let result = daemon_call_async("channel_wait", params).await?;
     print_result(&result)
@@ -38,7 +38,6 @@ pub(in crate::cli) async fn wait(args: WaitArgs) -> Result<()> {
 pub(super) async fn wait_for_reply(
     send_result: &serde_json::Value,
     timeout_secs: u64,
-    session: Option<String>,
 ) -> Result<()> {
     let event_id = send_result["id"]
         .as_str()
@@ -46,7 +45,6 @@ pub(super) async fn wait_for_reply(
     let params = crate::cli::rpc_params(serde_json::json!({
         "timeout_secs": timeout_secs,
         "reply_to": event_id,
-        "session": session,
     }));
     let result = daemon_call_async("channel_wait", params).await?;
     print_result(&result)

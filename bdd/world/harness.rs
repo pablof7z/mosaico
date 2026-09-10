@@ -58,36 +58,4 @@ impl MosaicoWorld {
         self.active_workspace = Some(workspace.to_string());
         self.active_session_pubkey = Some(pubkey);
     }
-
-    pub fn configure_two_claude_agents(&mut self, first: &str, second: &str, workspace: &str) {
-        self.configure_claude_agent_in_workspace(first, first, workspace);
-        let first_pubkey = self
-            .active_session_pubkey
-            .as_ref()
-            .expect("first session public key")
-            .clone();
-        let backend = self.current_backend();
-        backend
-            .install_claude_profile_agent(second, second)
-            .expect("install second profile agent");
-        let cwd = backend.workspace(workspace).expect("resolve workspace");
-        let launched = backend
-            .run_in(&[second], None, Duration::from_secs(15), &cwd, &[])
-            .expect("launch second profile agent");
-        assert!(
-            launched.success(),
-            "second profile agent launch failed: {}",
-            launched.combined()
-        );
-        let second_pubkey = backend
-            .harness_pubkey()
-            .expect("capture second session public key");
-        assert_ne!(
-            first_pubkey, second_pubkey,
-            "two per-session agents must not share a public identity"
-        );
-        self.last_run = Some(launched);
-        self.ambient_session_pubkey = Some(first_pubkey);
-        self.active_session_pubkey = Some(second_pubkey);
-    }
 }

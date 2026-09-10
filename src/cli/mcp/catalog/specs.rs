@@ -31,8 +31,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
         props: &[
             Prop::new("seconds", "integer", "Maximum seconds to wait."),
             Prop::new("channels", "array", "Optional joined channels to watch."),
-            Prop::new("from", "string", "Optional human or agent author filter."),
-            SESSION_PROP,
+            Prop::new("from", "array", "Optional human or agent author filters; matches any value."),
         ],
         required: &["seconds"],
         read_only: true,
@@ -59,7 +58,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "boolean",
                 "Expand every known workspace and channel, including unjoined ones.",
             ),
-            SESSION_PROP,
         ],
         required: &[],
         read_only: true,
@@ -74,7 +72,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "string",
                 "Full channel path (#workspace/child). Must already be joined.",
             ),
-            SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
             Prop::new("since", "string", "Unix timestamp or duration like 2h."),
             Prop::new("id", "string", "Read one message by id prefix."),
@@ -136,7 +133,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "string",
                 "Full channel path (#workspace/child). Must already be joined.",
             ),
-            SESSION_PROP,
             Prop::new(
                 "seconds",
                 "integer",
@@ -165,7 +161,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
             ),
             Prop::new("about", "string", "Short stable channel description."),
             Prop::new("agents", "array", "Agent targets: slug for local agents, slug@backend for remote agents."),
-            SESSION_PROP,
         ],
         required: &["channel", "about"],
         read_only: false,
@@ -179,7 +174,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
         props: &[
             Prop::new("id", "string", "Target message id (6-char prefix)."),
             Prop::new("emoji", "string", "Reaction emoji (e.g. 👍 ✅ 👀) or +/-."),
-            SESSION_PROP,
         ],
         required: &["id", "emoji"],
         read_only: false,
@@ -207,7 +201,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "string",
                 "Opening message delivered after the new session ACKs.",
             ),
-            SESSION_PROP,
         ],
         required: &["target", "workspace", "message"],
         read_only: false,
@@ -225,15 +218,11 @@ pub(super) const SPECS: &[ToolSpec] = &[
     ),
 ];
 
-const SESSION_PROP: Prop = Prop::new(
-    "session",
+const CHANNEL_PROPS: &[Prop] = &[Prop::new(
+    "channel",
     "string",
-    "Public session npub, hex pubkey, or handle.",
-);
-const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new("channel", "string", "Full channel path (#workspace/child)."),
-    SESSION_PROP,
-];
+    "Full channel path (#workspace/child).",
+)];
 
 const fn channel_tool(
     name: &'static str,

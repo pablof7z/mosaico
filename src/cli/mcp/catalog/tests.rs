@@ -28,9 +28,10 @@ fn wait_schema_exposes_ambient_and_correlated_forms() {
     let wait = tool(&tools, "mosaico.wait");
     assert_eq!(wait["annotations"]["readOnlyHint"], true);
     assert_eq!(wait["inputSchema"]["required"], json!(["seconds"]));
-    for property in ["seconds", "channels", "from", "session"] {
+    for property in ["seconds", "channels", "from"] {
         assert!(wait["inputSchema"]["properties"].get(property).is_some());
     }
+    assert_eq!(wait["inputSchema"]["properties"]["from"]["type"], "array");
 
     let send = tool(&tools, "mosaico.channel_send");
     assert_eq!(
@@ -44,7 +45,7 @@ fn channel_list_schema_uses_the_shared_path_projection_modes() {
     let tools = list();
     let list = tool(&tools, "mosaico.channel_list");
     let properties = &list["inputSchema"]["properties"];
-    for property in ["workspace", "all", "recursive", "session"] {
+    for property in ["workspace", "all", "recursive"] {
         assert!(properties.get(property).is_some(), "missing {property}");
     }
     assert!(properties.get("channel").is_none());

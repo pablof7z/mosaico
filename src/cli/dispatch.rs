@@ -3,7 +3,7 @@ use clap::Args;
 
 #[derive(Args)]
 pub(in crate::cli) struct DispatchArgs {
-    /// Agent/backend target as agent[@backend-label].
+    /// Agent/backend target as slug[@backend].
     #[arg(index = 1)]
     target: String,
     /// Target workspace/root channel where the new session runs.

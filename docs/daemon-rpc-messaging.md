@@ -103,7 +103,7 @@ all attachment tags, URLs, and metadata.
 
 ```jsonc
 params: {"timeout_secs": 60, "channels": ["#root/child"],
-         "from": "human-or-agent"|null, "reply_to": "6-char"|null}
+         "from_labels": ["human-or-agent"], "reply_to": "6-char"|null}
 result: {"outcome": "message", "waited_secs": 4,
          "channels": ["#root/child"],
          "message": {"id": "6-char", "channel": "#root/child", "body": "…"}}
@@ -114,7 +114,7 @@ result: {"outcome": "message", "waited_secs": 4,
 Wait captures the durable Nostr runtime arrival cursor and the caller's local
 joined-channel set before subscribing to the current Nostr runtime-delivered view.
 Repeated `channels` entries may only narrow that set. An omitted list means all
-joined channels, including an empty set. `from` narrows the author. A correlated
+joined channels, including an empty set. `from_labels` narrows the author; repeat for multiple candidates. A correlated
 send-wait additionally requires a native reply tag pointing to the observed
 outbound event. Backend-management traffic and the caller's own messages are
 excluded.
