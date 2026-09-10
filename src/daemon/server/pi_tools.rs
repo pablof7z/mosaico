@@ -31,15 +31,11 @@ async fn execute(state: &Arc<DaemonState>, params: &Value) -> Result<Value> {
             super::rpc_my_session(state, &Value::Object(caller))
         }
         "mosaico_wait" => {
-            allow_only(&args, &["timeout_seconds", "channels", "from"])?;
+            allow_only(&args, &["seconds", "channels", "from"])?;
             let mut call = caller;
-            insert(
-                &mut call,
-                "timeout_secs",
-                required_u64(&args, "timeout_seconds")?,
-            );
+            insert(&mut call, "timeout_secs", required_u64(&args, "seconds")?);
             insert(&mut call, "channels", array(&args, "channels")?);
-            insert(&mut call, "from", optional(&args, "from"));
+            insert(&mut call, "from_labels", array(&args, "from")?);
             super::channel_wait::rpc_channel_wait(state, &Value::Object(call)).await
         }
         "mosaico_channel_list" => {
@@ -85,9 +81,9 @@ async fn execute(state: &Arc<DaemonState>, params: &Value) -> Result<Value> {
         "mosaico_send" => send(state, &caller, &args).await,
         "mosaico_reply" => reply(state, &caller, &args).await,
         "mosaico_react" => {
-            allow_only(&args, &["message_id", "emoji"])?;
+            allow_only(&args, &["id", "emoji"])?;
             let mut call = caller;
-            insert(&mut call, "id", required(&args, "message_id")?);
+            insert(&mut call, "id", required(&args, "id")?);
             insert(&mut call, "emoji", required(&args, "emoji")?);
             super::channel_send::rpc_channel_react(state, &Value::Object(call)).await
         }
@@ -128,7 +124,7 @@ async fn send(
             "tags",
             "force",
             "attachments",
-            "wait_seconds",
+            "seconds",
         ],
     )?;
     let mut call = caller.clone();
@@ -136,16 +132,16 @@ async fn send(
     insert(&mut call, "channel", optional(args, "channel"));
     insert(&mut call, "tags", array(args, "tags")?);
     insert(&mut call, "force", bool_or(args, "force", false));
-    insert(&mut call, "wait_intent", args.get("wait_seconds").is_some());
+    insert(&mut call, "wait_intent", args.get("seconds").is_some());
     insert(&mut call, "attachments", attachments(args, caller)?);
     let sent = super::rpc_channel_send(state, &Value::Object(call)).await?;
-    let Some(timeout_secs) = args.get("wait_seconds") else {
+    let Some(timeout_secs) = args.get("seconds") else {
         return Ok(sent);
     };
     let timeout_secs = timeout_secs
         .as_u64()
         .filter(|value| *value > 0)
-        .context("wait_seconds must be a positive integer")?;
+        .context("seconds must be a positive integer")?;
     let mut wait = caller.clone();
     insert(&mut wait, "timeout_secs", timeout_secs);
     insert(
@@ -166,9 +162,9 @@ async fn reply(
     caller: &Map<String, Value>,
     args: &Value,
 ) -> Result<Value> {
-    allow_only(args, &["message_id", "message", "attachments"])?;
+    allow_only(args, &["id", "message", "attachments"])?;
     let mut call = caller.clone();
-    insert(&mut call, "id", required(args, "message_id")?);
+    insert(&mut call, "id", required(args, "id")?);
     insert(&mut call, "message", required(args, "message")?);
     insert(&mut call, "attachments", attachments(args, caller)?);
     super::channel_send::rpc_channel_reply(state, &Value::Object(call)).await
