@@ -40,7 +40,7 @@ pub(super) fn discover_hermes_profiles(
         let Some(slug) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
-        if slug == "default" || !valid_hermes_profile_name(slug) {
+        if slug == "default" || !valid_profile_dir_name(slug) {
             continue;
         }
         let metadata_path = path.join("profile.yaml");
@@ -52,6 +52,53 @@ pub(super) fn discover_hermes_profiles(
             slug: slug.to_string(),
             use_criteria,
             harness: Harness::Hermes,
+            path,
+            scope: scope.clone(),
+            modified_at,
+        });
+    }
+    Ok(())
+}
+
+/// Pi profiles are agent-dir directories under `~/.pi` (selected per process
+/// by `PI_CODING_AGENT_DIR`). A profile is a directory containing
+/// `settings.json`; every other sibling is Mosaico- or pi-owned data and is
+/// ignored. Unlike Hermes, the catalog slug always carries the harness marker
+/// (`<name>-pi`), so a session's public handle is `<codename>-<profile>-pi` —
+/// e.g. `~/.pi/architect` is claimed as agent `architect-pi`, and the default
+/// `~/.pi/agent` profile as `agent-pi`.
+pub(super) fn discover_pi_profiles(
+    dir: &Path,
+    scope: AgentScope,
+    out: &mut Vec<NativeAgentProfile>,
+) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", dir.display())),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !valid_profile_dir_name(name) {
+            continue;
+        }
+        let metadata_path = path.join("settings.json");
+        if !metadata_path.is_file() {
+            continue;
+        }
+        let modified_at = modified_at(&metadata_path)
+            .or_else(|| modified_at(&path))
+            .unwrap_or(0);
+        out.push(NativeAgentProfile {
+            slug: format!("{name}-{}", Harness::Pi.agent_slug()),
+            use_criteria: String::new(),
+            harness: Harness::Pi,
             path,
             scope: scope.clone(),
             modified_at,
@@ -89,7 +136,7 @@ fn read_hermes_description(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn valid_hermes_profile_name(name: &str) -> bool {
+fn valid_profile_dir_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 64 {
         return false;
     }

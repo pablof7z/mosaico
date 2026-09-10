@@ -23,6 +23,13 @@ injects it as Pi custom context, and acknowledges only after Pi accepts it.
 Ambient channel chat is supplied as normal turn awareness rather than waking an
 agent by itself.
 
+A session Pi launched itself (not Mosaico) claims the agent slug of the Pi
+profile it runs under: `<profile>-pi`, derived from `PI_CODING_AGENT_DIR`
+(the default profile `~/.pi/agent` claims `agent-pi`). Its public handle
+therefore reads `<codename>-<profile>-pi`, e.g. `@willow-vale-071-architect-pi`
+under `~/.pi/architect`. Sessions Mosaico launched keep the launch-owned
+slug from `MOSAICO_AGENT`.
+
 ## Interactive Pi surfaces
 
 `/mosaico` shows this Pi session's agent name, public status, and exact active

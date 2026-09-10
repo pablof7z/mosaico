@@ -32,7 +32,7 @@ async function install({ transport = "pty", observedHarness = "pi", agent = "pi"
   process.env.MOSAICO_OBSERVED_HARNESS = observedHarness
   delete process.env.MOSAICO_PTY_SESSION
   process.env.MOSAICO_TRANSPORT = transport
-  process.env.PI_CODING_AGENT_DIR = "/tmp/pi-mosaico-test-agent"
+  process.env.PI_CODING_AGENT_DIR = "/tmp/pi-mosaico-test/.pi/agent"
   if (pubkey === undefined) delete process.env.MOSAICO_PUBKEY
   else process.env.MOSAICO_PUBKEY = pubkey
   await mosaico(pi)
@@ -101,7 +101,7 @@ test("a manually launched Pi ignores inherited parent-host identity but remains 
     await pi.handlers.get("session_start")({}, context)
     await eventually(() => assert.ok(daemon.requests.some(request => request.method === "session_delivery_wait")))
     const start = daemon.requests.find(request => request.method === "session_start")
-    assert.equal(start.params.agent, "pi")
+    assert.equal(start.params.agent, "agent-pi")
     assert.equal(start.params.admitted_transport, "")
     assert.equal("pubkey" in start.params, false)
     assert.ok(daemon.requests.some(request => request.method === "session_delivery_open"))

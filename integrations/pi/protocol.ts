@@ -1,5 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { daemonCall, daemonStream, type Params } from "./daemon.ts"
+import { daemonCall, daemonStream, mosaicoHome, type Params } from "./daemon.ts"
+import { basename, join } from "node:path"
+import { homedir } from "node:os"
 
 export { DaemonConnection, daemonCall, daemonStream, mosaicoHome, type Params } from "./daemon.ts"
 
@@ -11,6 +13,19 @@ export interface ProtocolResult {
   isError: boolean
 }
 
+/**
+ * The fabric agent slug for the pi profile this process runs under: always
+ * `<profile>-pi` so a session handle reads `<codename>-<profile>-pi` (e.g.
+ * `architect-pi` for `~/.pi/architect`, `agent-pi` for the default profile).
+ * Pi selects the profile directory via `PI_CODING_AGENT_DIR`.
+ */
+export function piProfileAgent(
+  agentDir: string = process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+): string {
+  const profile = basename(agentDir) || "agent"
+  return `${profile}-pi`
+}
+
 export function caller(ctx: ExtensionContext): Params {
   const hosted = process.env.MOSAICO_OBSERVED_HARNESS === "pi"
   return {
@@ -18,7 +33,7 @@ export function caller(ctx: ExtensionContext): Params {
     harness_session: ctx.sessionManager.getSessionId(),
     cwd: ctx.cwd,
     watch_pid: process.pid,
-    agent: hosted ? process.env.MOSAICO_AGENT || "pi" : "pi",
+    agent: hosted ? process.env.MOSAICO_AGENT || "pi" : piProfileAgent(),
   }
 }
 
