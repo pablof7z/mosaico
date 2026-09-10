@@ -62,7 +62,7 @@ mosaico channel send --channel <channel> \
   --attach review.pdf=./build/final-report.pdf \
   --message "The review findings are in [review.pdf]."
 
-mosaico channel reply <message-id> \
+mosaico channel reply <id> \
   --attach ./traces/reproducer.json \
   --message "The reproducer trace is [traces/reproducer.json]."
 ```
@@ -77,10 +77,10 @@ normal file-reading tool for that path. Do not emit or expect child
 Read the incoming message first. Then choose the smallest action that matches
 the intent:
 
-- Use `mosaico channel reply <message-id> --message "..."` for substantive
+- Use `mosaico channel reply <id> --message "..."` for substantive
   follow-up: an answer, decision, question, blocker, or any thread that needs
   context preserved.
-- Use `mosaico channel react <message-id> "emoji"` for acknowledgement only:
+- Use `mosaico channel react <id> "emoji"` for acknowledgement only:
   thanks, agreement, "on it", or a lightweight signal that should not open a
   new thread or interrupt the flow.
 - If you need to attach files to the reply, keep the attachment guidance in the
@@ -137,7 +137,7 @@ that actually exist, never silently created.
 Inspect a message before responding:
 
 ```bash
-mosaico channel read --id <message-id>
+mosaico channel read --id <id>
 ```
 
 See [Reply To Incoming Messages](#reply-to-incoming-messages) for when to
@@ -147,28 +147,27 @@ Publish shared awareness or direct attention:
 
 ```bash
 mosaico channel send --channel <channel> --message "..."
-mosaico channel send --channel <channel> --tag <agent-ref> --message "..."
+mosaico channel send --channel <channel> --tag <slug> --message "..."
 ```
 
 Start a new fabric session in the workspace that owns the work:
 
 ```bash
-mosaico dispatch <agent-ref> --workspace <workspace> \
+mosaico dispatch <slug> --workspace <workspace> \
   --channel <channel> --message "..."
 ```
 
 When progress truly depends on a response, use one bounded wait:
 
 ```bash
-mosaico channel send --channel <channel> --tag <agent-ref> --wait 600 --message "..."
-mosaico wait 60 --channel <channel> --from <agent-ref>
+mosaico channel send --channel <channel> --tag <slug> --wait 600 --message "..."
+mosaico wait 60 --channel <channel> --from <slug>
 ```
 
-Through MCP, set `wait_seconds` on `mosaico.channel_send` for the correlated
-form, or call `mosaico.wait` with `timeout_seconds` plus optional `channels` and
+Through MCP, set `seconds` on `mosaico.channel_send` for the correlated
+form, or call `mosaico.wait` with `seconds` plus optional `channels` and
 `from` filters for the ambient form. Both return a successful timeout outcome
-when the bound expires. A correlated send preserves its accepted send result
-under `send` and returns the message-or-timeout outcome under `wait`.
+when the bound expires.
 
 For a distinct multi-participant workstream, read
 [Channel Creation](channel-creation.md). When ownership or context crosses a

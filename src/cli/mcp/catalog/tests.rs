@@ -27,14 +27,14 @@ fn wait_schema_exposes_ambient_and_correlated_forms() {
     let tools = list();
     let wait = tool(&tools, "mosaico.wait");
     assert_eq!(wait["annotations"]["readOnlyHint"], true);
-    assert_eq!(wait["inputSchema"]["required"], json!(["timeout_seconds"]));
-    for property in ["timeout_seconds", "channels", "from", "session"] {
+    assert_eq!(wait["inputSchema"]["required"], json!(["seconds"]));
+    for property in ["seconds", "channels", "from", "session"] {
         assert!(wait["inputSchema"]["properties"].get(property).is_some());
     }
 
     let send = tool(&tools, "mosaico.channel_send");
     assert_eq!(
-        send["inputSchema"]["properties"]["wait_seconds"]["type"],
+        send["inputSchema"]["properties"]["seconds"]["type"],
         "integer"
     );
 }

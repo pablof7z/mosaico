@@ -4,12 +4,12 @@ pub(super) async fn channel_send(
     args: &Value,
     identity: &Value,
     allow_local_attachments: bool,
-) -> Result<Value> {
+) -> Result<String> {
     validate_channel_send_args(args, allow_local_attachments)?;
     let wait_seconds = wait::send_timeout(args)?;
     if let Some(reply_to) = opt_string(args, "reply_to") {
         if wait_seconds.is_some() {
-            anyhow::bail!("wait_seconds is only valid when sending a new message");
+            anyhow::bail!("seconds is only valid when sending a new message");
         }
         let params = with_session(
             json!({
@@ -19,7 +19,13 @@ pub(super) async fn channel_send(
             }),
             args,
         );
-        return daemon_identity("channel_reply", params, identity).await;
+        let v = daemon_identity("channel_reply", params, identity).await?;
+        let id = v["id"].as_str().unwrap_or("?");
+        let notices =
+            crate::channel_render::send_notice_lines(&v, crate::channel_render::NoticeHint::Tool)?;
+        let mut lines = vec![format!("sent reply {id}")];
+        lines.extend(notices);
+        return Ok(lines.join("\n"));
     }
     let send = daemon_identity(
         "channel_send",
@@ -27,11 +33,20 @@ pub(super) async fn channel_send(
         identity,
     )
     .await?;
+    let id = send["id"].as_str().unwrap_or("?");
+    let notices =
+        crate::channel_render::send_notice_lines(&send, crate::channel_render::NoticeHint::Tool)?;
     let Some(timeout_seconds) = wait_seconds else {
-        return Ok(send);
+        let mut lines = vec![format!("sent chat {id}")];
+        lines.extend(notices);
+        return Ok(lines.join("\n"));
     };
     let outcome = wait::for_reply(&send, timeout_seconds, args, identity).await?;
-    Ok(json!({ "send": send, "wait": outcome }))
+    let wait_text = crate::channel_render::format_wait_result(&outcome, crate::util::now_secs())?;
+    let mut lines = vec![format!("sent chat {id}")];
+    lines.extend(notices);
+    lines.push(wait_text);
+    Ok(lines.join("\n"))
 }
 
 pub(super) fn channel_send_params(args: &Value, allow_local_attachments: bool) -> Result<Value> {
@@ -43,7 +58,7 @@ pub(super) fn channel_send_params(args: &Value, allow_local_attachments: bool) -
             "tags": args.get("tags").and_then(Value::as_array).cloned().unwrap_or_default(),
             "force": args.get("force").and_then(Value::as_bool).unwrap_or(false),
             "channel": opt_string(args, "channel"),
-            "wait_intent": args.get("wait_seconds").is_some(),
+            "wait_intent": args.get("seconds").is_some(),
         }),
         args,
     ))
@@ -51,13 +66,7 @@ pub(super) fn channel_send_params(args: &Value, allow_local_attachments: bool) -
 
 fn validate_channel_send_args(args: &Value, allow_local_attachments: bool) -> Result<()> {
     const ALLOWED: &[&str] = &[
-        "message",
-        "tags",
-        "force",
-        "channel",
-        "session",
-        "wait_seconds",
-        "reply_to",
+        "message", "tags", "force", "channel", "session", "seconds", "reply_to",
     ];
     let object = args
         .as_object()
