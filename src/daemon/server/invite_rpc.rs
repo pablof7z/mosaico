@@ -147,7 +147,7 @@ pub(super) async fn invite_agent(
             "online_agent": online,
             "channel": channel_ref,
             "pty_id": "",
-            "orchestration_event_id": event_id,
+            "orchestration_event_id": crate::util::short_id(&event_id),
         }));
     }
 

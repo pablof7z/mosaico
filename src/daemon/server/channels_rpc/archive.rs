@@ -63,7 +63,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     Ok(serde_json::json!({
         "channel": channel_ref,
         "about": archived_about,
-        "event_id": event_id,
+        "id": crate::util::short_id(&event_id),
         "metadata_confirmed": metadata_confirmed,
         "removed_members": remove_targets.len(),
         "admins_remaining": admins,

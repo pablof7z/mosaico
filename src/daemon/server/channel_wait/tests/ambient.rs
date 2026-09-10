@@ -29,7 +29,7 @@ async fn ambient_rpc_returns_first_new_chat_from_any_joined_channel() {
 
     let result = waiting.await.unwrap().unwrap();
     assert_eq!(result["outcome"], "message");
-    assert_eq!(result["message"]["event_id"], "new-chat");
+    assert_eq!(result["message"]["id"], "new-ch");
     assert_eq!(result["message"]["channel"], "#root/y");
     assert!(result["message"].get("channel_ref").is_none());
 }

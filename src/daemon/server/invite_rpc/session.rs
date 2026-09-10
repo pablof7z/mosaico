@@ -126,7 +126,7 @@ async fn invite_remote_session(
         "agent": remote.slug,
         "online_agent": online,
         "channel": channel,
-        "orchestration_event_id": event_id,
+        "orchestration_event_id": crate::util::short_id(&event_id),
     }))
 }
 

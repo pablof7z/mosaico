@@ -101,11 +101,11 @@ pub async fn channels(action: ChannelAction) -> Result<()> {
                 )),
             )
             .await?;
-            let event_id = v["event_id"].as_str().unwrap_or("");
-            let suffix = if event_id.is_empty() {
+            let id = v["id"].as_str().unwrap_or("");
+            let suffix = if id.is_empty() {
                 String::new()
             } else {
-                format!(": {}", &event_id[..event_id.len().min(8)])
+                format!(": {id}")
             };
             println!(
                 "updated channel {}{suffix}",

@@ -39,7 +39,7 @@ struct SearchChannel {
 
 #[derive(Debug, Serialize)]
 struct SearchMessage {
-    event_id: String,
+    id: String,
     from: String,
     recipients: Vec<String>,
     body: String,
@@ -241,7 +241,7 @@ fn render_groups(
                 })
                 .collect();
             groups[index].messages.push(SearchMessage {
-                event_id: hit.message.message_id,
+                id: crate::util::short_id(&hit.message.message_id),
                 from,
                 recipients,
                 body: crate::profile::rewrite_body_mentions(store, &hit.message.body),

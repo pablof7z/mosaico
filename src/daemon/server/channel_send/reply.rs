@@ -79,7 +79,7 @@ pub(in crate::daemon::server) async fn rpc_channel_reply(
             .with_store(|store| store.set_message_attachment_dir(&published.event_id, directory)),
         None => Ok(false),
     });
-    let mut notices = super::unhosted_notice::notices(
+    let notices = super::unhosted_notice::notices(
         state,
         &rec,
         &original.channel_h,

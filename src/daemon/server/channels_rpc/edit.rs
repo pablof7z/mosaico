@@ -36,7 +36,7 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
 
     Ok(serde_json::json!({
-        "event_id": event_id.to_hex(),
+        "id": &event_id.to_hex()[..6],
         "channel": channel,
         "about": p.about,
         "confirmed": true,

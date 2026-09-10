@@ -45,7 +45,7 @@ fn ambiguous_advisory_never_offers_a_guessed_command() {
 #[test]
 fn absent_notices_key_returns_empty_without_error() {
     let result = serde_json::json!({
-        "event_id": "abc",
+        "id": "abc",
         "channel": "#mosaico"
     });
     assert_eq!(send_notice_lines(&result).unwrap(), Vec::<String>::new());

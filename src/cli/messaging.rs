@@ -22,15 +22,10 @@ pub(super) async fn channel_react(
         "session": session,
     }));
     let v = daemon_call_async("channel_react", params).await?;
-    let event_id = v["event_id"].as_str().unwrap_or("?");
+    let id = v["id"].as_str().unwrap_or("?");
     let target = v["target"].as_str().unwrap_or("?");
     let shown_emoji = v["emoji"].as_str().unwrap_or(&emoji);
-    println!(
-        "reacted {} {} to {}",
-        shown_emoji,
-        crate::util::short_id(event_id),
-        crate::util::short_id(target)
-    );
+    println!("reacted {} {} to {}", shown_emoji, id, target);
     Ok(())
 }
 
@@ -96,7 +91,7 @@ fn render_channel_read_row(item: &serde_json::Value, use_color: bool) -> String 
     let ts = item["created_at"].as_u64().unwrap_or(0);
     let mut text = format!("{sender} {body}");
     if item["truncated"].as_bool().unwrap_or(false) {
-        if let Some(id) = item["event_id"].as_str().filter(|s| !s.is_empty()) {
+        if let Some(id) = item["id"].as_str().filter(|s| !s.is_empty()) {
             text.push_str(&format!(
                 "\n[message truncated; run `mosaico channel read --id {id}`]"
             ));

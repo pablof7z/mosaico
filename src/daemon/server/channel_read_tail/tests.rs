@@ -57,8 +57,8 @@ fn chat_log_json_truncates_regular_reads() {
         "laptop",
         true,
     );
-    assert_eq!(json["event_id"], "event-1");
-    assert_eq!(json["full_event_id"], "event-1");
+    assert_eq!(json["id"], "event-");
+    assert!(json.get("full_event_id").is_none());
     assert_eq!(json["truncated"], true);
     assert!(json["body"].as_str().unwrap().ends_with("..."));
     assert!(json.get("from_session").is_none());

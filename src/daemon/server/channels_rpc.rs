@@ -207,7 +207,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         "channel": channel,
         "creator": creator.unwrap_or_default(),
         "joined": joined,
-        "orchestration_event_id": orchestration_event_id,
+        "orchestration_event_id": crate::util::short_id(&orchestration_event_id),
     }))
 }
 

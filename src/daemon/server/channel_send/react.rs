@@ -54,9 +54,9 @@ pub(in crate::daemon::server) async fn rpc_channel_react(
         .with_store(|store| channel_resolve::channel_reference_for(store, &original.channel_h))?;
 
     Ok(serde_json::json!({
-        "event_id": event_id,
+        "id": crate::util::short_id(&event_id),
         "channel": channel_ref,
-        "target": target_event_id,
+        "target": crate::util::short_id(&target_event_id),
         "emoji": emoji,
     }))
 }

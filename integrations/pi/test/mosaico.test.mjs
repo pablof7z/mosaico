@@ -252,7 +252,7 @@ test("/mosaico join selects and joins a known channel through the native protoco
 test("channel reads use a daemon stream, including duration timestamps", async () => {
   const daemon = await daemonFixture(frame => {
     if (frame.method === "channel_read") return [
-      { item: { event_id: "one", body: "hello" } }, { end: true },
+      { item: { id: "one", body: "hello" } }, { end: true },
     ]
     return holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } }
   })
@@ -262,7 +262,7 @@ test("channel reads use a daemon stream, including duration timestamps", async (
       "id", { channel: "#work", since: "2h", limit: 3 }, undefined, undefined, context,
     )
     assert.equal(result.isError, false)
-    assert.deepEqual(result.details, { messages: [{ event_id: "one", body: "hello" }] })
+    assert.deepEqual(result.details, { messages: [{ id: "one", body: "hello" }] })
     const call = daemon.requests.find(request => request.method === "channel_read")
     assert.equal(call.params.since, "2h")
     assert.equal(call.params.tail, true)

@@ -55,8 +55,8 @@ pub(in crate::daemon::server) async fn delete_channel(
 
     Ok(serde_json::json!({
         "channel": channel_ref,
-        "event_id": event_id,
-        "notice_event_id": notice_event_id,
+        "id": crate::util::short_id(&event_id),
+        "notice_id": crate::util::short_id(&notice_event_id),
         "notified_agents": online
             .iter()
             .map(|agent| serde_json::json!({

@@ -28,21 +28,6 @@ pub(super) struct Notice {
     matched_agent_state: Option<&'static str>,
 }
 
-pub(super) fn recipient_suspension(tagged_agent: Option<&str>, subject: String) -> Notice {
-    Notice {
-        level: "warn",
-        code: "recipient_suspension",
-        summary: format!(
-            "Reminder: {subject} is suspended and will receive this message after manual resumption."
-        ),
-        tagged_agent: tagged_agent.map(str::to_string),
-        typed_label: None,
-        candidates: Vec::new(),
-        matched_agent: None,
-        matched_agent_state: None,
-    }
-}
-
 pub(super) fn unhosted_no_return_path() -> Notice {
     Notice {
         level: "warn",

@@ -130,7 +130,7 @@ fn render_response_at(response: &Value, now: u64) -> Result<String> {
                 &mut out,
                 4,
                 &crate::agent_xml::MessageElement {
-                    event_id: &message.event_id,
+                    event_id: &message.id,
                     from: &message.from,
                     recipients: &message.recipients,
                     attachment_dir: &message.attachment_dir,
@@ -170,7 +170,7 @@ struct SearchChannel {
 
 #[derive(Deserialize)]
 struct SearchMessage {
-    event_id: String,
+    id: String,
     from: String,
     #[serde(default)]
     recipients: Vec<String>,
@@ -217,7 +217,7 @@ mod tests {
             "channels": [{
                 "ref": "#fava/research&design",
                 "messages": [{
-                    "event_id": "4e91c0b7f2de",
+                    "id": "4e91c0b7f2de",
                     "from": "Pablo",
                     "recipients": ["reviewer"],
                     "body": "landed <the> commit",
@@ -227,7 +227,7 @@ mod tests {
             }, {
                 "ref": "#fava/archive",
                 "messages": [{
-                    "event_id": "7bc421123456",
+                    "id": "7bc421123456",
                     "from": "reviewer",
                     "recipients": [],
                     "body": "approved",

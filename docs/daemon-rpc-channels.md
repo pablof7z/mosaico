@@ -58,7 +58,7 @@ Returns known root channels using public paths.
 
 ```jsonc
 params: {"channel": "#root/child", "about": "…"}
-result: {"event_id": "hex", "channel": "#root/child", "about": "…",
+result: {"id": "6-char", "channel": "#root/child", "about": "…",
          "confirmed": true}
 ```
 
@@ -95,7 +95,7 @@ NIP-29 group records remain the only source of roster state.
 ```jsonc
 params: {"channel": "#root/parent/child", "about": "…", "agents": […]}
 result: {"channel": "#root/parent/child", "joined": true,
-         "orchestration_event_id": "hex"|""}
+         "orchestration_event_id": "6-char"|""}
 ```
 
 The parent must already exist. Creation mints exactly the named leaf; it never
@@ -151,8 +151,8 @@ and removes all non-admin members in one event after Nostr runtime reports publi
 params: {"channel": "#root/child"}
 result: {
   "channel": "#root/child",
-  "event_id": "hex",
-  "notice_event_id": "hex"| "",
+  "id": "6-char",
+  "notice_id": "6-char"| "",
   "notified_agents": [{"pubkey": "hex", "slug": "agent"}, …],
   "deleted": true
 }

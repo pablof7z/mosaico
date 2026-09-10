@@ -134,7 +134,7 @@ async fn wait_scope_and_cursor(
             anyhow::bail!("reply waits cannot also set channels or --from");
         }
         let original = await_own_message(state, reply_to, deadline)
-            .await
+            .await?
             .with_context(|| format!("message not found for reply wait: {reply_to}"))?;
         let own = own_pubkeys(rec);
         if !own.contains(&original.author_pubkey) {
@@ -153,18 +153,21 @@ async fn wait_scope_and_cursor(
 
 /// Wait for the message a reply wait is anchored to, up to
 /// [`REPLY_ORIGIN_GRACE`] or the wait's own deadline, whichever is sooner.
+/// Accepts a 6-char id prefix; returns `Err` if the prefix is ambiguous.
 async fn await_own_message(
     state: &Arc<DaemonState>,
-    message_id: &str,
+    id_prefix: &str,
     deadline: tokio::time::Instant,
-) -> Option<Message> {
+) -> anyhow::Result<Option<Message>> {
     let grace = (tokio::time::Instant::now() + REPLY_ORIGIN_GRACE).min(deadline);
     loop {
-        if let Ok(Some(message)) = state.with_store(|store| store.get_message(message_id)) {
-            return Some(message);
+        match state.with_store(|store| store.get_message_by_prefix(id_prefix)) {
+            Ok(Some(message)) => return Ok(Some(message)),
+            Ok(None) => {}
+            Err(e) => return Err(e),
         }
         if tokio::time::Instant::now() >= grace {
-            return None;
+            return Ok(None);
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }

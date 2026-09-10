@@ -95,7 +95,7 @@ fn event_ids(result: &serde_json::Value) -> Vec<&str> {
         .unwrap()
         .iter()
         .flat_map(|channel| channel["messages"].as_array().unwrap())
-        .map(|message| message["event_id"].as_str().unwrap())
+        .map(|message| message["id"].as_str().unwrap())
         .collect()
 }
 

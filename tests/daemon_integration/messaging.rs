@@ -143,7 +143,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
         .expect("sender session row")
         .pubkey;
     let original_channel = receiver_scope.trim_start_matches('#');
-    let original_event_id = original.unwrap()["full_event_id"]
+    let original_event_id = original.unwrap()["id"]
         .as_str()
         .expect("observed message id")
         .to_string();
@@ -169,10 +169,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
             )
             .await
             .expect("publish reply to route-less local author");
-        reply["event_id"]
-            .as_str()
-            .expect("reply event id")
-            .to_string()
+        reply["id"].as_str().expect("reply id").to_string()
     });
     assert!(
         wait_until(Duration::from_secs(10), || observed_message(
