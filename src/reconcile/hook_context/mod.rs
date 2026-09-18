@@ -46,6 +46,7 @@ impl HookContextState {
         let mut view = assemble_view(&inputs, cursor.max(0) as u64, now.max(0) as u64);
         if cursor > 0 {
             if let Some(previous) = self.last_inputs.as_ref() {
+                crate::fabric_context::inject_host_deltas(&mut view, previous, &inputs);
                 crate::fabric_context::inject_member_deltas(
                     &mut view,
                     previous,
