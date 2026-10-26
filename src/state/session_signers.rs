@@ -43,17 +43,23 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Every exact session identity ever owned by this daemon, including a
-    /// revoked runtime. Revocation disables automatic execution; it does not
-    /// make a direct p-tag remote or discard its durable inbox.
-    pub(crate) fn list_owned_session_pubkeys(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT pubkey FROM session_signers
-             UNION SELECT pubkey FROM sessions
-             ORDER BY pubkey",
+    /// The subset of `candidates` this daemon has ever owned a session
+    /// identity for, without loading every identity.
+    pub(crate) fn owned_session_pubkeys_among(
+        &self,
+        candidates: &[String],
+    ) -> Result<std::collections::BTreeSet<String>> {
+        let mut owned = std::collections::BTreeSet::new();
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT 1 FROM session_signers WHERE pubkey=?1
+             UNION ALL SELECT 1 FROM sessions WHERE pubkey=?1 LIMIT 1",
         )?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        for candidate in candidates {
+            if stmt.exists([candidate])? {
+                owned.insert(candidate.clone());
+            }
+        }
+        Ok(owned)
     }
 }
 

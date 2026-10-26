@@ -20,16 +20,24 @@ pub(super) struct RouteReport {
 /// Relay admission has already decided whether an inbound sender may write in
 /// the channel; routes and runtime state only affect later execution.
 pub(super) fn route(state: &Arc<DaemonState>, mention: DirectMention<'_>) -> Result<RouteReport> {
-    let owned = owned_pubkeys(state)?;
-    let targets = mention
+    // Most events mention nobody; skip the ownership lookups entirely.
+    let candidates = mention
         .target_pubkeys
         .iter()
         .filter(|target| target.as_str() != mention.from_pubkey)
-        .filter(|target| owned.contains(target.as_str()))
         .cloned()
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    let targets = if candidates.is_empty() {
+        Vec::new()
+    } else {
+        let owned = owned_among(state, &candidates)?;
+        candidates
+            .into_iter()
+            .filter(|target| owned.contains(target))
+            .collect()
+    };
 
     let mut newly_parked = false;
     for target in &targets {
@@ -65,12 +73,25 @@ pub(super) fn route(state: &Arc<DaemonState>, mention: DirectMention<'_>) -> Res
     })
 }
 
-fn owned_pubkeys(state: &DaemonState) -> Result<BTreeSet<String>> {
-    let mut owned = state.hosted_pubkeys().into_iter().collect::<BTreeSet<_>>();
-    owned.extend(crate::identity::list_local_pubkeys(
-        &crate::config::mosaico_home(),
-    ));
-    owned.extend(state.with_store(|store| store.list_owned_session_pubkeys())?);
+/// The members of `candidates` this daemon owns: hosted now, a configured
+/// local identity, or an exact session identity it ever created.
+fn owned_among(state: &DaemonState, candidates: &[String]) -> Result<BTreeSet<String>> {
+    let mut owned = state
+        .hosted_pubkeys()
+        .into_iter()
+        .filter(|pubkey| candidates.contains(pubkey))
+        .collect::<BTreeSet<_>>();
+    owned.extend(
+        crate::identity::list_local_pubkeys(&crate::config::mosaico_home())
+            .into_iter()
+            .filter(|pubkey| candidates.contains(pubkey)),
+    );
+    let remaining = candidates
+        .iter()
+        .filter(|pubkey| !owned.contains(*pubkey))
+        .cloned()
+        .collect::<Vec<_>>();
+    owned.extend(state.with_store(|store| store.owned_session_pubkeys_among(&remaining))?);
     Ok(owned)
 }
 
