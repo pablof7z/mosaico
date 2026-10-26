@@ -105,6 +105,10 @@ impl WhoAggregation {
                 .iter()
                 .map(|profile| profile.pubkey.clone()),
         );
+        let running = local_sessions
+            .iter()
+            .map(|session| session.pubkey.clone())
+            .collect::<BTreeSet<_>>();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
         let mut sessions_by_pubkey = BTreeMap::new();
@@ -115,10 +119,21 @@ impl WhoAggregation {
             {
                 profiles.insert(pubkey.clone(), profile);
             }
-            if let Some(identity) = store.session_identity(&pubkey).with_context(|| {
-                format!("who aggregation: failed to read session identity {pubkey}")
-            })? {
-                identities.insert(pubkey.clone(), identity);
+            match store.session_identity(&pubkey) {
+                Ok(Some(identity)) => {
+                    identities.insert(pubkey.clone(), identity);
+                }
+                Ok(None) => {}
+                // A stopped session whose handle was reclaimed for reuse has no
+                // lease by design; it is shown from its profile instead.
+                Err(_)
+                    if !running.contains(&pubkey)
+                        && store.handle_for_pubkey(&pubkey)?.is_none() => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("who aggregation: failed to read session identity {pubkey}")
+                    });
+                }
             }
             if let Some(session) = store
                 .get_session(&pubkey)
