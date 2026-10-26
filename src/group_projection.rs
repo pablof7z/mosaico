@@ -146,6 +146,43 @@ impl GroupProjection {
             .collect()
     }
 
+    /// Every group any of `pubkeys` is an admin or member of, in one scan.
+    pub(crate) fn channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
+        self.groups
+            .iter()
+            .filter(|group| {
+                !group.admins.is_disjoint(pubkeys) || !group.members.is_disjoint(pubkeys)
+            })
+            .map(|group| group.id.clone())
+            .collect()
+    }
+
+    /// Non-archived channels with their member pubkeys (admins included), in
+    /// one scan. Groups without metadata are not channels yet.
+    pub(crate) fn active_channel_rosters(&self) -> impl Iterator<Item = (&str, BTreeSet<&str>)> {
+        self.groups.iter().filter_map(|group| {
+            let channel = group.channel.as_ref()?;
+            if channel.is_archived() {
+                return None;
+            }
+            let roster = group
+                .admins
+                .iter()
+                .chain(group.members.iter())
+                .map(String::as_str)
+                .collect();
+            Some((group.id.as_str(), roster))
+        })
+    }
+
+    pub(crate) fn archived_channel_ids(&self) -> BTreeSet<String> {
+        self.groups
+            .iter()
+            .filter(|group| group.channel.as_ref().is_some_and(Channel::is_archived))
+            .map(|group| group.id.clone())
+            .collect()
+    }
+
     pub(crate) fn count_channel_members(&self, channel_h: &str) -> u64 {
         self.list_channel_members(channel_h).len() as u64
     }

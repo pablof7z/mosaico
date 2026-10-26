@@ -63,6 +63,14 @@ recovery authority, and per-channel fabric standing:
   removal immediately due; unconfirmed relay removals remain durable retry
   work. Ordinary exit and eviction do not revoke recovery or membership.
 
+Relay membership outlives the runtime, so a channel roster accumulates every
+session that ever joined. Public agent counts (`channel list`, fabric context
+`agents=`) therefore count only *live* named agents: a local session whose
+runtime is running, or a remote agent with a current unexpired live status.
+Dormant members keep membership and exact p-tag resume; they are simply not
+reported as active. Subscription coverage reads the group projection once per
+reconciliation rather than once per identity.
+
 Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying
 the daemon. A daemon restart replays those reports, reconciles a reserved

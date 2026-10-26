@@ -22,6 +22,12 @@ impl Store {
             .unwrap_or_else(|| crate::group_projection::GroupProjection::new(&[]))
     }
 
+    /// One projection of the current view for a caller that would otherwise
+    /// rebuild it once per lookup.
+    pub(crate) fn group_projection_snapshot(&self) -> crate::group_projection::GroupProjection {
+        self.group_projection()
+    }
+
     pub(super) fn relay_events(&self) -> Vec<RelayEvent> {
         #[cfg(test)]
         if let Some(delivery) = self

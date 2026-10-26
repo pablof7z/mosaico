@@ -15,10 +15,15 @@ fn every_channel_shows_only_last_accepted_activity() {
             .admins(Vec::new())
             .members(pubkeys(&[OTHER_PK])),
     ]));
-    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
-        chat("lounge-old", "lounge-h", 20, "hello", "[]"),
-        chat("task-accepted", TASK_H, 30, "hello", "[]"),
-    ]));
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .events([
+                chat("lounge-old", "lounge-h", 20, "hello", "[]"),
+                chat("task-accepted", TASK_H, 30, "hello", "[]"),
+            ]),
+    );
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true)).unwrap();
@@ -89,6 +94,7 @@ fn full_rosters_distinguish_humans_from_agents() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
             .events([human_chat("human-msg", "root", 40)]),
     );
     let rec = session(&store);

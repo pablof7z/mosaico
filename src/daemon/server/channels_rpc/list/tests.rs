@@ -121,6 +121,20 @@ fn counts_named_agents_from_the_retained_group_level() {
     );
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
+            .statuses([crate::state::Status {
+                pubkey: "agent-pk".into(),
+                channel_h: "own".into(),
+                slug: "reviewer".into(),
+                title: String::new(),
+                activity: String::new(),
+                workspace: String::new(),
+                branch: String::new(),
+                state: crate::session_state::SessionState::Idle,
+                state_since: 1,
+                last_seen: 1,
+                updated_at: 1,
+                expiration: 0,
+            }])
             .profiles([
                 Profile {
                     pubkey: "agent-pk".into(),
