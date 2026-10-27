@@ -130,7 +130,11 @@ pub(crate) fn build_who_snapshot(
                 .unwrap_or(true)
             {
                 rows.push(local_row(aggregation, s, &scope, &local_host, now)?);
-            } else if is_root_channel(aggregation, &scope) {
+            } else if aggregation.has_heartbeat(&s.pubkey, &scope)
+                && is_root_channel(aggregation, &scope)
+            {
+                // The summary counts agents present elsewhere by heartbeat,
+                // the same fact as agent counts, not by local lifecycle.
                 other_agents
                     .entry(scope)
                     .or_default()
@@ -164,9 +168,9 @@ pub(crate) fn build_who_snapshot(
                 .unwrap_or(true);
             if in_scope {
                 rows.push(peer_row(aggregation, st, &local_host, now)?);
-            } else if st.state.is_live() && is_root_channel(aggregation, ch) {
-                // The summary counts agents present elsewhere: a live
-                // heartbeat, not a closing offline status.
+            } else if st.is_heartbeat() && is_root_channel(aggregation, ch) {
+                // The summary counts agents present elsewhere by heartbeat,
+                // not a closing offline status.
                 let slug = peer_slug(aggregation, st);
                 other_agents.entry(ch.clone()).or_default().insert(slug);
             }

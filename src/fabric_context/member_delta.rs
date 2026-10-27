@@ -133,11 +133,12 @@ fn inject_presence_changes(
         {
             continue;
         }
+        let lapsed_at = status.expiration.unwrap_or(now).min(now);
         let lapsed = StatusCap {
             state: crate::session_state::SessionState::Offline,
             activity: String::new(),
-            changed_at: now,
-            state_since: now,
+            changed_at: lapsed_at,
+            state_since: lapsed_at,
             native_failure: None,
             ..status.clone()
         };

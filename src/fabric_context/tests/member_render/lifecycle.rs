@@ -137,4 +137,5 @@ fn a_running_local_session_with_an_offline_heartbeat_emits_no_live_presence_row(
     let text =
         render_fabric_context(&store, input(Some(&rec), "root", 90, 101, true)).unwrap_or_default();
     assert!(!text.contains("state=\"suspended\""), "got: {text}");
+    assert!(!text.contains("Recovered session"), "got: {text}");
 }

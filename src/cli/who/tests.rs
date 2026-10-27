@@ -238,6 +238,7 @@ fn who_snapshot_hides_archived_channel_presence() {
 
 mod dormant;
 mod projection;
+mod summary;
 
 #[test]
 fn same_host_peer_is_not_remote() {

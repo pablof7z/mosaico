@@ -36,10 +36,7 @@ impl MemberFacts {
 #[derive(Default)]
 pub(crate) struct MemberFactIndex {
     named: BTreeSet<String>,
-    /// Per channel, the pubkeys with an active heartbeat: a live-state status
-    /// for that channel carrying a NIP-40 expiration. The runtime drops expired
-    /// events before the view is built, so a present heartbeat is unexpired; a
-    /// status without an expiration is not a heartbeat because it never lapses.
+    /// Per channel, the pubkeys with an active heartbeat (`Status::is_heartbeat`).
     heartbeats: BTreeMap<String, BTreeSet<String>>,
     backend: BTreeSet<String>,
 }
@@ -58,10 +55,7 @@ impl MemberFactIndex {
                 .map(|status| status.pubkey.clone()),
         );
         let mut heartbeats: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        for status in statuses
-            .iter()
-            .filter(|status| status.state.is_live() && status.expiration != 0)
-        {
+        for status in statuses.iter().filter(|status| status.is_heartbeat()) {
             heartbeats
                 .entry(status.channel_h.clone())
                 .or_default()

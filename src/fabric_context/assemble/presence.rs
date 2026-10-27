@@ -98,7 +98,11 @@ fn presence_snapshot_row_with_failure(
     }
     let presence = projected_presence(status);
     let text = presence.text();
-    if text.is_empty() && native_failure.is_none() {
+    // An offline row announces the state itself, so it needs no text.
+    if text.is_empty()
+        && native_failure.is_none()
+        && presence.state != crate::session_state::SessionState::Offline
+    {
         return None;
     }
     let (name, host, workspace) = member_origin(

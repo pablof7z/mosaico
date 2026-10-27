@@ -77,9 +77,9 @@ expiry. A status without an expiration is not a heartbeat. Agent counts
 including the human render in `who`), presence rows, and `who`'s
 other-workspaces summary all use that fact; the viewer's own row is always
 shown. Local lifecycle may relabel a present member's state but never makes
-it present. A heartbeat that lapses without a closing status is announced as
-going offline, like a graceful close; membership is unchanged, so it is not a
-departure. The `who` snapshot rows are this host's
+it present. In turn deltas, a heartbeat that lapses without a closing status
+is announced as going offline, like a graceful close; membership is
+unchanged, so it is not a departure. The `who` snapshot rows are this host's
 running sessions plus other current relay statuses; a stopped local session
 gets no row. Dormant members keep membership and exact p-tag resume; they are
 simply not reported. `who --expired` lists stopped local sessions that have a
