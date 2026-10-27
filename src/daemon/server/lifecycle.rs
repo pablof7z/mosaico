@@ -47,14 +47,13 @@ pub async fn run() -> Result<()> {
     ));
     let provider = Arc::new(std::sync::RwLock::new(provider));
     let nostr = Arc::new(std::sync::RwLock::new(nostr));
-    let nip29_view = Arc::new(std::sync::RwLock::new(view));
     let presence_publisher =
         crate::presence_publisher::PresencePublisher::spawn(provider.clone(), store.clone());
     let state = Arc::new(DaemonState {
         store,
         provider,
         nostr,
-        nip29_view,
+        nip29_view: Arc::new(std::sync::RwLock::new(view)),
         backend_keys: std::sync::RwLock::new(backend_keys),
         cfg: std::sync::RwLock::new(cfg),
         config_reload: tokio::sync::Mutex::new(()),
