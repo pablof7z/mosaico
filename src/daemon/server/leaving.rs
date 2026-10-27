@@ -14,7 +14,9 @@ impl DaemonState {
         self.leaving
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .insert(key.clone());
+            .entry(key.clone())
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
         LeavingGuard {
             state: self.clone(),
             key,
@@ -27,16 +29,40 @@ impl DaemonState {
         self.leaving
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .contains(&(pubkey.to_string(), channel.to_string()))
+            .contains_key(&(pubkey.to_string(), channel.to_string()))
     }
 }
 
 impl Drop for LeavingGuard {
     fn drop(&mut self) {
-        self.state
+        let mut leaving = self
+            .state
             .leaving
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .remove(&self.key);
+            .unwrap_or_else(|poison| poison.into_inner());
+        if let Some(count) = leaving.get_mut(&self.key) {
+            *count -= 1;
+            if *count == 0 {
+                leaving.remove(&self.key);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A duplicate leave (a client retry) finishing first must not release
+    /// the in-flight mark the original leave still depends on.
+    #[tokio::test]
+    async fn a_duplicate_leave_finishing_first_keeps_the_original_in_flight() {
+        let state = DaemonState::new_for_test().await;
+        let original = state.begin_leaving("pk", "room");
+        let duplicate = state.begin_leaving("pk", "room");
+        drop(duplicate);
+        assert!(state.is_leaving("pk", "room"));
+        drop(original);
+        assert!(!state.is_leaving("pk", "room"));
     }
 }

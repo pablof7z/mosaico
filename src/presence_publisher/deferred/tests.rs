@@ -1,8 +1,10 @@
 use super::*;
 use crate::presence_publisher::tests::renewal;
-use crate::presence_publisher::{StatusOutcome, PUBLISH_SIGNAL_CAPACITY};
+use crate::presence_publisher::StatusOutcome;
 use crate::state::Store;
 use nostr::key::Keys;
+use std::sync::Mutex;
+use std::time::Duration;
 use tokio::time::timeout;
 
 fn job(outcome: StatusOutcome) -> PublishJob {
@@ -47,6 +49,77 @@ fn a_deferred_status_is_requeued_unless_a_newer_state_is_queued() {
 /// The requeue is driven by the view's group-change wake: once the relay's
 /// group records arrive (as after a daemon restart), a parked status is
 /// queued again instead of waiting for the next lease renewal.
+type Observed = tokio::sync::mpsc::UnboundedReceiver<u64>;
+
+/// A publisher whose publications are recorded by revision and settled like
+/// the real worker; the first one blocks until `gate` opens.
+fn recording_publisher() -> (PresencePublisher, Arc<tokio::sync::Semaphore>, Observed) {
+    let deferred = Arc::new(Mutex::new(DeferredJobs::default()));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (observed_tx, observed_rx) = tokio::sync::mpsc::unbounded_channel();
+    let publisher = PresencePublisher::start(
+        Arc::new(Mutex::new(PendingPublishJobs::default())),
+        deferred.clone(),
+        {
+            let gate = gate.clone();
+            Arc::new(move |job: PublishJob| {
+                let gate = gate.clone();
+                let first = first.clone();
+                let deferred = deferred.clone();
+                let observed_tx = observed_tx.clone();
+                Box::pin(async move {
+                    observed_tx.send(job.outcome.revision).unwrap();
+                    if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        gate.acquire().await.unwrap().forget();
+                    }
+                    deferred.lock().unwrap().settle(job, false);
+                })
+            })
+        },
+    );
+    (publisher, gate, observed_rx)
+}
+
+/// R1 is parked; R2 for the same pubkey is publishing. A requeue racing that
+/// publication must wait for it (and the retirement of R1 it settles), so
+/// stale R1 is never published over R2.
+#[tokio::test]
+async fn a_requeue_never_publishes_a_parked_status_over_a_newer_one_in_flight() {
+    let (publisher, gate, mut observed) = recording_publisher();
+    publisher
+        .deferred
+        .lock()
+        .unwrap()
+        .park(job(renewal("pk-a", 1)));
+    publisher.submit(renewal("pk-a", 2), &Keys::generate(), "renewal", None);
+    assert_eq!(
+        timeout(Duration::from_secs(1), observed.recv())
+            .await
+            .unwrap(),
+        Some(2)
+    );
+
+    let requeue = tokio::spawn({
+        let publisher = publisher.clone();
+        async move { publisher.requeue_deferred().await }
+    });
+    tokio::task::yield_now().await;
+    assert!(publisher.lane.try_lock().is_err());
+    assert!(!requeue.is_finished());
+    gate.add_permits(1);
+
+    assert!(
+        !timeout(Duration::from_secs(1), requeue)
+            .await
+            .unwrap()
+            .unwrap(),
+        "the parked status must have been retired by the newer one"
+    );
+    assert_eq!(publisher.pending.lock().unwrap().len(), 0);
+    assert!(observed.try_recv().is_err());
+}
+
 #[tokio::test]
 async fn a_group_change_requeues_a_parked_status() {
     use crate::fabric::provider::Nip29Provider;
@@ -65,35 +138,33 @@ async fn a_group_change_requeues_a_parked_status() {
         std::collections::BTreeSet::from(["room".to_string()]),
         std::collections::BTreeSet::new(),
     );
-    let deferred = Arc::new(Mutex::new(DeferredJobs::default()));
-    deferred.lock().unwrap().park(job(renewal("pk-a", 3)));
-    let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
-    let (signal_tx, mut signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
-    spawn_requeue_on_group_change(
-        Arc::new(RwLock::new(provider)),
-        deferred.clone(),
-        pending.clone(),
-        signal_tx,
-    );
+    let (publisher, gate, mut observed) = recording_publisher();
+    gate.add_permits(1);
+    publisher
+        .deferred
+        .lock()
+        .unwrap()
+        .park(job(renewal("pk-a", 3)));
+    spawn_requeue_on_group_change(Arc::new(RwLock::new(provider)), publisher.clone());
     // Let the requeue task subscribe before the group state changes.
     tokio::task::yield_now().await;
     assert!(
-        timeout(Duration::from_millis(200), signal_rx.recv())
+        timeout(Duration::from_millis(200), observed.recv())
             .await
             .is_err(),
         "nothing may be requeued before the group state changes"
     );
-    assert_eq!(pending.lock().unwrap().len(), 0);
 
     view.replace(vec![EventBuilder::new(Kind::Custom(39_000), "")
         .tags([Tag::custom("d", ["room"]), Tag::custom("name", ["room"])])
         .finalize(&Keys::generate())
         .unwrap()]);
 
-    timeout(Duration::from_secs(2), signal_rx.recv())
-        .await
-        .expect("a group change must requeue the parked status")
-        .expect("signal");
-    assert_eq!(pending.lock().unwrap().jobs["pk-a"].outcome.revision, 3);
-    assert_eq!(deferred.lock().unwrap().len(), 0);
+    assert_eq!(
+        timeout(Duration::from_secs(2), observed.recv())
+            .await
+            .expect("a group change must requeue the parked status"),
+        Some(3)
+    );
+    assert_eq!(publisher.deferred.lock().unwrap().len(), 0);
 }

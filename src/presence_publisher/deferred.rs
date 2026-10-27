@@ -7,12 +7,10 @@
 //! changes.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use tokio::sync::mpsc;
-
-use super::{PendingPublishJobs, PublishJob};
+use super::{PendingPublishJobs, PresencePublisher, PublishJob};
 use crate::fabric::provider::Nip29Provider;
 
 /// Re-subscribe at least this often, so a provider replaced by configuration
@@ -83,9 +81,7 @@ impl DeferredJobs {
 
 pub(super) fn spawn_requeue_on_group_change(
     provider: Arc<RwLock<Arc<Nip29Provider>>>,
-    deferred: Arc<Mutex<DeferredJobs>>,
-    pending: Arc<Mutex<PendingPublishJobs>>,
-    signal_tx: mpsc::Sender<()>,
+    publisher: PresencePublisher,
 ) {
     tokio::spawn(async move {
         loop {
@@ -102,21 +98,35 @@ pub(super) fn spawn_requeue_on_group_change(
                 }
                 Err(_) => continue,
             }
-            let requeued = {
-                let mut pending = pending.lock().expect("presence publish queue poisoned");
-                deferred
-                    .lock()
-                    .expect("deferred presence queue poisoned")
-                    .requeue_into(&mut pending)
-            };
-            if requeued > 0 && signal_tx.is_closed() {
+            if publisher.requeue_deferred().await && publisher.signal_tx.is_closed() {
                 return;
-            }
-            if requeued > 0 {
-                let _ = signal_tx.try_send(());
             }
         }
     });
+}
+
+impl PresencePublisher {
+    /// Requeue parked statuses and wake the worker. Holds the publication
+    /// lane, so a newer status for the same pubkey that is publishing right
+    /// now settles first (retiring the parked one) instead of being
+    /// overwritten by it afterwards. Returns whether anything was requeued.
+    pub(super) async fn requeue_deferred(&self) -> bool {
+        let _lane = self.lane.lock().await;
+        let requeued = {
+            let mut pending = self
+                .pending
+                .lock()
+                .expect("presence publish queue poisoned");
+            self.deferred
+                .lock()
+                .expect("deferred presence queue poisoned")
+                .requeue_into(&mut pending)
+        };
+        if requeued > 0 {
+            let _ = self.signal_tx.try_send(());
+        }
+        requeued > 0
+    }
 }
 
 #[cfg(test)]

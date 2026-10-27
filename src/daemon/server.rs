@@ -76,7 +76,8 @@ pub struct DaemonState {
     /// member standing looks like durable cleanup work, which standing repair
     /// must leave to the leave itself until it finishes. In memory only: after
     /// a crash the set is empty and cleanup completes the interrupted leave.
-    leaving: std::sync::Mutex<std::collections::BTreeSet<(String, String)>>,
+    /// Counted, so one leave finishing never clears another for the same key.
+    leaving: std::sync::Mutex<std::collections::BTreeMap<(String, String), usize>>,
     /// Makes remote caller correlation and first-session creation atomic across
     /// concurrent MCP requests for the same conversation.
     mcp_actor_sync: tokio::sync::Mutex<()>,

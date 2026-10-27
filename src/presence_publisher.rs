@@ -144,12 +144,7 @@ impl PresencePublisher {
                 })
             }),
         );
-        deferred::spawn_requeue_on_group_change(
-            provider,
-            deferred,
-            publisher.pending.clone(),
-            publisher.signal_tx.clone(),
-        );
+        deferred::spawn_requeue_on_group_change(provider, publisher.clone());
         publisher
     }
 

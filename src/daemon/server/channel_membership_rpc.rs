@@ -146,9 +146,10 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
     // from removing the member before the withdrawal below lands.
     let (route, _leaving) = {
         let _lane = state.standing_sync.lock().await;
-        let leaving = state.begin_leaving(&rec.pubkey, &channel);
         match state.with_store(|store| store.begin_route_leave(&rec.pubkey, &channel))? {
-            Some(route) => (route, leaving),
+            // Marked only by the leave that actually removed the route, under
+            // the same lane, so a duplicate that finds nothing never touches it.
+            Some(route) => (route, state.begin_leaving(&rec.pubkey, &channel)),
             None => return Ok(serde_json::json!({ "channel": channel_ref, "left": false })),
         }
     };
