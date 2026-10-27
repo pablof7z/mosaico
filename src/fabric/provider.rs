@@ -105,9 +105,15 @@ impl Nip29Provider {
                         // Decoding the whole level is CPU work; keep it off
                         // the async workers. Awaiting keeps replacements ordered.
                         let view = Arc::clone(&provider.view);
-                        if let Err(error) =
-                            tokio::task::spawn_blocking(move || view.replace(snapshot.events)).await
-                        {
+                        let decoded =
+                            tokio::task::spawn_blocking(move || view.replace(snapshot.events))
+                                .await;
+                        if let Err(error) = decoded {
+                            // Cancellation means the runtime is shutting down;
+                            // only a panicking decode is an error.
+                            if error.is_cancelled() {
+                                return;
+                            }
                             tracing::error!(%error, "decoding complete NIP-29 view");
                         }
                         expiration
