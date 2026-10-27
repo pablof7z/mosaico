@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
-import { DaemonConnection, caller, isHostedPi } from "./protocol.ts"
+import { DaemonConnection, caller, daemonCall, isHostedPi } from "./protocol.ts"
 
 const DELIVERY_TYPE = "mosaico.delivery"
 const DELIVERY_TIMEOUT_MS = 40_000
@@ -10,7 +10,6 @@ interface Delivery {
   message: {
     custom_type: string
     content: string
-    display: boolean
     details?: Record<string, unknown>
   }
 }
@@ -32,9 +31,14 @@ export class DeliveryPump {
     this.ctx = ctx
   }
 
-  start(): void {
+  async start(): Promise<void> {
     if (this.running || (isHostedPi() && process.env.MOSAICO_TRANSPORT === "pi-rpc")) return
     this.running = true
+    try {
+      await daemonCall("session_delivery_open", caller(this.ctx), AbortSignal.timeout(5_000))
+    } catch {
+      // The reconnecting wait loop below will establish the renewable lease.
+    }
     void this.run()
   }
 
@@ -96,7 +100,7 @@ export class DeliveryPump {
       this.pi.sendMessage({
         customType: delivery.message.custom_type,
         content: delivery.message.content,
-        display: delivery.message.display,
+        display: true,
         details: { ...delivery.message.details, lease_id: delivery.lease_id },
       }, { triggerTurn: true, deliverAs: "steer" })
     })

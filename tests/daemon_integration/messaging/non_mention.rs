@@ -3,7 +3,7 @@ use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 use std::time::Duration;
 
-/// A chat message with no `@mention` (no p-tag) must remain ambient Fava
+/// A chat message with no `@mention` (no p-tag) must remain ambient Nostr runtime
 /// context and never ring a session's inbox doorbell.
 #[test]
 fn non_mention_chat_does_not_route_to_inbox() {

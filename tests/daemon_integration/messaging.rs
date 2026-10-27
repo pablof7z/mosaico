@@ -5,8 +5,8 @@ use std::time::Duration;
 mod explicit_destination;
 #[path = "messaging/inbox_rows.rs"]
 mod inbox_rows;
-#[path = "messaging/message_coaching.rs"]
-mod message_coaching;
+#[path = "messaging/message_notice.rs"]
+mod message_notice;
 #[path = "messaging/non_mention.rs"]
 mod non_mention;
 #[path = "messaging/self_target.rs"]
@@ -106,7 +106,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
         String::from_utf8_lossy(&out.stderr)
     );
     // Publication acceptance is not product delivery. Wait until the daemon's
-    // retained Fava observation exposes the message through the public reader.
+    // current NIP-29 view exposes the message through the public reader.
     let mut original = None;
     assert!(
         wait_until(Duration::from_secs(10), || {
@@ -143,7 +143,7 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
         .expect("sender session row")
         .pubkey;
     let original_channel = receiver_scope.trim_start_matches('#');
-    let original_event_id = original.unwrap()["full_event_id"]
+    let original_event_id = original.unwrap()["id"]
         .as_str()
         .expect("observed message id")
         .to_string();
@@ -169,17 +169,14 @@ fn observed_send_and_reply_park_direct_inbox_for_owned_recipients() {
             )
             .await
             .expect("publish reply to route-less local author");
-        reply["event_id"]
-            .as_str()
-            .expect("reply event id")
-            .to_string()
+        reply["id"].as_str().expect("reply id").to_string()
     });
     assert!(
         wait_until(Duration::from_secs(10), || observed_message(
             &reply_event_id
         )
         .is_some()),
-        "accepted reply was never observed through Fava"
+        "accepted reply was never observed through Nostr runtime"
     );
     let reply_store = Store::open(&home.store_path()).unwrap();
     assert!(!reply_store

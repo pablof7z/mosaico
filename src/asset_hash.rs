@@ -16,7 +16,6 @@ impl Sha256Hash {
         if value.len() != 64 {
             return Err("must contain exactly 64 hexadecimal characters".into());
         }
-
         let mut hash = [0; 32];
         for (index, byte) in hash.iter_mut().enumerate() {
             let offset = index * 2;

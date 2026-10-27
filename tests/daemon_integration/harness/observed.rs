@@ -52,6 +52,41 @@ pub(crate) fn observed_chat(event_id: &str) -> Option<serde_json::Value> {
         .next()
 }
 
+pub(crate) fn wait_for_who_session_projection(
+    pubkey: &str,
+    workspace: &str,
+    expected_channels: &std::collections::BTreeSet<String>,
+) -> Option<(String, std::collections::BTreeSet<String>)> {
+    let mut projection = None;
+    wait_until(std::time::Duration::from_secs(25), || {
+        projection = rt().block_on(async {
+            let mut client = mosaico::daemon::client::Client::connect_or_spawn()
+                .await
+                .ok()?;
+            let value = client
+                .call("who", serde_json::json!({ "workspace": workspace }))
+                .await
+                .ok()?;
+            let rows = value["rows"].as_array()?;
+            let ours = rows
+                .iter()
+                .filter(|row| row["pubkey"].as_str() == Some(pubkey))
+                .collect::<Vec<_>>();
+            let slug = ours.first()?.get("slug")?.as_str()?.to_string();
+            let channels = ours
+                .iter()
+                .map(|row| row["channel"].as_str().map(str::to_string))
+                .collect::<Option<std::collections::BTreeSet<_>>>()?;
+            Some((slug, channels))
+        });
+        projection
+            .as_ref()
+            .is_some_and(|(_, channels)| channels == expected_channels)
+    })
+    .then_some(projection)
+    .flatten()
+}
+
 pub(crate) fn session_identity_pubkey(
     store: &mosaico::state::Store,
     pubkey: &str,

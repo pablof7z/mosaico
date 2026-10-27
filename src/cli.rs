@@ -1,7 +1,6 @@
-use crate::idref::event_short_id;
 #[cfg(test)]
 use crate::state::Store;
-use crate::util::{format_local_datetime, now_secs, pubkey_short};
+use crate::util::now_secs;
 use anyhow::{bail, Context, Result};
 use crossterm::{
     cursor::{Hide, MoveTo, Show},

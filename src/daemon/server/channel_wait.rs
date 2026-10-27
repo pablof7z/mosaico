@@ -19,11 +19,7 @@ pub(super) struct WaitParams {
     #[serde(default)]
     channels: Vec<String>,
     #[serde(default)]
-    from: Option<String>,
-    #[serde(default)]
     reply_to: Option<String>,
-    #[serde(default)]
-    from_pubkeys: Vec<String>,
     #[serde(default)]
     from_labels: Vec<String>,
 }
@@ -39,9 +35,6 @@ pub(super) async fn rpc_channel_wait(
         anyhow::bail!("wait duration must be at least 1 second");
     }
     let deadline = tokio::time::Instant::now() + Duration::from_secs(p.timeout_secs);
-    if p.from.is_some() && (!p.from_pubkeys.is_empty() || !p.from_labels.is_empty()) {
-        anyhow::bail!("channel_wait author filters are mutually exclusive");
-    }
 
     let rec = resolve_session_inner(
         state,
@@ -55,7 +48,7 @@ pub(super) async fn rpc_channel_wait(
             .map(|scope| crate::channel_ref::full_channel_ref(store, scope))
             .collect::<Vec<_>>()
     });
-    let author_filter = AuthorFilter::from_params(state, &scopes, &p)?;
+    let author_filter = AuthorFilter::from_params(&p)?;
     let own_pubkeys = own_pubkeys(&rec);
     let backend_pubkey = state.backend_pubkey();
 
@@ -118,11 +111,9 @@ fn timeout_result(timeout_secs: u64, channels: &[String]) -> serde_json::Value {
 }
 
 /// How long a reply wait will wait for its OWN message to come back before
-/// giving up on it. The message was published through Fava, which injects the
-/// accepted write into the subscription this daemon already holds (#1182), so
-/// the round trip is local and sub-millisecond -- but it is asynchronous, and
-/// `channel_send` returning is acceptance rather than observed delivery. Spending
-/// a slice of the wait's own budget on it is honest; failing on a race is not.
+/// giving up on it. `channel_send` returns after relay acknowledgement, while
+/// observation is the separate subscribed return path. Spending a slice of the
+/// wait's own budget on that asynchronous round trip avoids an observation race.
 const REPLY_ORIGIN_GRACE: Duration = Duration::from_secs(5);
 
 async fn wait_scope_and_cursor(
@@ -132,11 +123,11 @@ async fn wait_scope_and_cursor(
     deadline: tokio::time::Instant,
 ) -> Result<(Vec<String>, u64, Option<String>)> {
     if let Some(reply_to) = params.reply_to.as_deref().filter(|id| !id.is_empty()) {
-        if !params.channels.is_empty() || params.from.is_some() {
-            anyhow::bail!("reply waits cannot also set channels or --from");
+        if !params.channels.is_empty() {
+            anyhow::bail!("reply waits cannot also set channels");
         }
         let original = await_own_message(state, reply_to, deadline)
-            .await
+            .await?
             .with_context(|| format!("message not found for reply wait: {reply_to}"))?;
         let own = own_pubkeys(rec);
         if !own.contains(&original.author_pubkey) {
@@ -155,18 +146,21 @@ async fn wait_scope_and_cursor(
 
 /// Wait for the message a reply wait is anchored to, up to
 /// [`REPLY_ORIGIN_GRACE`] or the wait's own deadline, whichever is sooner.
+/// Accepts a 6-char id prefix; returns `Err` if the prefix is ambiguous.
 async fn await_own_message(
     state: &Arc<DaemonState>,
-    message_id: &str,
+    id_prefix: &str,
     deadline: tokio::time::Instant,
-) -> Option<Message> {
+) -> anyhow::Result<Option<Message>> {
     let grace = (tokio::time::Instant::now() + REPLY_ORIGIN_GRACE).min(deadline);
     loop {
-        if let Ok(Some(message)) = state.with_store(|store| store.get_message(message_id)) {
-            return Some(message);
+        match state.with_store(|store| store.get_message_by_prefix(id_prefix)) {
+            Ok(Some(message)) => return Ok(Some(message)),
+            Ok(None) => {}
+            Err(e) => return Err(e),
         }
         if tokio::time::Instant::now() >= grace {
-            return None;
+            return Ok(None);
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -253,8 +247,9 @@ fn drain_matching(
             return Ok(None);
         }
         let full_batch = rows.len() == MESSAGE_BATCH as usize;
-        for (arrival_sequence, message) in rows {
-            *cursor = arrival_sequence;
+        for row in rows {
+            *cursor = row.sequence;
+            let message = row.message;
             if !scopes.contains(&message.channel_h) || own_pubkeys.contains(&message.author_pubkey)
             {
                 continue;
@@ -265,11 +260,8 @@ fn drain_matching(
             if hidden || !author_filter.matches(state, &message) {
                 continue;
             }
-            if let Some(expected) = reply_to {
-                let actual = state.with_store(|store| store.message_reply_target(&message))?;
-                if actual.as_deref() != Some(expected) {
-                    continue;
-                }
+            if reply_to.is_some_and(|expected| row.reply_target.as_deref() != Some(expected)) {
+                continue;
             }
             return Ok(Some(message));
         }

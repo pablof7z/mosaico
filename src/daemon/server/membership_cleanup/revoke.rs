@@ -28,7 +28,7 @@ pub(in crate::daemon::server) fn recorded_channels(
 }
 
 /// Explicit operator destruction has no grace window. Attempt every recorded
-/// channel even when the observed roster is stale, and await Fava's terminal
+/// channel even when the observed roster is stale, and await Nostr runtime's terminal
 /// publication result.
 pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
     state: &Arc<DaemonState>,
@@ -45,7 +45,7 @@ pub(in crate::daemon::server) async fn remove_revoked_session_memberships(
             .flatten();
         let outcome = state
             .provider()
-            .remove_member_published(&channel, pubkey)
+            .remove_member_published(&channel, pubkey, &state.backend_keys())
             .await;
         if let Err(error) =
             outcome.require_published(format!("removing revoked session from {}", public_channel))

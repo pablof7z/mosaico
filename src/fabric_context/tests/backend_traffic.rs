@@ -9,7 +9,7 @@ use super::{
 };
 
 /// The daemon's own management pubkey is excluded from the roster by identity,
-/// even when its kind:0 profile is absent from the current Fava view.
+/// even when its kind:0 profile is absent from the current Nostr runtime view.
 #[test]
 fn backend_pubkey_excluded_from_roster_without_a_current_profile() {
     const MGMT_PK: &str = "backend-mgmt-pubkey";

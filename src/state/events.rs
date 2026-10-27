@@ -1,18 +1,27 @@
-//! Raw event reads projected from Fava's current delivered rows.
+//! Raw event reads projected from current Nostr runtime subscription levels.
 
 use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.observed_views.recent_rows().event(id))
+        Ok(self.view().event(id).cloned())
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
-        self.observed_views.recent_rows().event_by_prefix(prefix)
+        let view = self.view();
+        let mut matches = view
+            .events()
+            .iter()
+            .filter(|event| event.id.starts_with(prefix));
+        let first = matches.next().cloned();
+        if matches.next().is_some() {
+            anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one event");
+        }
+        Ok(first)
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.observed_views.recent_rows().event(id).is_some())
+        Ok(self.view().event(id).is_some())
     }
 
     pub fn chat_for_channel(
@@ -21,10 +30,18 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<RelayEvent>> {
-        Ok(self
-            .observed_views
-            .recent_rows()
-            .events_in_channel(channel_h, since, limit))
+        let mut events = self
+            .view()
+            .events()
+            .iter()
+            .filter(|event| event.channel_h == channel_h && event.created_at >= since)
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id))
+        });
+        events.truncate(limit as usize);
+        Ok(events)
     }
 
     pub fn latest_message_at_by_pubkey(
@@ -32,11 +49,20 @@ impl Store {
         channel_h: &str,
     ) -> Result<std::collections::HashMap<String, u64>> {
         Ok(self
-            .observed_views
-            .recent_rows()
-            .latest_chat_by_author(channel_h, crate::fabric::nip29::wire::KIND_CHAT)
-            .into_iter()
-            .collect())
+            .view()
+            .events()
+            .iter()
+            .filter(|event| {
+                event.channel_h == channel_h
+                    && event.kind == crate::fabric::nip29::wire::KIND_CHAT as u32
+            })
+            .fold(std::collections::HashMap::new(), |mut latest, event| {
+                latest
+                    .entry(event.pubkey.clone())
+                    .and_modify(|current| *current = (*current).max(event.created_at))
+                    .or_insert(event.created_at);
+                latest
+            }))
     }
 
     pub fn prejoin_chat_for_session(
@@ -59,9 +85,10 @@ impl Store {
         };
         let mut events = Vec::new();
         for event in self
-            .observed_views
-            .recent_rows()
-            .events_in_channel(channel_h, 0, u32::MAX)
+            .view()
+            .events()
+            .iter()
+            .filter(|event| event.channel_h == channel_h)
         {
             if event.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 {
                 continue;
@@ -70,7 +97,7 @@ impl Store {
                 .event_arrival_sequence(&event.id)?
                 .is_some_and(|sequence| sequence <= joined_sequence)
             {
-                events.push(event);
+                events.push(event.clone());
             }
         }
         events.sort_by(|left, right| {
@@ -82,10 +109,18 @@ impl Store {
 
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let kind = u16::try_from(kind).context("Nostr kind exceeds u16")?;
-        Ok(self
-            .observed_views
-            .recent_rows()
-            .events_by_kind(kind, limit))
+        let mut events = self
+            .view()
+            .events()
+            .iter()
+            .filter(|event| event.kind == kind as u32)
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| {
+            (&right.created_at, &right.id).cmp(&(&left.created_at, &left.id))
+        });
+        events.truncate(limit as usize);
+        Ok(events)
     }
 }
 

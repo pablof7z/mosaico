@@ -121,8 +121,6 @@ fn channel_create_parses_hierarchical_path() {
         "planning room",
         "--agent",
         "codex@laptop",
-        "--session",
-        "session-1",
     ])
     .expect("channel create parses with positional path");
 
@@ -133,13 +131,11 @@ fn channel_create_parses_hierarchical_path() {
                     path,
                     about,
                     agents,
-                    session,
                 },
         } => {
             assert_eq!(path, "#workspace/epic/planning");
             assert_eq!(about, "planning room");
             assert_eq!(agents, vec!["codex@laptop".to_string()]);
-            assert_eq!(session.as_deref(), Some("session-1"));
         }
         _ => panic!("expected channel create command"),
     }
@@ -162,11 +158,7 @@ fn channel_archive_parses_channel_reference() {
 
     match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
-            action:
-                ChannelAction::Archive {
-                    channel,
-                    session: None,
-                },
+            action: ChannelAction::Archive { channel },
         } => assert_eq!(channel, "#ops"),
         _ => panic!("expected channel archive command"),
     }
@@ -186,12 +178,7 @@ fn channel_edit_about_parses() {
 
     match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
-            action:
-                ChannelAction::Edit {
-                    channel,
-                    about,
-                    session: None,
-                },
+            action: ChannelAction::Edit { channel, about },
         } => {
             assert_eq!(channel, "#workspace/epic/planning");
             assert_eq!(about, "new description");
@@ -224,8 +211,6 @@ fn channel_reply_parses_short_id_and_message_flag() {
         "see [trace]",
         "--attach",
         "trace=./out/trace.bin",
-        "--session",
-        "session-1",
     ])
     .unwrap();
 
@@ -236,7 +221,6 @@ fn channel_reply_parses_short_id_and_message_flag() {
                     id,
                     message_flag,
                     attachments,
-                    session,
                     ..
                 },
         } => {
@@ -244,7 +228,6 @@ fn channel_reply_parses_short_id_and_message_flag() {
             assert_eq!(message_flag.as_deref(), Some("see [trace]"));
             assert_eq!(attachments.len(), 1);
             assert_eq!(attachments[0].label, "trace");
-            assert_eq!(session.as_deref(), Some("session-1"));
         }
         _ => panic!("expected channel reply command"),
     }
@@ -265,25 +248,17 @@ fn channel_reply_rejects_removed_long_message_flag() {
 }
 
 #[test]
-fn channel_react_parses_id_emoji_and_session() {
-    let cli = crate::cli::args::Cli::try_parse_from([
-        "mosaico",
-        "channel",
-        "react",
-        "abc123",
-        "👍",
-        "--session",
-        "session-1",
-    ])
-    .unwrap();
+fn channel_react_parses_id_and_emoji() {
+    let cli =
+        crate::cli::args::Cli::try_parse_from(["mosaico", "channel", "react", "abc123", "👍"])
+            .unwrap();
 
     match cli.cmd.expect("expected channel command") {
         crate::cli::args::Cmd::Channel {
-            action: ChannelAction::React { id, emoji, session },
+            action: ChannelAction::React { id, emoji },
         } => {
             assert_eq!(id, "abc123");
             assert_eq!(emoji, "👍");
-            assert_eq!(session.as_deref(), Some("session-1"));
         }
         _ => panic!("expected channel react command"),
     }

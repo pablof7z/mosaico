@@ -17,8 +17,7 @@ fn native_id_adopts_once_then_attaches_to_the_same_pty() {
         serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [shared_relay_url()],
-            "indexerRelay": shared_relay_url(),
+            "relay": shared_relay_url(),
             "mosaicoPrivateKey": "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422"
         })
         .to_string(),

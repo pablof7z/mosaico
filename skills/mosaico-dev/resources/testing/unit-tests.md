@@ -26,8 +26,8 @@ distinguishing behavior:
 
 ```rust
 #[test]
-fn explicit_session_anchor_overrides_ambient_hint() {
-    // Arrange controlled Mosaico inputs, execute the rule, assert the anchor.
+fn author_filter_narrows_wait_to_matching_messages() {
+    // Arrange controlled channel members, apply filter, assert only matching authors pass.
 }
 ```
 

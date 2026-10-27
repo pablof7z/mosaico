@@ -40,7 +40,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     let version: u32 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 25);
+    assert_eq!(version, 26);
     assert!(table_exists(&conn, "workspace_roots"));
     assert!(table_exists(&conn, "session_locators"));
     assert!(!table_exists(&conn, "session_aliases"));
@@ -48,7 +48,7 @@ fn fresh_file_db_uses_only_canonical_schema() {
     assert!(!table_exists(&conn, "durable_agent_sessions"));
     assert!(table_exists(&conn, "event_arrivals"));
     assert!(table_exists(&conn, "message_attachments"));
-    for fava_owned in [
+    for relay_owned in [
         "relay_channels",
         "relay_channel_members",
         "relay_channel_member_sets",
@@ -61,8 +61,8 @@ fn fresh_file_db_uses_only_canonical_schema() {
         "message_recipients",
     ] {
         assert!(
-            !table_exists(&conn, fava_owned),
-            "{fava_owned} must stay Fava-owned"
+            !table_exists(&conn, relay_owned),
+            "{relay_owned} must stay Nostr runtime-owned"
         );
     }
     assert!(!table_exists(&conn, "project_roots"));

@@ -170,7 +170,18 @@ async fn spawn_agent_inner_full(
     expected_pubkey: Option<&str>,
 ) -> Result<(crate::session_host::transport::SessionEndpoint, String)> {
     let abs_path = workspace_abs_path(state, root, client_cwd)?;
-    let resolved = resolve_agent_source(state, slug, std::path::Path::new(&abs_path), intent)?;
+    let admitted_transport = expected_pubkey
+        .map(|pubkey| state.with_store(|store| store.get_session(pubkey)))
+        .transpose()?
+        .flatten()
+        .map(|session| session.admitted_transport);
+    let resolved = resolve_agent_source(
+        state,
+        slug,
+        std::path::Path::new(&abs_path),
+        intent,
+        admitted_transport.as_deref(),
+    )?;
     let harness = resolved.harness;
     let preset = resolved.preset.clone();
     let reservation = match expected_pubkey {

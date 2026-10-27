@@ -9,7 +9,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use nostr::event::Event;
 use nostr::key::Keys;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, Default)]
 struct CapturedRequest {
@@ -51,7 +51,7 @@ async fn test_server(
                     hash: headers["x-sha-256"].to_str().unwrap().to_string(),
                     body: bytes.clone(),
                 };
-                // A complete BUD-02 descriptor. Fava parses strictly and gates
+                // A complete BUD-02 descriptor. Nostr runtime parses strictly and gates
                 // the returned sha256 against the bytes it actually sent.
                 (
                     StatusCode::CREATED,
@@ -70,31 +70,23 @@ async fn test_server(
 
 /// A host that admits the loopback Blossom server, exactly as a daemon
 /// configured against a local relay does.
-fn local_host(relay: &str) -> Arc<FavaHost> {
-    Arc::new(FavaHost::open(&[relay.to_string()], None, None, &Keys::generate()).unwrap())
-}
-
-// ── mosaico#742: the upload has Fava-signed authorization ─────────────────────
+// ── mosaico#742: the upload has exact-key authorization ─────────────────────
 
 #[tokio::test]
-async fn uploads_with_fava_signed_authorization_and_returns_a_verified_hash() {
+async fn uploads_with_exact_authorization_and_returns_a_verified_hash() {
     let bytes = b"\x89PNG\r\nattachment";
     let (relay, capture, server) = test_server("blob.png").await;
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("diagram.png");
     std::fs::write(&file, bytes).unwrap();
     let keys = Keys::generate();
-    let host = local_host(&relay);
-    host.register_signer(&keys).unwrap();
-
     let uploaded = upload_all(
         &[Attachment {
             label: "1/diagram.png".into(),
             path: file,
         }],
         &[relay],
-        &host,
-        keys.public_key(),
+        &keys,
     )
     .await
     .unwrap();
@@ -115,7 +107,7 @@ async fn uploads_with_fava_signed_authorization_and_returns_a_verified_hash() {
     assert_eq!(request.content_type, "image/png");
     assert_eq!(request.hash, Sha256Hash::of(bytes).to_hex());
 
-    // BUD-11 on the wire, composed and encoded by Fava: `Nostr <base64url,
+    // BUD-11 on the wire, composed and encoded by Nostr runtime: `Nostr <base64url,
     // no padding>` — not the standard-alphabet base64 the hand-rolled client
     // emitted.
     let encoded = request.authorization.strip_prefix("Nostr ").unwrap();
@@ -136,26 +128,21 @@ async fn uploads_with_fava_signed_authorization_and_returns_a_verified_hash() {
     server.abort();
 }
 
-/// The whole reason to adopt the crate rather than keep the local client: the
-/// grant is signed through Fava's registered signer, never with raw `Keys`.
+/// BUD-11 authorization is signed by the exact selected key without relay work.
 #[tokio::test]
-async fn the_authorization_is_signed_through_fava_not_with_raw_keys() {
+async fn authorization_uses_the_exact_selected_key_without_relay_work() {
     let (relay, capture, server) = test_server("blob.bin").await;
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
     let keys = Keys::generate();
-    let host = local_host(&relay);
-    host.register_signer(&keys).unwrap();
-
     upload_all(
         &[Attachment {
             label: "trace.bin".into(),
             path: file,
         }],
         &[relay],
-        &host,
-        keys.public_key(),
+        &keys,
     )
     .await
     .unwrap();
@@ -167,7 +154,7 @@ async fn the_authorization_is_signed_through_fava_not_with_raw_keys() {
             .unwrap();
     assert!(
         event.verify().is_ok(),
-        "signing the grant must go through Fava's signer registry"
+        "the grant must be signed by the exact selected key"
     );
     assert_eq!(event.pubkey, keys.public_key());
     server.abort();
@@ -198,9 +185,7 @@ async fn a_descriptor_whose_hash_does_not_match_the_bytes_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
-    let host = local_host(&base);
     let author = Keys::generate();
-    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -208,8 +193,7 @@ async fn a_descriptor_whose_hash_does_not_match_the_bytes_is_refused() {
             path: file,
         }],
         &[base],
-        &host,
-        author.public_key(),
+        &author,
     )
     .await
     .unwrap_err()
@@ -234,9 +218,7 @@ async fn surfaces_server_error_with_its_reason() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
-    let host = local_host(&base);
     let author = Keys::generate();
-    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -244,13 +226,12 @@ async fn surfaces_server_error_with_its_reason() {
             path: file,
         }],
         &[base],
-        &host,
-        author.public_key(),
+        &author,
     )
     .await
     .unwrap_err()
     .to_string();
-    // Fava separates an authorization refusal from an ordinary server refusal.
+    // Nostr runtime separates an authorization refusal from an ordinary server refusal.
     // 403 is the former; the reason it reports is the BUD-01 `X-Reason` header
     // rather than an arbitrary body, which this fixture does not send.
     assert!(error.contains("403"), "{error}");
@@ -258,7 +239,7 @@ async fn surfaces_server_error_with_its_reason() {
     server.abort();
 }
 
-/// A descriptor missing a mandatory BUD-02 field is refused by Fava's strict
+/// A descriptor missing a mandatory BUD-02 field is refused by Nostr runtime's strict
 /// parser. The hand-rolled client accepted any JSON carrying a `url`.
 #[tokio::test]
 async fn rejects_an_incomplete_success_descriptor() {
@@ -278,9 +259,7 @@ async fn rejects_an_incomplete_success_descriptor() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("trace.bin");
     std::fs::write(&file, b"trace").unwrap();
-    let host = local_host(&base);
     let author = Keys::generate();
-    host.register_signer(&author).unwrap();
 
     let error = upload_all(
         &[Attachment {
@@ -288,8 +267,7 @@ async fn rejects_an_incomplete_success_descriptor() {
             path: file,
         }],
         &[base],
-        &host,
-        author.public_key(),
+        &author,
     )
     .await
     .unwrap_err()

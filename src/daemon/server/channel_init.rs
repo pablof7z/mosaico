@@ -33,19 +33,28 @@ pub(in crate::daemon::server) async fn rpc_channel_init(
     let management = state.backend_keys();
     let management_pubkey = management.public_key().to_hex();
     let provider = state.provider();
-    let readiness = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-        channel: &channel,
-        expect_member: &management_pubkey,
-        parent_hint: None,
-        name: None,
-    });
+    let readiness = provider.ensure_channel_ready(
+        crate::fabric::nip29::readiness::ChannelCtx {
+            channel: &channel,
+            expect_member: &management_pubkey,
+            parent_hint: None,
+            name: None,
+        },
+        &management,
+    );
     let ready = tokio::time::timeout(READY_TIMEOUT, readiness)
         .await
         .context("root channel readiness timed out")?;
     ready.require_ready(format!("workspace root #{channel} was not provisioned"))?;
 
     ensure_subscription(state, &channel).await?;
-    publish_backend_profile(state).await?;
+    tokio::time::timeout(
+        READY_TIMEOUT,
+        state.nip29_view().wait_for_group_metadata(&channel),
+    )
+    .await
+    .context("root channel observation timed out")??;
+    state.schedule_backend_profile_refresh();
     Ok(serde_json::json!({
         "channel": crate::channel_ref::format_channel_ref(&channel, &[]),
         "path": canonical,

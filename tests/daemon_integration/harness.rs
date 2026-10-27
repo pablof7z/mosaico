@@ -26,6 +26,7 @@ pub(crate) use observed::{
     observed_channel_h, observed_channel_has_role, observed_channel_members, observed_chat,
     only_session_route, pubkey_for_harness_session, read_channel_messages,
     session_for_harness_session, session_identity_pubkey, session_routes,
+    wait_for_who_session_projection,
 };
 #[path = "harness/pty_guard.rs"]
 mod pty_guard;
@@ -133,7 +134,7 @@ impl Home {
         let body = serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [shared_relay_url()],
+            "relay": shared_relay_url(),
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
         std::env::set_var("MOSAICO_CONFIG", &cfg);
@@ -163,8 +164,7 @@ impl Home {
         let body = serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [relay_url],
-            "indexerRelay": relay_url,
+            "relay": relay_url,
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();
         home
@@ -179,8 +179,7 @@ impl Home {
         let body = serde_json::json!({
             "whitelistedPubkeys": [],
             "backendName": "test-host",
-            "relays": [shared_nip29_relay_url()],
-            "indexerRelay": shared_nip29_relay_url(),
+            "relay": shared_nip29_relay_url(),
             "mosaicoPrivateKey": "b53809614e9c41b923dd5546e438e48e9bcbee04b9c7c50bae0b085954e03422",
         });
         std::fs::write(&cfg, serde_json::to_string(&body).unwrap()).unwrap();

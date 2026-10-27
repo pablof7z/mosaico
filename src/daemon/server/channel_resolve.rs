@@ -73,18 +73,21 @@ pub(in crate::daemon::server) async fn resolve_channel(
 
     let gate = state
         .provider()
-        .ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-            channel: &child_h,
-            expect_member: &member,
-            parent_hint: Some(parent),
-            // Operator-chosen name rides on the create publish; the relay's
-            // kind:39000 echo reaches Fava's group observation.
-            name: Some(name),
-        })
+        .ensure_channel_ready(
+            crate::fabric::nip29::readiness::ChannelCtx {
+                channel: &child_h,
+                expect_member: &member,
+                parent_hint: Some(parent),
+                // Operator-chosen name rides on the create publish; the relay's
+                // kind:39000 echo reaches Nostr runtime's group observation.
+                name: Some(name),
+            },
+            &state.backend_keys(),
+        )
         .await;
-    // Fail loud when Fava could not publish the new channel. Returning `child_h`
-    // would point callers at a channel absent from Fava's current group view —
-    // exactly the phantom state the Fava-authority rule forbids.
+    // Fail loud when Nostr runtime could not publish the new channel. Returning `child_h`
+    // would point callers at a channel absent from Nostr runtime's current group view —
+    // exactly the phantom state the Nostr runtime-authority rule forbids.
     gate.require_ready(format!("relay did not provision channel {name:?}"))?;
     if let Err(e) = ensure_subscription(state, &child_h).await {
         tracing::warn!(

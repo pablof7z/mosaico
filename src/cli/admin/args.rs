@@ -60,7 +60,7 @@ pub(in crate::cli) enum ChannelAction {
     Add(AddArgs),
     /// Read channel chat history.
     Read {
-        /// Read one exact message by event id; returns the full untruncated body.
+        /// Read one exact message by id; returns the full untruncated body.
         #[arg(long = "id")]
         id: Option<String>,
         /// Only show messages after this time (unix timestamp or duration like "1h").
@@ -85,12 +85,8 @@ pub(in crate::cli) enum ChannelAction {
         /// already be joined when given explicitly.
         #[arg(long, value_parser = parse_channel_path)]
         channel: Option<String>,
-        /// Public reader identity (npub, hex pubkey, or handle) instead of resolving from the current
-        /// PTY/harness process or root scan.
-        #[arg(long)]
-        session: Option<String>,
     },
-    /// Search messages in the daemon's current Fava view.
+    /// Search messages in the daemon's current Nostr runtime view.
     Search(ChannelSearchArgs),
     /// Send a chat line to a joined channel. Reads body from arg, --message, or stdin.
     Send {
@@ -113,7 +109,7 @@ pub(in crate::cli) enum ChannelAction {
         /// not repeat the agent label at the start of the message.
         #[arg(long = "tag", value_name = "AGENT")]
         tags: Vec<String>,
-        /// Publish intentional mention-like or `Name:` text without coaching.
+        /// Publish intentional mention-like or `Name:` text without notices.
         #[arg(long)]
         force: bool,
         /// Full channel path (e.g. #workspace/child). Quote in the shell:
@@ -123,17 +119,13 @@ pub(in crate::cli) enum ChannelAction {
         /// already be joined when given explicitly.
         #[arg(long, value_parser = parse_channel_path)]
         channel: Option<String>,
-        /// Public sender identity (npub, hex pubkey, or handle) instead of resolving from the current
-        /// PTY/harness process or root scan.
-        #[arg(long)]
-        session: Option<String>,
         /// Block for up to SECONDS until a correlated reply arrives.
         #[arg(long, value_name = "SECONDS", value_parser = crate::cli::messaging::parse_wait_seconds)]
         wait: Option<u64>,
     },
     /// Reply to a specific channel message by short id.
     Reply {
-        /// Short or full message/event id from a mention envelope.
+        /// 6-character message id.
         id: String,
         /// Reply body. Positional or --message text expands literal `\n`;
         /// piped stdin is used verbatim.
@@ -149,29 +141,21 @@ pub(in crate::cli) enum ChannelAction {
             value_parser = crate::attachment::parse_spec
         )]
         attachments: Vec<crate::attachment::Attachment>,
-        /// Public sender identity (npub, hex pubkey, or handle) instead of resolving from the current
-        /// PTY/harness process or root scan.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// React to a specific channel message with an emoji (a non-disruptive ACK).
     /// Unlike a chat reply, a reaction NEVER interrupts the target's turn — it
     /// surfaces as compact awareness at their next turn start. Use it for a bare
     /// acknowledgement ("got it", 👍, ✅) instead of sending a chat line.
     React {
-        /// Short or full message/event id from a mention envelope.
+        /// 6-character message id.
         id: String,
         /// The reaction emoji (e.g. 👍 ✅ 👀 🎉) or `+`/`-`.
         #[arg(value_name = "EMOJI")]
         emoji: String,
-        /// Public reactor identity (npub, hex pubkey, or handle) instead of resolving from the current
-        /// PTY/harness process or root scan.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// Create one channel at an explicit path. When run as an agent, creation
     /// additively joins the new channel without leaving any existing channels.
-    /// If `--agent slug@backend-label` targets are named, one kind:9
+    /// If `--agent slug@backend` targets are named, one kind:9
     /// orchestration event asks those backends to add their agents.
     Create {
         /// Full absolute path of the channel to create, e.g.
@@ -183,15 +167,9 @@ pub(in crate::cli) enum ChannelAction {
         /// Short, stable channel description (max 80 chars), not status text.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
-        /// Optional, repeatable `slug@backend-label`, where `backend-label` is
-        /// the target backend's config.json `backendName`. Omit to create an
-        /// empty channel.
+        /// Optional, repeatable `slug@backend`. Omit to create an empty channel.
         #[arg(long = "agent", value_name = "SLUG@BACKEND")]
         agents: Vec<String>,
-        /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
-        /// the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// Edit metadata on an existing subgroup task channel.
     Edit {
@@ -201,9 +179,6 @@ pub(in crate::cli) enum ChannelAction {
         /// New durable channel description.
         #[arg(long, value_parser = crate::channel_about::parse_channel_about)]
         about: String,
-        /// Public session identity (npub, hex pubkey, or handle) to act as instead of resolving the caller from the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// List the channel forest. From an agent session, your own and joined
     /// workspaces expand while other known workspaces stay compact. From a
@@ -239,29 +214,18 @@ pub(in crate::cli) enum ChannelAction {
         /// Full channel path (e.g. #workspace/child). Quote in the shell.
         #[arg(value_parser = parse_channel_path)]
         channel: String,
-        /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
-        /// the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// Stop listening to a passively joined channel.
     Leave {
         /// Full channel path (e.g. #workspace/child). Quote in the shell.
         #[arg(value_parser = parse_channel_path)]
         channel: String,
-        /// Public session identity (npub, hex pubkey, or handle) to mutate instead of resolving the caller from
-        /// the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
     },
     /// Mark a channel archived and remove all non-admin members.
     Archive {
         /// Full channel path (e.g. #workspace/child). Quote in the shell.
         #[arg(value_parser = parse_channel_path)]
         channel: String,
-        /// Public session identity (npub, hex pubkey, or handle) to act as instead of resolving the caller from the current PTY/harness process.
-        #[arg(long)]
-        session: Option<String>,
     },
 }
 

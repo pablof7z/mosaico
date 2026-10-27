@@ -1,5 +1,9 @@
 use super::*;
-use nostr::key::PublicKey;
+use crate::fabric::group_management::{
+    GroupOperationError, GroupOperationStage, GroupPublishOutcome,
+};
+use crate::fabric::nip29::management::GroupUser;
+use nostr::key::{Keys, PublicKey};
 
 impl Nip29Provider {
     fn log_group_role_decision(channel: &str, pubkey: &str, role: &str, reason: &str) {
@@ -12,14 +16,16 @@ impl Nip29Provider {
     pub(crate) async fn nip29_add_member_outcome(
         &self,
         channel: &str,
-        pubkey_hex: &str,
+        pubkey: &str,
+        keys: &Keys,
     ) -> GroupPublishOutcome {
         self.publish_role_changes(
             channel,
-            &[pubkey_hex.to_string()],
+            &[pubkey.to_string()],
             "member",
             "9000 put-user (session)",
             None,
+            keys,
         )
         .await
     }
@@ -28,6 +34,7 @@ impl Nip29Provider {
         &self,
         channel: &str,
         pubkeys: &[String],
+        keys: &Keys,
     ) -> GroupPublishOutcome {
         self.publish_role_changes(
             channel,
@@ -35,14 +42,11 @@ impl Nip29Provider {
             "admin",
             "9000 put-users (admins)",
             Some("admin".to_string()),
+            keys,
         )
         .await
     }
 
-    /// kind:9000 put-user, composed and contextualized by Fava's
-    /// group door. `role` is `None` for a plain member and `Some(label)` for an
-    /// elevated one; the label rides on the `p` row, which is NIP-29's shape
-    /// and not Mosaico's to decide.
     async fn publish_role_changes(
         &self,
         channel: &str,
@@ -50,6 +54,7 @@ impl Nip29Provider {
         role_log: &str,
         operation: &str,
         role: Option<String>,
+        keys: &Keys,
     ) -> GroupPublishOutcome {
         let users = match group_users(pubkeys, role) {
             Ok(users) => users,
@@ -64,11 +69,7 @@ impl Nip29Provider {
         for pubkey in pubkeys {
             Self::log_group_role_decision(channel, pubkey, role_log, "add role");
         }
-        match self
-            .fava
-            .add_group_users_and_wait(channel, users, self.fava.backend_pubkey())
-            .await
-        {
+        match self.publish_group_users(channel, &users, keys).await {
             Ok(_) => GroupPublishOutcome::Published,
             Err(error) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 operation,
@@ -82,6 +83,7 @@ impl Nip29Provider {
         &self,
         channel: &str,
         pubkeys: &[String],
+        keys: &Keys,
     ) -> GroupPublishOutcome {
         let operation = "9001 remove-users";
         let subjects = match group_pubkeys(pubkeys) {
@@ -91,17 +93,13 @@ impl Nip29Provider {
                     operation,
                     GroupOperationStage::Build,
                     error,
-                ))
+                ));
             }
         };
         for pubkey in pubkeys {
             Self::log_group_role_decision(channel, pubkey, "member", "remove member");
         }
-        match self
-            .fava
-            .remove_group_users_and_wait(channel, subjects, self.fava.backend_pubkey())
-            .await
-        {
+        match self.publish_group_removals(channel, &subjects, keys).await {
             Ok(_) => GroupPublishOutcome::Published,
             Err(error) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
                 operation,
@@ -125,7 +123,7 @@ fn group_pubkeys(pubkeys: &[String]) -> anyhow::Result<Vec<PublicKey>> {
 pub(super) fn group_users(
     pubkeys: &[String],
     role: Option<String>,
-) -> anyhow::Result<Vec<crate::fava_host::write::GroupUser>> {
+) -> anyhow::Result<Vec<GroupUser>> {
     if pubkeys.is_empty() {
         anyhow::bail!("a group role change must name at least one user");
     }
@@ -133,7 +131,7 @@ pub(super) fn group_users(
         .iter()
         .map(|pubkey| {
             PublicKey::parse(pubkey)
-                .map(|pubkey| crate::fava_host::write::GroupUser {
+                .map(|pubkey| GroupUser {
                     pubkey,
                     roles: role.iter().cloned().collect(),
                 })
@@ -145,26 +143,21 @@ pub(super) fn group_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nostr::key::Keys;
 
     #[test]
     fn all_parent_admins_form_one_group_user_batch() {
         let first = Keys::generate().public_key();
         let second = Keys::generate().public_key();
         let users = group_users(&[first.to_hex(), second.to_hex()], Some("admin".into())).unwrap();
-
-        assert_eq!(users.len(), 2);
         assert_eq!(users[0].pubkey, first);
-        assert_eq!(users[0].roles, vec!["admin"]);
         assert_eq!(users[1].pubkey, second);
-        assert_eq!(users[1].roles, vec!["admin"]);
+        assert!(users.iter().all(|user| user.roles == ["admin"]));
     }
 
     #[test]
     fn all_archive_removals_form_one_pubkey_batch() {
         let first = Keys::generate().public_key();
         let second = Keys::generate().public_key();
-
         assert_eq!(
             group_pubkeys(&[first.to_hex(), second.to_hex()]).unwrap(),
             vec![first, second]

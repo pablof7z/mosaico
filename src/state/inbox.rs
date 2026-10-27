@@ -14,7 +14,7 @@
 //! hook path can surface them. Direct delivery belongs to the exact recipient
 //! identity and is independent of that identity's ambient channel membership.
 //! Runtime ids are locators and never enter this ledger; orchestration and
-//! management replay guards live in `event_claims`.
+//! Work-start replay guards live in `event_claims`.
 use super::*;
 
 const COLS: &str = "inbox.event_id, inbox.target_pubkey, inbox.state, inbox.from_pubkey, \
@@ -41,7 +41,7 @@ fn row_to_inbox(row: &rusqlite::Row) -> rusqlite::Result<InboxRow> {
 impl Store {
     /// Atomically park one observed direct mention. The target pubkey has
     /// already been classified as daemon-owned by the caller; recipient tags
-    /// remain owned by the active Fava message projection.
+    /// remain owned by the active Nostr runtime message projection.
     pub fn park_direct_mention(
         &self,
         event_id: &str,

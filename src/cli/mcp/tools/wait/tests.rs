@@ -13,11 +13,8 @@ fn timeouts_must_be_positive_integers() {
 #[test]
 fn send_timeout_is_optional_but_validated_when_present() {
     assert_eq!(send_timeout(&json!({})).unwrap(), None);
-    assert_eq!(
-        send_timeout(&json!({ "wait_seconds": 9 })).unwrap(),
-        Some(9)
-    );
-    assert!(send_timeout(&json!({ "wait_seconds": 0 })).is_err());
+    assert_eq!(send_timeout(&json!({ "seconds": 9 })).unwrap(), Some(9));
+    assert!(send_timeout(&json!({ "seconds": 0 })).is_err());
 }
 
 #[test]
@@ -30,36 +27,23 @@ fn string_arrays_default_to_empty() {
 }
 
 #[test]
-fn ambient_params_preserve_filters_and_session() {
+fn ambient_params_preserve_filters() {
     let params = ambient_params(&json!({
-        "timeout_seconds": 60,
+        "seconds": 60,
         "channels": ["#mosaico/work"],
-        "from": "agent",
-        "session": "actor",
+        "from": ["agent"],
     }))
     .unwrap();
     assert_eq!(params["timeout_secs"], 60);
     assert_eq!(params["channels"], json!(["#mosaico/work"]));
-    assert_eq!(params["from"], "agent");
-    assert_eq!(params["session"], "actor");
+    assert_eq!(params["from_labels"], json!(["agent"]));
 }
 
 #[test]
-fn reply_params_correlate_to_send_and_mentioned_recipients() {
-    let send = json!({
-        "event_id": "sent-event",
-        "mentioned_pubkeys": ["pubkey"],
-        "mentioned_labels": ["agent"],
-    });
-    let params = reply_params(
-        &send,
-        send["event_id"].as_str().unwrap(),
-        120,
-        &json!({ "session": "actor" }),
-    );
+fn reply_params_contain_reply_to_and_timeout() {
+    let params = reply_params("sent-event", 120);
     assert_eq!(params["timeout_secs"], 120);
     assert_eq!(params["reply_to"], "sent-event");
-    assert_eq!(params["from_pubkeys"], json!(["pubkey"]));
-    assert_eq!(params["from_labels"], json!(["agent"]));
-    assert_eq!(params["session"], "actor");
+    assert!(params.get("from_pubkeys").is_none());
+    assert!(params.get("from_labels").is_none());
 }

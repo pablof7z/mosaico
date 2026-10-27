@@ -80,8 +80,8 @@ Each profile receives:
 ```
 
 The writer resets profile-local Mosaico state by default, including `state.db*`,
-the daemon socket/logs, sessions, and `fava.redb`. It preserves provider home and
-build caches.
+the daemon socket/logs, and sessions. It preserves provider home, build caches,
+and files outside the current architecture's ownership.
 
 The device config uses the relay owner as `userNsec`, includes every generated
 human pubkey in `whitelistedPubkeys`, and uses a distinct per-profile backend
@@ -89,7 +89,7 @@ key as `mosaicoPrivateKey`. Generated per-session agent files are keyless.
 Inspect the public shape:
 
 ```bash
-jq '{relays,indexerRelay,backendName,whitelistedPubkeys}' \
+jq '{relay,backendName,whitelistedPubkeys}' \
   .container-state/claude-acp/mosaico/config.json
 jq . .container-state/claude-acp/mosaico/presets.json
 jq '{slug,harness,preset,profile,perSessionKey,has_secret:has("secret_key"),has_public:has("public_key")}' \

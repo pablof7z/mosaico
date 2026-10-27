@@ -1,5 +1,14 @@
 use super::*;
 
+/// A chat message with its arrival sequence and the reply target from the
+/// same view level, so a reader never needs a second lookup that could see a
+/// newer level.
+pub(crate) struct ArrivedMessage {
+    pub(crate) sequence: u64,
+    pub(crate) message: Message,
+    pub(crate) reply_target: Option<String>,
+}
+
 impl Store {
     pub(crate) fn latest_message_arrival_sequence(&self) -> Result<u64> {
         self.latest_event_arrival_sequence()
@@ -13,26 +22,32 @@ impl Store {
         &self,
         after_sequence: u64,
         limit: u32,
-    ) -> Result<Vec<(u64, Message)>> {
+    ) -> Result<Vec<ArrivedMessage>> {
+        let view = self.view();
+        let limit = limit as usize;
         let mut rows = Vec::new();
-        for row in self.message_projections() {
-            let Some(sequence) = self.event_arrival_sequence(&row.message.message_id)? else {
-                continue;
-            };
-            rows.push((sequence, row.message));
+        if limit > 0 {
+            self.visit_event_arrivals_after(after_sequence, |event_id, sequence| {
+                // Arrivals that are not chat messages in this level are skipped
+                // here; readers advance only over returned rows. Chat is carried
+                // by the single broad `#h` demand, so while it is replaced all
+                // chat is absent together, and no later chat can carry a
+                // cursor past one that is briefly missing.
+                if let Some(row) = view.message(event_id) {
+                    rows.push((sequence, row));
+                }
+                rows.len() < limit
+            })?;
         }
-        rows.retain(|(sequence, _)| *sequence > after_sequence);
-        rows.sort_by_key(|(cursor, _)| *cursor);
-        rows.truncate(limit as usize);
         rows.into_iter()
-            .map(|(cursor, message)| Ok((cursor, self.with_local_attachment(message)?)))
+            .map(|(sequence, row)| {
+                Ok(ArrivedMessage {
+                    sequence,
+                    message: self.with_local_attachment(row.message.clone())?,
+                    reply_target: row.reply_target.clone(),
+                })
+            })
             .collect()
-    }
-
-    pub(crate) fn message_reply_target(&self, message: &Message) -> Result<Option<String>> {
-        Ok(self
-            .message_projection_by_id(&message.message_id)
-            .and_then(|row| row.reply_target))
     }
 }
 

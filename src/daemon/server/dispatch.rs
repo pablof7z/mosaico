@@ -8,19 +8,21 @@ pub(super) async fn dispatch(state: &Arc<DaemonState>, req: &Request) -> Respons
     let result = match req.method.as_str() {
         "ping" => Ok(serde_json::json!({"pong": true})),
         #[cfg(feature = "stress-harness")]
-        "stress_fava_snapshot" => Ok(state.stress_fava_snapshot()),
+        "stress_nostr_snapshot" => Ok(state.stress_nostr_snapshot()),
         "shutdown" => {
             state.connections.shutdown.notify_waiters();
             Ok(serde_json::json!({"stopped": true}))
         }
         "who" => rpc_who(state, &req.params),
         "my_session" => rpc_my_session(state, &req.params),
+        "my_session_overview" => my_session_overview::rpc(state, &req.params).await,
         "my_session_status" => rpc_my_session_status(state, &req.params).await,
         "mcp_actor_resolve" => mcp_actor::rpc_resolve(state, &req.params).await,
         "session_start" => rpc_session_start(state, &req.params, None).await,
         "session_end" => rpc_session_end(state, &req.params).await,
         "session_kill" => rpc_session_kill(state, &req.params).await,
         "session_pty_wrap" => rpc_session_pty_wrap(state, &req.params).await,
+        "session_delivery_open" => session_delivery::rpc_open(state, &req.params),
         "session_delivery_wait" => session_delivery::rpc_wait(state, &req.params).await,
         "session_delivery_ack" => session_delivery::rpc_ack(state, &req.params).await,
         "pi_tool_call" => pi_tools::rpc_call(state, &req.params).await,

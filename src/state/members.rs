@@ -1,66 +1,53 @@
-//! NIP-29 admin/member reads through the daemon's live Fava group view.
+//! NIP-29 admin/member reads through the daemon's live Nostr runtime group view.
 //!
 //! `role='admin'` is the only management authority over a channel. No roster is
 //! persisted or optimistically changed in Mosaico's SQLite store.
 
 use super::*;
+use std::collections::BTreeSet;
 
 impl Store {
     /// Can this pubkey manage the channel? (role='admin')
     pub fn is_channel_admin(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.is_channel_admin(channel_h, pubkey)))
+        Ok(self.view().groups().is_channel_admin(channel_h, pubkey))
     }
 
     /// Is this pubkey a member of the channel? (admin OR member)
     pub fn is_channel_member(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.is_channel_member(channel_h, pubkey)))
+        Ok(self.view().groups().is_channel_member(channel_h, pubkey))
     }
 
-    /// Has Fava supplied usable aggregate group state for this channel?
+    /// Has Nostr runtime supplied usable aggregate group state for this channel?
     pub fn group_state_available(&self, channel_h: &str) -> Result<bool> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.group_state_available(channel_h)))
+        Ok(self.view().groups().group_state_available(channel_h))
     }
 
     /// All members (admins and members) of a channel.
     pub fn list_channel_members(&self, channel_h: &str) -> Result<Vec<ChannelMember>> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.list_channel_members(channel_h)))
+        Ok(self.view().groups().list_channel_members(channel_h))
     }
 
-    /// Channels this pubkey belongs to in ANY role (admin or member). Used by the
-    /// subscription planner to cover every channel a local/ordinal pubkey is in.
-    pub fn list_channels_where_member(&self, pubkey: &str) -> Result<Vec<String>> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.list_channels_where_member(pubkey)))
+    /// Channels any of `pubkeys` belongs to in any role, in one pass over the
+    /// groups. Used by the subscription planner for every local identity.
+    pub fn list_channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
+        self.view().groups().channels_involving(pubkeys)
     }
 
     /// Channels this pubkey can manage (every channel where it is an admin).
     pub fn list_channels_where_admin(&self, pubkey: &str) -> Result<Vec<String>> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.list_channels_where_admin(pubkey)))
+        Ok(self.view().groups().list_channels_where_admin(pubkey))
     }
 
     /// Number of members (admins + members) in a channel.
     pub fn count_channel_members(&self, channel_h: &str) -> Result<u64> {
-        Ok(self
-            .observed_views
-            .with_groups(|groups| groups.count_channel_members(channel_h)))
+        Ok(self.view().groups().count_channel_members(channel_h))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::observed_views::{TestGroup, TestGroupDelivery};
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     fn two_channel_store() -> Store {
         let store = Store::open_memory().unwrap();
@@ -111,9 +98,14 @@ mod tests {
     fn channel_membership_queries_cover_both_roles() {
         let store = two_channel_store();
         // B is an admin of root/task and a plain member of root.
-        let mut where_member = store.list_channels_where_member("B").unwrap();
-        where_member.sort();
-        assert_eq!(where_member, vec!["root", "root/task"]);
+        assert_eq!(
+            store.list_channels_involving(&BTreeSet::from(["B".to_string()])),
+            BTreeSet::from(["root".to_string(), "root/task".to_string()])
+        );
+        assert_eq!(
+            store.list_channels_involving(&BTreeSet::from(["C".to_string(), "X".to_string()])),
+            BTreeSet::from(["root/task".to_string()])
+        );
         let mut where_admin = store.list_channels_where_admin("B").unwrap();
         where_admin.sort();
         assert_eq!(where_admin, vec!["root/task"]);

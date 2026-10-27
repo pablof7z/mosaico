@@ -60,12 +60,15 @@ mod tests {
 
     #[test]
     fn reads_both_lists_and_defaults_them_empty() {
-        let trust = from_json_str(r#"{"whitelistedPubkeys":["aa"],"relays":[]}"#).unwrap();
+        let trust = from_json_str(r#"{"whitelistedPubkeys":["aa"],"relay":"wss://relay.example"}"#)
+            .unwrap();
         assert_eq!(trust.operators, vec!["aa".to_string()]);
         assert!(trust.redirect_origins.is_empty());
 
-        let trust =
-            from_json_str(r#"{"mcpRedirectOrigins":["https://claude.ai"],"relays":[]}"#).unwrap();
+        let trust = from_json_str(
+            r#"{"mcpRedirectOrigins":["https://claude.ai"],"relay":"wss://relay.example"}"#,
+        )
+        .unwrap();
         assert!(trust.operators.is_empty());
         assert_eq!(
             trust.redirect_origins,

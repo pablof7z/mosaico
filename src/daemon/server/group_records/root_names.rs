@@ -1,7 +1,7 @@
 //! Repairing a workspace root whose relay-signed name drifted off its group id.
 //!
-//! Driven by the retained group-records observation and by nothing else. The
-//! roots this backend may rename are selected directly from the current Fava
+//! Driven by the stable group-records demand and by nothing else. The
+//! roots this backend may rename are selected directly from the current product
 //! snapshots whose relay-signed admin list names the management key. There is
 //! no second group-record projection to query afterwards.
 //!
@@ -21,9 +21,9 @@ use super::DaemonState;
 /// carries the corrected name and stops matching — and a rejected one must not
 /// be re-published on every subsequent delivery.
 ///
-/// The publishes are spawned rather than awaited: this runs on the retained
-/// observation drain, and a slow relay write must not hold up the next snapshot.
-/// This function only borrows Fava's current delivery.
+/// The publishes are spawned rather than awaited: this runs on the complete-view
+/// drain, and a slow relay write must not hold up the next snapshot.
+/// This function only borrows the current decoded delivery.
 pub(super) fn repair_delivered(
     state: &Arc<DaemonState>,
     snapshots: &[crate::group_snapshot::GroupSnapshot],
@@ -49,8 +49,13 @@ pub(super) fn repair_delivered(
     attempted.extend(roots.iter().cloned());
     let state = state.clone();
     tokio::spawn(async move {
+        let keys = state.backend_keys();
         for root in roots {
-            if !state.provider().nip29_set_group_name(&root, &root).await {
+            if !state
+                .provider()
+                .nip29_set_group_name(&root, &root, &keys)
+                .await
+            {
                 tracing::warn!(
                     channel = %root,
                     "workspace root name repair was rejected"

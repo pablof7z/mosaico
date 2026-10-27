@@ -45,7 +45,7 @@ jobs:
       - name: LOC ratchet (just loc-check)
         run: just loc-check
 
-      - name: Fava-only vocabulary (just vocabulary-check)
+      - name: Obsolete Nostr architecture vocabulary (just vocabulary-check)
         run: just vocabulary-check
 
       - name: Development skill scripts (just test-dev-scripts)
@@ -63,8 +63,8 @@ jobs:
       - name: Unit tests (just test-unit)
         run: just test-unit
 
-      - name: Standalone-daemon Fava CPU bound (just stress-fava-check)
-        run: just stress-fava-check
+      - name: Standalone-daemon Nostr runtime CPU bound (just stress-nostr-check)
+        run: just stress-nostr-check
 
       - name: Hermetic integration tests (just test-hermetic-integration)
         run: just test-hermetic-integration

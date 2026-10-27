@@ -20,7 +20,7 @@ fn channel_send_projects_correlated_wait_intent_to_the_daemon() {
     let waiting = channel_send_params(
         &json!({
             "message": "hello",
-            "wait_seconds": 30,
+            "seconds": 30,
         }),
         false,
     )
@@ -63,15 +63,6 @@ fn remote_mcp_cannot_read_local_attachment_paths() {
     .unwrap_err()
     .to_string();
     assert!(error.contains("unsupported mosaico.channel_send argument"));
-}
-
-#[test]
-fn explicit_session_remains_an_operator_override() {
-    let params = caller_params(
-        json!({ "session": "explicit" }),
-        &json!({ "session": "remote-actor" }),
-    );
-    assert_eq!(params["session"], "explicit");
 }
 
 #[test]

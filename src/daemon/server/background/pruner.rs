@@ -3,7 +3,6 @@
 use super::super::*;
 
 /// Every 30s, prune completed local ledgers and drive offline-mention retries.
-/// Status disappearance arrives directly through Fava Row transitions.
 pub fn spawn_pruner(state: Arc<DaemonState>) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(30));

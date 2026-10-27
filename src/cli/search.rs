@@ -1,8 +1,6 @@
 use anyhow::Result;
 use clap::Args;
-use serde::Deserialize;
 use serde_json::{json, Value};
-use std::fmt::Write as _;
 
 #[derive(Args)]
 pub(in crate::cli) struct ChannelSearchArgs {
@@ -113,71 +111,12 @@ pub(in crate::cli) fn parse_search_time(raw: &str) -> Result<u64, String> {
 }
 
 pub(in crate::cli) fn render_response(response: &Value) -> Result<String> {
-    render_response_at(response, crate::util::now_secs())
+    crate::channel_render::format_search_response(response)
 }
 
+#[cfg(test)]
 fn render_response_at(response: &Value, now: u64) -> Result<String> {
-    let response: SearchResponse = serde_json::from_value(response.clone())?;
-    let mut out = String::from("<mosaico>");
-    for channel in response.channels {
-        let _ = write!(
-            out,
-            "\n  <channel ref=\"{}\">",
-            crate::agent_xml::attr(&channel.channel_ref)
-        );
-        for message in channel.messages {
-            crate::agent_xml::write_message(
-                &mut out,
-                4,
-                &crate::agent_xml::MessageElement {
-                    event_id: &message.event_id,
-                    from: &message.from,
-                    recipients: &message.recipients,
-                    attachment_dir: &message.attachment_dir,
-                    body: &message.body,
-                    created_at: message.created_at,
-                    now,
-                },
-            );
-        }
-        out.push_str("\n  </channel>");
-    }
-    if let Some(cursor) = response.next_cursor {
-        let _ = write!(
-            out,
-            "\n  <next cursor=\"{}\" />",
-            crate::agent_xml::attr(&cursor)
-        );
-    }
-    out.push_str("\n</mosaico>");
-    Ok(out)
-}
-
-#[derive(Deserialize)]
-struct SearchResponse {
-    #[serde(default)]
-    channels: Vec<SearchChannel>,
-    next_cursor: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct SearchChannel {
-    #[serde(rename = "ref")]
-    channel_ref: String,
-    #[serde(default)]
-    messages: Vec<SearchMessage>,
-}
-
-#[derive(Deserialize)]
-struct SearchMessage {
-    event_id: String,
-    from: String,
-    #[serde(default)]
-    recipients: Vec<String>,
-    body: String,
-    #[serde(default)]
-    attachment_dir: String,
-    created_at: u64,
+    crate::channel_render::format_search_response_at(response, now)
 }
 
 #[cfg(test)]
@@ -217,7 +156,7 @@ mod tests {
             "channels": [{
                 "ref": "#fava/research&design",
                 "messages": [{
-                    "event_id": "4e91c0b7f2de",
+                    "id": "4e91c0b7f2de",
                     "from": "Pablo",
                     "recipients": ["reviewer"],
                     "body": "landed <the> commit",
@@ -227,7 +166,7 @@ mod tests {
             }, {
                 "ref": "#fava/archive",
                 "messages": [{
-                    "event_id": "7bc421123456",
+                    "id": "7bc421123456",
                     "from": "reviewer",
                     "recipients": [],
                     "body": "approved",

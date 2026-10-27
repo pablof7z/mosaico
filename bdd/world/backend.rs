@@ -239,8 +239,7 @@ impl Backend {
         let operator_pubkey = Keys::parse(&self.operator_secret)?.public_key().to_hex();
         let config = serde_json::json!({
             "whitelistedPubkeys": [operator_pubkey],
-            "relays": [relay],
-            "indexerRelay": relay,
+            "relay": relay,
             "backendName": name,
             "userNsec": self.operator_secret,
             "mosaicoPrivateKey": self.backend_secret,

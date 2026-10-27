@@ -1,4 +1,4 @@
-//! The daemon process: sole owner of state.db, Fava acquisition, and provider I/O.
+//! The daemon process: sole owner of state.db and Nostr provider I/O.
 use super::client::StartupLock;
 use super::protocol::{
     protocol_version, Hello, PleaseExit, Request, Response, Welcome, ERR_PROTOCOL_SKEW,
@@ -14,8 +14,8 @@ use crate::session::Harness;
 use crate::state::Store;
 use crate::util::{now_secs, pubkey_short};
 use anyhow::{Context, Result};
-use nostr::event::Event;
 use nostr::key::Keys;
+use nostr::prelude::Event;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -35,6 +35,7 @@ mod managed_lifecycle;
 mod management_command;
 mod membership_cleanup;
 mod my_session;
+mod my_session_overview;
 mod operator_sessions;
 mod orchestration_handler;
 mod pi_tools;
@@ -53,20 +54,20 @@ use orchestration_handler::handle_orchestration;
 use session_dispatch_handler::handle_session_dispatch;
 use session_records::{HostedAgent, PeerTracked, SessionHandle, StatusTailKey, StatusTailSnapshot};
 use state::{
-    AgentConfigState, CatalogState, ConnectionState, DedupState, ReconcilerState,
-    SessionRuntimeState, SubscriptionState,
+    AgentConfigState, CatalogState, ConnectionState, DedupState, ProfileRefreshState,
+    ReconcilerState, SessionRuntimeState, SubscriptionState,
 };
 /// Shared daemon state. Store guards span synchronous rusqlite calls, never `.await`.
 pub struct DaemonState {
     store: Arc<Mutex<Store>>,
     provider: Arc<RwLock<Arc<Nip29Provider>>>,
-    fava: Arc<RwLock<Arc<crate::fava_host::FavaHost>>>,
-    /// Backend identity admitted at config load. Fava owns publication signing;
-    /// Mosaico retains this parsed key only for deterministic session-key
-    /// derivation and local author selection.
+    nostr: Arc<RwLock<Arc<crate::nostr_runtime::NostrRuntime>>>,
+    nip29_view: Arc<RwLock<Arc<crate::fabric::nip29::view::Nip29ViewStore>>>,
+    /// Backend identity admitted at config load for exact-author signing and
+    /// deterministic session-key derivation.
     backend_keys: RwLock<Keys>,
     cfg: RwLock<Config>,
-    config_reload: Mutex<()>,
+    config_reload: tokio::sync::Mutex<()>,
     /// Serializes lifecycle-owned NIP-29 standing transitions. Relay writes
     /// are asynchronous, so an expired removal finishes before a concurrent
     /// exact-session re-admission decides whether it must add again.
@@ -76,6 +77,7 @@ pub struct DaemonState {
     mcp_actor_sync: tokio::sync::Mutex<()>,
     agent_config: AgentConfigState,
     catalog: CatalogState,
+    profile_refresh: ProfileRefreshState,
     runtime: SessionRuntimeState,
     subscriptions: SubscriptionState,
     reconcilers: ReconcilerState,
@@ -176,7 +178,7 @@ mod test_support;
 mod turn_lifecycle;
 pub(crate) mod turns;
 mod who;
-use backend_profile::{publish_backend_profile, rpc_backend_profile_refresh};
+use backend_profile::rpc_backend_profile_refresh;
 use channel_membership_rpc::{rpc_channel_join, rpc_channel_leave};
 use channel_read_tail::{handle_channel_read, handle_tail};
 use channel_resolve::{

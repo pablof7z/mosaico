@@ -226,8 +226,7 @@ for i in "${!PROFILES[@]}"; do
     --rawfile backend_secret "${backend_key_file}" \
     '{
       whitelistedPubkeys: $whitelisted,
-      relays: [$relay],
-      indexerRelay: $relay,
+      relay: $relay,
       backendName: $backend,
       userNsec: ($user_secret | rtrimstr("\n")),
       mosaicoPrivateKey: ($backend_secret | rtrimstr("\n"))

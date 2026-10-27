@@ -1,7 +1,4 @@
-use super::document::{
-    normalize_label, normalize_pubkeys, normalize_relay, normalize_relays, normalize_secret,
-    split_csv,
-};
+use super::document::{normalize_label, normalize_pubkeys, normalize_relay, normalize_secret};
 use anyhow::Result;
 use dialoguer::{Confirm, Input, Password, Select};
 use serde_json::{json, Value};
@@ -20,14 +17,9 @@ pub(super) fn edit_interactively(doc: &mut Value) -> Result<()> {
         .with_initial_text(current.host)
         .interact_text()?;
 
-    let raw = Input::<String>::new()
-        .with_prompt("Fabric relay URL(s), comma-separated")
-        .with_initial_text(current.relays.join(","))
-        .interact_text()?;
-    let relays = normalize_relays(&split_csv(&raw))?;
-    let indexer = Input::<String>::new()
-        .with_prompt("Profile indexer relay")
-        .with_initial_text(current.indexer_relay)
+    let relay = Input::<String>::new()
+        .with_prompt("Fabric relay URL")
+        .with_initial_text(current.relay)
         .interact_text()?;
     let per_session_rooms = Confirm::new()
         .with_prompt("Create a separate room for each human-started session?")
@@ -49,8 +41,9 @@ pub(super) fn edit_interactively(doc: &mut Value) -> Result<()> {
         json!(normalize_pubkeys(&pubkeys)?),
     );
     object.insert("backendName".into(), json!(normalize_label(&label)?));
-    object.insert("relays".into(), json!(relays));
-    object.insert("indexerRelay".into(), json!(normalize_relay(&indexer)?));
+    object.insert("relay".into(), json!(normalize_relay(&relay)?));
+    object.remove("relays");
+    object.remove("indexerRelay");
     object.insert("perSessionRooms".into(), json!(per_session_rooms));
     match (has_user_nsec, secret_action) {
         (true, 1) | (false, 1) => {

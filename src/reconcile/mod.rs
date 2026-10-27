@@ -12,4 +12,4 @@ pub use status::{
     PresenceProjection, PresenceSnapshot, PublishReason, StatusEffect, StatusOutcome,
     StatusReconciler,
 };
-pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionQuery, SubscriptionReconciler};
+pub use subscriptions::{CoverageSnapshot, SubEffect, SubscriptionReconciler, SubscriptionSpec};

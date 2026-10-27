@@ -1,5 +1,8 @@
 use crate::state::{RegisterSession, Store};
-use crate::turn_context::{assemble_turn_check_context, render_turn_start_text_for_test};
+use crate::turn_context::{
+    assemble_turn_check_context, render_turn_start_text_for_test,
+    render_turn_start_text_with_extension_for_test,
+};
 use std::sync::Mutex;
 
 #[path = "turn_context/delivery.rs"]
@@ -166,6 +169,19 @@ fn first_turn_explains_unhosted_delivery_boundary() {
         "got: {text:?}"
     );
     assert!(text.contains("references/unhosted.md"), "got: {text:?}");
+}
+
+#[test]
+fn first_turn_with_live_extension_is_not_unhosted() {
+    let store = Store::open_memory().unwrap();
+    seed_channel(&store);
+    let rec = test_session("sess-extension");
+    let m = Mutex::new(store);
+
+    let text = render_turn_start_text_with_extension_for_test(&m, &rec, BACKEND, "laptop", 0, true)
+        .expect("first-turn intro expected");
+    assert!(!text.contains("unhosted=\"true\""), "got: {text:?}");
+    assert!(!text.contains("This session is unhosted."), "got: {text:?}");
 }
 
 /// A session admitted to a hosted transport remains hosted even when its

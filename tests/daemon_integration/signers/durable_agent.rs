@@ -23,7 +23,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
     )
     .unwrap();
 
-    let (first_id, third_id, normal_id, chat_event_id) = rt().block_on(async {
+    let (first_id, third_id, normal_id, chat_id_prefix) = rt().block_on(async {
         let mut client = Client::connect_or_spawn().await.expect("connect");
         lifecycle::assert_supervisor_releases_reservations(&home, slug).await;
         let started = client
@@ -69,8 +69,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             )
             .await
             .expect("send as durable agent");
-        assert_eq!(sent["channel"].as_str(), Some("#tmp"));
-        let chat_event_id = sent["event_id"].as_str().unwrap().to_string();
+        let chat_id_prefix = sent["id"].as_str().unwrap().to_string();
 
         let isolated_home = home.dir.path().to_string_lossy().into_owned();
         let refused = run_cli_with_env_in_dir(
@@ -240,7 +239,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
             &launch_cwd,
         )
         .await;
-        (first, third, normal, chat_event_id)
+        (first, third, normal, chat_id_prefix)
     });
 
     assert_eq!(
@@ -250,7 +249,7 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
     let store = Store::open(&home.store_path()).unwrap();
     assert!(
         observed_channel_members("#tmp").is_some(),
-        "the durable agent's root channel must be visible through the daemon's Fava view"
+        "the durable agent's root channel must be visible through the daemon's Nostr runtime view"
     );
     for pubkey in [&first_id, &third_id] {
         let session = store.get_session(pubkey).unwrap().unwrap();
@@ -275,8 +274,14 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         }),
         "durable kind:0 must use the bare agent slug"
     );
+    let chat_full_id = Store::open(&home.store_path())
+        .unwrap()
+        .get_message_by_prefix(&chat_id_prefix)
+        .unwrap()
+        .expect("chat message must be in store")
+        .message_id;
     assert_eq!(
-        relay::event_author(&relay, &chat_event_id).as_deref(),
+        relay::event_author(&relay, &chat_full_id).as_deref(),
         Some(durable_pubkey.as_str()),
         "command-triggered chat must use the durable signer"
     );

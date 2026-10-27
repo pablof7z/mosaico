@@ -10,6 +10,7 @@ pub struct DiscoveryRoots {
     pub hermes: PathBuf,
     pub kimi: PathBuf,
     pub shared_agents: PathBuf,
+    pub pi: PathBuf,
 }
 
 impl DiscoveryRoots {
@@ -22,6 +23,7 @@ impl DiscoveryRoots {
             hermes: home.join(".hermes/profiles"),
             kimi: home.join(".kimi-code/agents"),
             shared_agents: home.join(".agents/agents"),
+            pi: home.join(".pi"),
         }
     }
 

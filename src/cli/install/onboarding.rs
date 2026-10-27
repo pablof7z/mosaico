@@ -46,13 +46,12 @@ pub(super) fn should_run(opts: &InstallOpts) -> bool {
         && !opts.all
         && !opts.uninstall
         && opts.harness.is_none()
-        && opts.relay.is_empty()
+        && opts.relay.is_none()
         && opts.host_label.is_none()
         && opts.operator_pubkeys.is_none()
         && !opts.clear_operators
         && opts.operator_nsec_file.is_none()
         && !opts.clear_operator_nsec
-        && opts.indexer_relay.is_none()
         && opts.per_session_rooms.is_none()
 }
 

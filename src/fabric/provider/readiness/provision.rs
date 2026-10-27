@@ -1,11 +1,13 @@
 use super::{ChannelCtx, Nip29Provider};
 use crate::fabric::group_management::GroupPublishOutcome;
 use crate::fabric::nip29::readiness::ChannelReadinessError;
+use nostr::key::Keys;
 
 pub(super) async fn missing_group(
     provider: &Nip29Provider,
     ctx: &ChannelCtx<'_>,
     parent: Option<&str>,
+    keys: &Keys,
 ) -> Result<bool, ChannelReadinessError> {
     let creation = if let Some(parent) = parent {
         let name = ctx
@@ -13,16 +15,16 @@ pub(super) async fn missing_group(
             .filter(|name| !name.is_empty())
             .unwrap_or(ctx.channel);
         provider
-            .nip29_create_subgroup_outcome(ctx.channel, name, parent)
+            .nip29_create_subgroup_outcome(ctx.channel, name, parent, keys)
             .await
     } else {
-        provider.nip29_create_root_outcome(ctx.channel).await
+        provider.nip29_create_root_outcome(ctx.channel, keys).await
     };
     match creation {
         GroupPublishOutcome::Published => Ok(true),
         GroupPublishOutcome::Failed(error) => {
             // A concurrent creator may have won after our initial snapshot.
-            // One current Fava read distinguishes that race from a real failed
+            // One current Nostr runtime read distinguishes that race from a real failed
             // mutation; Mosaico never retries the publication or polls its
             // derived projection.
             match provider.fetch_channel(ctx.channel).await {

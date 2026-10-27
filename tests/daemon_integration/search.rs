@@ -1,1 +1,1 @@
-//! Search behavior is covered against current Fava projections by state and RPC tests.
+//! Search behavior is covered against current Nostr runtime projections by state and RPC tests.

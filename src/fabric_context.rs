@@ -2,6 +2,7 @@ use crate::state::{InboxRow, Session, Store};
 
 pub(crate) mod assemble;
 pub(crate) mod capture;
+mod host_delta;
 mod human_render;
 mod member_delta;
 mod messages;
@@ -14,6 +15,7 @@ mod tests;
 mod tree;
 
 pub(crate) use capture::{capture_inputs, ViewInputs};
+pub(crate) use host_delta::inject_host_deltas;
 pub(crate) use member_delta::{inject_member_deltas, inject_member_snapshot};
 pub(crate) use messages::is_backend_pubkey;
 pub(crate) use model::FabricView;
@@ -181,7 +183,7 @@ fn root_input<'a>(
     }
 }
 
-/// The full agent-facing snapshot from the current retained Fava views.
+/// The full agent-facing snapshot from the current current NIP-29 views.
 pub(crate) fn render_full_session_state(
     store: &Store,
     session: &Session,

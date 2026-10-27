@@ -44,8 +44,9 @@ impl Store {
         schema::initialize_file(&mut conn, path)?;
         Ok(Self {
             conn,
-            observed_views: Default::default(),
-            profile_feed: Default::default(),
+            nip29_view: None,
+            #[cfg(test)]
+            test_snapshots: Default::default(),
         })
     }
 
@@ -54,8 +55,9 @@ impl Store {
         schema::initialize_memory(&conn)?;
         Ok(Self {
             conn,
-            observed_views: Default::default(),
-            profile_feed: Default::default(),
+            nip29_view: None,
+            #[cfg(test)]
+            test_snapshots: Default::default(),
         })
     }
 

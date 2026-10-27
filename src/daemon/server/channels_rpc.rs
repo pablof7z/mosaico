@@ -1,6 +1,6 @@
 use super::channel_membership_rpc::{resolve_caller, resolve_target_channel};
 use super::*;
-use fava_simple_groups::MetadataEdit;
+use crate::fabric::nip29::management::MetadataEdit;
 
 const CHANNEL_CREATE_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
@@ -123,14 +123,17 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     let expect_member = creator.as_deref().unwrap_or(&mgmt_pk);
     let standing_lane = state.standing_sync.lock().await;
     let provider = state.provider();
-    let ready = provider.ensure_channel_ready(crate::fabric::nip29::readiness::ChannelCtx {
-        channel: &child_h,
-        expect_member,
-        parent_hint: Some(&parent),
-        // Operator-chosen name rides on the create publish; the relay's
-        // kind:39000 echo reaches Fava's retained observation (no local fabrication).
-        name: Some(&name),
-    });
+    let ready = provider.ensure_channel_ready(
+        crate::fabric::nip29::readiness::ChannelCtx {
+            channel: &child_h,
+            expect_member,
+            parent_hint: Some(&parent),
+            // Operator-chosen name rides on the create publish; the relay's
+            // kind:39000 echo reaches the current decoded view (no local fabrication).
+            name: Some(&name),
+        },
+        &mgmt_keys,
+    );
     let gate = tokio::time::timeout(CHANNEL_CREATE_READY_TIMEOUT, ready)
         .await
         .with_context(|| {
@@ -160,8 +163,8 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     drop(standing_lane);
     let _ = ensure_subscription(state, &child_h).await;
 
-    // Publish the durable `about` as kind:9002 edit-metadata. Fava's terminal
-    // result is the command boundary; the retained group observation will
+    // Publish the durable `about` as kind:9002 edit-metadata. Relay acknowledgement
+    // is the command boundary; the complete group view will
     // project the resulting kind:39000 independently when it arrives.
     if !p.about.trim().is_empty() {
         let edit = MetadataEdit {
@@ -169,8 +172,8 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
             ..Default::default()
         };
         state
-            .fava()
-            .publish_metadata_edit_and_wait(&child_h, &edit, mgmt_keys.public_key())
+            .provider()
+            .publish_metadata_edit(&child_h, &edit, &mgmt_keys)
             .await
             .context("publishing the new channel description")?;
     }
@@ -185,17 +188,14 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
     } else {
         let prose = generate_orchestration_prose(&adds);
         let builder = build_add_agents_event(&parent, &child_h, &adds, &prose)?;
-        // Durable acceptance is the reporting boundary: Fava has taken custody
-        // of the add-agents directive and will keep delivering it. Whether each
-        // relay took it is settlement, which is deliberately never awaited here.
-        //
-        // The directive reaches THIS backend's own orchestration listener the
-        // same way a peer's does: Fava injects the accepted row into the group
-        // subscription and `demux::chat_ops` routes it. There is no
-        // local fast-path, because there is no longer anything for it to fix.
+        // Positive acknowledgement from the configured relay is the reporting
+        // boundary. The directive reaches this backend's orchestration listener
+        // only if it returns through the active group demand and demux; there is
+        // no local fast-path or durable publication custody.
         state
-            .fava()
-            .publish_group(&parent, builder, mgmt_keys.public_key())?
+            .provider()
+            .publish_group(&parent, builder, &mgmt_keys)
+            .await?
             .to_hex()
     };
 
@@ -207,7 +207,7 @@ pub(in crate::daemon::server) async fn rpc_channel_create(
         "channel": channel,
         "creator": creator.unwrap_or_default(),
         "joined": joined,
-        "orchestration_event_id": orchestration_event_id,
+        "orchestration_event_id": crate::util::short_id(&orchestration_event_id),
     }))
 }
 

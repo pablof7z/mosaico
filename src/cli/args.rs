@@ -194,7 +194,7 @@ pub(super) enum DaemonAction {
 
 #[derive(Args)]
 pub(super) struct ResetStateArgs {
-    /// Confirm deletion of SQLite, Fava, sessions, attachments, and logs.
+    /// Confirm deletion of SQLite, Nostr runtime, sessions, attachments, and logs.
     #[arg(long, action = clap::ArgAction::SetTrue, required = true)]
     pub(super) yes_i_know_this_wipes_local_state: bool,
 }

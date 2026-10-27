@@ -1,87 +1,66 @@
 use super::*;
+use crate::fabric::group_management::{
+    GroupOperationError, GroupOperationStage, GroupPublishOutcome,
+};
 use crate::fabric::nip29::lifecycle;
+use crate::fabric::nip29::management::MetadataEdit;
+use nostr::key::Keys;
 
 impl Nip29Provider {
-    /// Admin-set the display `name` of `group` via kind:9002 edit-metadata.
-    pub async fn nip29_set_group_name(&self, group: &str, name: &str) -> bool {
-        let edit = fava_simple_groups::MetadataEdit {
-            name: Some(name.to_string()),
-            ..Default::default()
-        };
-        self.fava
-            .publish_metadata_edit_and_wait(group, &edit, self.fava.backend_pubkey())
-            .await
-            .is_ok()
+    pub async fn nip29_set_group_name(&self, group: &str, name: &str, keys: &Keys) -> bool {
+        self.publish_metadata_edit(
+            group,
+            &MetadataEdit {
+                name: Some(name.to_string()),
+                ..Default::default()
+            },
+            keys,
+        )
+        .await
+        .is_ok()
     }
 
     pub(in crate::fabric::provider) async fn nip29_create_root_outcome(
         &self,
         group: &str,
+        keys: &Keys,
     ) -> GroupPublishOutcome {
-        if let Err(e) = self
-            .fava
-            .publish_create_group_and_wait(group, self.fava.backend_pubkey())
-            .await
-        {
-            return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
-                "9007 create-group",
-                GroupOperationStage::Publish,
-                &e,
-            ));
+        if let Err(error) = self.publish_group_create(group, None, keys).await {
+            return failed("9007 create-group", error);
         }
-        let edit = lifecycle::group_lock_closed(group, group);
         match self
-            .fava
-            .publish_metadata_edit_and_wait(group, &edit, self.fava.backend_pubkey())
+            .publish_metadata_edit(group, &lifecycle::group_lock_closed(group, group), keys)
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
-            Err(e) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
-                "9002 lock-closed",
-                GroupOperationStage::Publish,
-                &e,
-            )),
+            Err(error) => failed("9002 lock-closed", error),
         }
     }
 
-    /// Create `child` as a SUBGROUP of `parent`, then lock it down.
-    ///
-    /// The parent is stated on the kind:9007 create and ONLY there. Fava's
-    /// `publish_create_subgroup_and_wait` composes the row; the relay validates it
-    /// there (the parent exists, the signer administers it, no cycle) and
-    /// derives the reciprocal `child` row on the parent's kind:39000 from that
-    /// same create. The kind:9002 that follows carries visibility and a display
-    /// name and says nothing about ancestry — a `parent` row on a 9002 is
-    /// ignored by the relay outright, so the lock is identical to a root's.
     pub(in crate::fabric::provider) async fn nip29_create_subgroup_outcome(
         &self,
         child: &str,
         name: &str,
         parent: &str,
+        keys: &Keys,
     ) -> GroupPublishOutcome {
-        if let Err(e) = self
-            .fava
-            .publish_create_subgroup_and_wait(child, parent, self.fava.backend_pubkey())
-            .await
-        {
-            return GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
-                "9007 create-subgroup",
-                GroupOperationStage::Publish,
-                &e,
-            ));
+        if let Err(error) = self.publish_group_create(child, Some(parent), keys).await {
+            return failed("9007 create-subgroup", error);
         }
-        let edit = lifecycle::group_lock_closed(child, name);
         match self
-            .fava
-            .publish_metadata_edit_and_wait(child, &edit, self.fava.backend_pubkey())
+            .publish_metadata_edit(child, &lifecycle::group_lock_closed(child, name), keys)
             .await
         {
             Ok(_) => GroupPublishOutcome::Published,
-            Err(e) => GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
-                "9002 lock-closed",
-                GroupOperationStage::Publish,
-                &e,
-            )),
+            Err(error) => failed("9002 lock-closed", error),
         }
     }
+}
+
+fn failed(operation: &str, error: anyhow::Error) -> GroupPublishOutcome {
+    GroupPublishOutcome::Failed(GroupOperationError::from_anyhow(
+        operation,
+        GroupOperationStage::Publish,
+        &error,
+    ))
 }

@@ -157,7 +157,7 @@ fn who_snapshot_merges_local_and_peer_sessions() {
     assert!(!snapshot
         .rows
         .iter()
-        .any(|r| r.source == WhoSource::Peer && r.pubkey == "pk-coder"));
+        .any(|r| r.source == WhoSource::Peer && r.slug == "coder"));
 
     assert!(!coder.remote, "local session must never be remote");
     assert!(reviewer.remote, "tower peer must be remote vs laptop");
@@ -177,12 +177,12 @@ fn who_snapshot_uses_session_draft_title_for_sibling_sessions() {
     let row_a = snapshot
         .rows
         .iter()
-        .find(|r| r.pubkey == id_a)
+        .find(|r| r.status == "reading files")
         .expect("session-a row");
     let row_b = snapshot
         .rows
         .iter()
-        .find(|r| r.pubkey == id_b)
+        .find(|r| r.status == "running tests")
         .expect("session-b row");
     assert_eq!(row_a.status, "reading files");
     assert_eq!(row_b.status, "running tests");

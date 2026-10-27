@@ -49,9 +49,9 @@ async fn call_with_policy(
             Err(err) => tool_error(format!("{err:#}")),
         });
     }
-    let result = match name.as_str() {
+    let result: Result<String> = match name.as_str() {
         "mosaico.my_session" => my_session(&identity).await,
-        "mosaico.wait" => wait::ambient(&args, &identity).await,
+        "mosaico.wait" => wait_ambient(&args, &identity).await,
         "mosaico.channel_list" => channel_list(&args, &identity).await,
         "mosaico.channel_read" => channel_read(&args, &identity).await,
         "mosaico.channel_send" => {
@@ -65,40 +65,43 @@ async fn call_with_policy(
         other => anyhow::bail!("unknown tool: {other}"),
     };
     Ok(match result {
-        Ok(value) => tool_ok(value),
+        Ok(text) => tool_ok(text),
         Err(err) => tool_error(format!("{err:#}")),
     })
 }
 
-async fn my_session(identity: &Value) -> Result<Value> {
-    daemon_identity("my_session", json!({}), identity).await
+async fn my_session(identity: &Value) -> Result<String> {
+    let v = daemon_identity("my_session", json!({}), identity).await?;
+    Ok(v["fabric"].as_str().unwrap_or_default().to_string())
 }
 
-async fn channel_list(args: &Value, identity: &Value) -> Result<Value> {
-    daemon_identity(
+async fn wait_ambient(args: &Value, identity: &Value) -> Result<String> {
+    let v = wait::ambient(args, identity).await?;
+    crate::channel_render::format_wait_result(&v, crate::util::now_secs())
+}
+
+async fn channel_list(args: &Value, identity: &Value) -> Result<String> {
+    let v = daemon_identity(
         "channel_list",
-        with_session(
-            json!({
-                "workspace": opt_string(args, "workspace"),
-                "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
-                "recursive": args
-                    .get("recursive")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            }),
-            args,
-        ),
+        json!({
+            "workspace": opt_string(args, "workspace"),
+            "all": args.get("all").and_then(Value::as_bool).unwrap_or(false),
+            "recursive": args
+                .get("recursive")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        }),
         identity,
     )
-    .await
+    .await?;
+    Ok(crate::channel_render::format_channel_list(&v))
 }
 
-async fn channel_read(args: &Value, identity: &Value) -> Result<Value> {
+async fn channel_read(args: &Value, identity: &Value) -> Result<String> {
     let params = caller_params(
         json!({
             "id": opt_string(args, "id"),
             "channel": opt_string(args, "channel"),
-            "session": opt_string(args, "session"),
             "since": since_arg(args),
             "limit": args.get("limit").and_then(Value::as_u64).unwrap_or(20),
             "offset": args.get("offset").and_then(Value::as_u64).unwrap_or(0),
@@ -108,74 +111,94 @@ async fn channel_read(args: &Value, identity: &Value) -> Result<Value> {
         identity,
     );
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
-    let mut messages = Vec::new();
+    let mut rows = Vec::new();
     client
-        .stream("channel_read", params, |item| messages.push(item))
+        .stream("channel_read", params, |item| rows.push(item))
         .await?;
-    Ok(json!({ "messages": messages }))
+    Ok(rows
+        .iter()
+        .map(|row| crate::channel_render::render_channel_read_row(row, false))
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
-async fn dispatch(args: &Value, identity: &Value) -> Result<Value> {
-    let params = with_session(
-        json!({
-            "target": required_string(args, "target")?,
-            "workspace": required_string(args, "workspace")?,
-            "channels": args
-                .get("channels")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
-            "message": required_string(args, "message")?,
-        }),
-        args,
-    );
-    daemon_identity("dispatch", params, identity).await
+async fn dispatch(args: &Value, identity: &Value) -> Result<String> {
+    let params = json!({
+        "target": required_string(args, "target")?,
+        "workspace": required_string(args, "workspace")?,
+        "channels": args
+            .get("channels")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        "message": required_string(args, "message")?,
+    });
+    let v = daemon_identity("dispatch", params, identity).await?;
+    let dispatch_id = crate::idref::event_short_id(v["dispatch_event_id"].as_str().unwrap_or("?"));
+    let message_id = crate::idref::event_short_id(v["message_event_id"].as_str().unwrap_or("?"));
+    let workspace = v["workspace"].as_str().unwrap_or("?");
+    let route = v["route_channel"].as_str().unwrap_or("?");
+    Ok(format!(
+        "dispatched {dispatch_id} in {workspace} via {route}; message {message_id}"
+    ))
 }
 
-async fn react(args: &Value, identity: &Value) -> Result<Value> {
-    let params = with_session(
-        json!({
-            "id": required_string(args, "message_id")?,
-            "emoji": required_string(args, "emoji")?,
-        }),
-        args,
-    );
-    daemon_identity("channel_react", params, identity).await
+async fn react(args: &Value, identity: &Value) -> Result<String> {
+    let params = json!({
+        "id": required_string(args, "id")?,
+        "emoji": required_string(args, "emoji")?,
+    });
+    let v = daemon_identity("channel_react", params, identity).await?;
+    let id = v["id"].as_str().unwrap_or("?");
+    let target = v["target"].as_str().unwrap_or("?");
+    let emoji = v["emoji"].as_str().unwrap_or("?");
+    Ok(format!("reacted {emoji} {id} to {target}"))
 }
 
-async fn channel_create(args: &Value, identity: &Value) -> Result<Value> {
-    daemon_identity(
+async fn channel_create(args: &Value, identity: &Value) -> Result<String> {
+    let v = daemon_identity(
         "channel_create",
-        with_session(
-            json!({
-                "channel": required_string(args, "channel")?,
-                "about": required_string(args, "about")?,
-                "agents": agent_specs(args)?,
-            }),
-            args,
-        ),
+        json!({
+            "channel": required_string(args, "channel")?,
+            "about": required_string(args, "about")?,
+            "agents": agent_specs(args)?,
+        }),
         identity,
     )
-    .await
-}
-
-async fn channel_mutation(method: &str, args: &Value, identity: &Value) -> Result<Value> {
-    daemon_identity(
-        method,
-        with_session(
-            json!({ "channel": required_string(args, "channel")? }),
-            args,
-        ),
-        identity,
-    )
-    .await
-}
-
-fn with_session(mut value: Value, args: &Value) -> Value {
-    if let (Some(obj), Some(session)) = (value.as_object_mut(), opt_string(args, "session")) {
-        obj.insert("session".into(), json!(session));
+    .await?;
+    let channel = v["channel"].as_str().unwrap_or("?");
+    let oid = v["orchestration_event_id"].as_str().unwrap_or("");
+    let mut text = if v["joined"].as_bool().unwrap_or(false) {
+        format!("{channel} created and joined")
+    } else {
+        format!("{channel} created")
+    };
+    if !oid.is_empty() {
+        let short = &oid[..oid.len().min(8)];
+        text.push_str(&format!("\n  orchestration kind:9 {short}"));
     }
-    value
+    Ok(text)
+}
+
+async fn channel_mutation(method: &str, args: &Value, identity: &Value) -> Result<String> {
+    let v = daemon_identity(
+        method,
+        json!({ "channel": required_string(args, "channel")? }),
+        identity,
+    )
+    .await?;
+    if method == "channel_join" {
+        let channel = v["channel"].as_str().unwrap_or("?");
+        let mut text = format!("joined channel {channel}");
+        if let Some(notice) = v["history_notice"].as_str().filter(|n| !n.is_empty()) {
+            text.push('\n');
+            text.push_str(notice);
+        }
+        Ok(text)
+    } else {
+        let channel = v["channel"].as_str().unwrap_or("?");
+        Ok(format!("left channel {channel}"))
+    }
 }
 
 fn agent_specs(args: &Value) -> Result<Vec<Value>> {
@@ -200,11 +223,9 @@ fn agent_specs(args: &Value) -> Result<Vec<Value>> {
         .unwrap_or_else(|| Ok(Vec::new()))
 }
 
-fn tool_ok(value: Value) -> Value {
-    let text = serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string());
+fn tool_ok(text: String) -> Value {
     json!({
         "content": [{ "type": "text", "text": text }],
-        "structuredContent": object_content(value),
         "isError": false,
     })
 }
@@ -214,14 +235,6 @@ fn tool_error(message: String) -> Value {
         "content": [{ "type": "text", "text": message }],
         "isError": true,
     })
-}
-
-fn object_content(value: Value) -> Value {
-    if value.is_object() {
-        value
-    } else {
-        json!({ "value": value })
-    }
 }
 
 fn opt_string(args: &Value, key: &str) -> Option<String> {

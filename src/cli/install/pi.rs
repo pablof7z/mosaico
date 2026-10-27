@@ -8,11 +8,10 @@ use super::{
     io::write_text,
 };
 
-/// The npm package name of the legacy single-file Pi extension, superseded by
-/// the directory form installed at `extensions/mosaico/`. Pi auto-loads both if
-/// present, and the duplicate tool registrations conflict and abort Pi startup,
-/// so installing the directory form must evict the npm package.
+/// Superseded Pi packages. Installing the directory form must evict both the
+/// old single-file integration and the panel that is now part of it.
 const LEGACY_NPM_PACKAGE: &str = "npm:pi-mosaico";
+const LEGACY_PANEL_PACKAGE: &str = "npm:pi-mosaico-panel";
 
 pub(super) fn install(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     if opts.uninstall {
@@ -87,9 +86,9 @@ fn remove_legacy_files(h: &Harness, opts: &InstallOpts, render: bool) -> Result<
     Ok(())
 }
 
-/// Remove the superseded `npm:pi-mosaico` package so Pi does not load both the
-/// directory form and the legacy single-file form (duplicate tool names abort
-/// Pi startup). Edits `settings.json` in place and drops the npm install dir.
+/// Remove superseded Pi packages and local source references so Pi has one
+/// Mosaico integration, including its sidebar. Edits `settings.json` in place
+/// and drops installed npm package directories.
 fn evict_legacy_npm_package(h: &Harness, opts: &InstallOpts, render: bool) -> Result<()> {
     let Some(agent_dir) = h
         .config_path
@@ -107,7 +106,11 @@ fn evict_legacy_npm_package(h: &Harness, opts: &InstallOpts, render: bool) -> Re
         for field in ["extensions", "packages"] {
             if let Some(list) = document.get_mut(field).and_then(|v| v.as_array_mut()) {
                 let before = list.len();
-                list.retain(|entry| entry.as_str() != Some(LEGACY_NPM_PACKAGE));
+                list.retain(|entry| {
+                    entry
+                        .as_str()
+                        .is_none_or(|source| !is_superseded_pi_source(source))
+                });
                 if list.len() != before {
                     changed = true;
                 }
@@ -117,7 +120,7 @@ fn evict_legacy_npm_package(h: &Harness, opts: &InstallOpts, render: bool) -> Re
             if opts.dry_run {
                 if render {
                     println!(
-                        "  would evict {LEGACY_NPM_PACKAGE} from {}",
+                        "  would evict superseded Pi Mosaico packages from {}",
                         settings.display()
                     );
                 }
@@ -129,18 +132,28 @@ fn evict_legacy_npm_package(h: &Harness, opts: &InstallOpts, render: bool) -> Re
             }
         }
     }
-    let npm_pkg = agent_dir.join("npm/node_modules/pi-mosaico");
-    if npm_pkg.is_dir() {
-        if opts.dry_run {
-            if render {
-                println!("  would remove {}", npm_pkg.display());
-            }
-        } else {
-            std::fs::remove_dir_all(&npm_pkg)?;
-            if render {
-                println!("  removed {}", npm_pkg.display());
+    for package in ["pi-mosaico", "pi-mosaico-panel"] {
+        let npm_pkg = agent_dir.join("npm/node_modules").join(package);
+        if npm_pkg.is_dir() {
+            if opts.dry_run {
+                if render {
+                    println!("  would remove {}", npm_pkg.display());
+                }
+            } else {
+                std::fs::remove_dir_all(&npm_pkg)?;
+                if render {
+                    println!("  removed {}", npm_pkg.display());
+                }
             }
         }
     }
     Ok(())
+}
+
+fn is_superseded_pi_source(source: &str) -> bool {
+    source == LEGACY_NPM_PACKAGE
+        || source == LEGACY_PANEL_PACKAGE
+        || source
+            .split('/')
+            .any(|segment| segment == "pi-mosaico-panel")
 }

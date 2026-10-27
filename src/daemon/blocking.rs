@@ -227,7 +227,7 @@ struct MethodPolicy {
 fn method_policy(method: &str) -> MethodPolicy {
     MethodPolicy {
         response_timeout: match method {
-            "pty_spawn" => SLOW_RESPONSE_IO_TIMEOUT,
+            "pty_spawn" | "channel_members" => SLOW_RESPONSE_IO_TIMEOUT,
             _ => DEFAULT_RESPONSE_IO_TIMEOUT,
         },
         retry_after_delivery: matches!(

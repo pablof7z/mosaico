@@ -150,7 +150,7 @@ mod tests {
             "channels": [{
                 "ref": "#fava/research",
                 "messages": [{
-                    "event_id": "4e91c0b7f2de",
+                    "id": "4e91c0b7f2de",
                     "from": "Pablo",
                     "recipients": ["reviewer"],
                     "body": "landed",

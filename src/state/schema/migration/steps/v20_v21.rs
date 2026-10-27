@@ -1,4 +1,5 @@
-//! Schema 21: durable, generation-scoped progressive coaching claims.
+//! Schema 21: durable, generation-scoped progressive notice claims.
+//! The table was created as `session_coaching`; renamed to `session_notice` in schema 26.
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;

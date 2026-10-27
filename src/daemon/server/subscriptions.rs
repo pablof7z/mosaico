@@ -23,28 +23,27 @@ pub(in crate::daemon::server) async fn ensure_subscription(
 /// hand it to the [`SubscriptionReconciler`], and apply the returned
 /// Open/Close/Replace effects. This is the single point every subscription
 /// writer funnels through — no split-brain. A channel a session just left with
-/// no other owner closes its Fava observation here.
+/// no other owner closes its Nostr runtime observation here.
 pub(in crate::daemon::server) async fn sync_subscriptions(state: &Arc<DaemonState>) -> Result<()> {
     let _serial = state.subscriptions.sync.lock().await;
     let snapshot = build_coverage_snapshot(state);
-    // The retained kind:0 profile feed is scoped to the current member set —
+    // The stable kind:0 profile demand is scoped to the current member set —
     // the backend identity plus every channel's members and admins — which
     // `build_coverage_snapshot` already computes as `profile_pubkeys`. Drive
     // it here so every coverage refresh (startup + every group-state change)
-    // re-scopes the feed's one retained `authors:[members]` observation.
-    state
-        .profile_feed()
-        .set_members(snapshot.profile_pubkeys.clone());
-    // The relay-signed group records ride ONE retained observation rather than
+    // re-scopes its one `authors:[members]` filter.
+    replace_profile_demand(state, &snapshot.profile_pubkeys).await?;
+    // The relay-signed group records ride ONE stable product demand rather than
     // the per-entity refcount, because their branch count is set by the host
     // set and not by how many groups are named.
     let trusted_operators = state.whitelisted_pubkeys();
     super::group_records::sync(
         state,
         super::group_records::GroupRecordsCoverage::from_snapshot(&snapshot, &trusted_operators),
-    )?;
+    )
+    .await?;
     // Compute the plan under the policy lock, then drop it before handing the
-    // effects to Fava's engine.
+    // effects to the thin Nostr runtime adapter.
     let effects = {
         let mut rec = state.subscriptions.reconciler.lock().unwrap();
         rec.plan(&snapshot)
@@ -78,10 +77,43 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
     if let SubEffect::Close { id } = effect {
         tracing::debug!(
             subscription = id,
-            "closing Fava observation (last owner left)"
+            "closing Nostr product demand (last owner left)"
         );
     }
-    state.fava().apply(effect)
+    state.nostr().apply(effect).await
+}
+
+async fn replace_profile_demand(
+    state: &Arc<DaemonState>,
+    authors: &BTreeSet<String>,
+) -> Result<()> {
+    use nostr::prelude::{Filter, Kind, PublicKey};
+    const ID: &str = "mosaico-profiles";
+    if *state.subscriptions.profile_authors.lock().unwrap() == *authors {
+        return Ok(());
+    }
+    let parsed = authors
+        .iter()
+        .map(|author| PublicKey::parse(author).map_err(anyhow::Error::from))
+        .collect::<Result<Vec<_>>>()?;
+    let result = if parsed.is_empty() {
+        state.nostr().close_demand(ID).await
+    } else {
+        state
+            .nostr()
+            .replace_demand(
+                ID,
+                vec![Filter::new()
+                    .kinds([Kind::Metadata, Kind::EventDeletion])
+                    .authors(parsed)
+                    .limit(crate::nostr_runtime::PROFILE_EVENT_LIMIT)],
+            )
+            .await
+    };
+    if result.is_ok() {
+        *state.subscriptions.profile_authors.lock().unwrap() = authors.clone();
+    }
+    result
 }
 
 /// Compute the daemon's current subscription coverage from durable sources,
@@ -98,7 +130,7 @@ async fn apply_effect(state: &Arc<DaemonState>, effect: &SubEffect) -> Result<()
 ///   Owned by the daemon scope.
 /// - `profile_pubkeys`: the backend identity plus every current group member.
 ///   Each gets a narrow exact-author kind:0 observation, so profile reads are
-///   answered by retained Fava state rather than an app-owned cache.
+///   answered by current NIP-29 state rather than an app-owned cache.
 fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let mut daemon_channels: BTreeSet<String> = state
         .subscriptions
@@ -120,15 +152,10 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         pubkeys.insert(backend_pubkey.clone());
         profile_pubkeys.insert(backend_pubkey.clone());
         // Channels any ordinal pubkey is a member of (spawn-on-mention path),
-        // plus channels this backend manages as admin.
-        for pk in local_pubkeys.iter().chain(std::iter::once(&backend_pubkey)) {
-            if let Ok(gs) = s.list_channels_where_member(pk) {
-                daemon_channels.extend(gs);
-            }
-            if let Ok(gs) = s.list_channels_where_admin(pk) {
-                daemon_channels.extend(gs);
-            }
-        }
+        // plus channels this backend manages as admin; admins are members.
+        let mut owners: BTreeSet<String> = local_pubkeys.into_iter().collect();
+        owners.insert(backend_pubkey.clone());
+        daemon_channels.extend(s.list_channels_involving(&owners));
         for channel in s.list_channels().unwrap_or_default() {
             if channel.is_archived() {
                 continue;
@@ -171,7 +198,3 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         sessions,
     }
 }
-
-#[cfg(test)]
-#[path = "subscriptions/tests.rs"]
-mod tests;

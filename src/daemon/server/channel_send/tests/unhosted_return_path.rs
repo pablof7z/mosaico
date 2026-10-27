@@ -25,39 +25,39 @@ async fn warning_is_claimed_only_by_first_risky_directed_action() {
     let target = vec!["peer-pk".to_string()];
 
     assert!(
-        super::super::unhosted_coaching::maybe_warn(&state, &rec, "room", &target, true, 10,)
+        super::super::unhosted_notice::maybe_warn(&state, &rec, "room", &target, true, 10,)
             .unwrap()
             .is_none()
     );
     assert!(
-        super::super::unhosted_coaching::maybe_warn(&state, &rec, "room", &[], false, 11,)
+        super::super::unhosted_notice::maybe_warn(&state, &rec, "room", &[], false, 11,)
             .unwrap()
             .is_none()
     );
 
     let warning =
-        super::super::unhosted_coaching::maybe_warn(&state, &rec, "room", &target, false, 12)
+        super::super::unhosted_notice::maybe_warn(&state, &rec, "room", &target, false, 12)
             .unwrap()
-            .expect("first risky send should coach");
+            .expect("first risky send should notice");
     assert_eq!(warning.code, "unhosted_no_return_path");
     assert!(warning.summary.contains("cannot resume you"));
     assert!(warning.summary.contains("references/unhosted.md"));
 
     assert!(
-        super::super::unhosted_coaching::maybe_warn(&state, &rec, "room", &target, false, 13,)
+        super::super::unhosted_notice::maybe_warn(&state, &rec, "room", &target, false, 13,)
             .unwrap()
             .is_none()
     );
 }
 
 #[tokio::test]
-async fn hosted_session_never_consumes_unhosted_coaching() {
+async fn hosted_session_never_receives_unhosted_notice() {
     let (state, mut rec) = unhosted_state().await;
     rec.admitted_transport = "pty".into();
     let target = vec!["peer-pk".to_string()];
 
     assert!(
-        super::super::unhosted_coaching::maybe_warn(&state, &rec, "room", &target, false, 10,)
+        super::super::unhosted_notice::maybe_warn(&state, &rec, "room", &target, false, 10,)
             .unwrap()
             .is_none()
     );

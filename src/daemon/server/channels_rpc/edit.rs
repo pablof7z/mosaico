@@ -1,4 +1,4 @@
-//! `channel_edit`: publish a channel's durable `about` through Fava.
+//! `channel_edit`: publish a channel's durable `about` to its relay.
 
 use super::*;
 
@@ -23,20 +23,20 @@ pub(in crate::daemon::server) async fn rpc_channel_edit(
     let channel_h = resolve_target_channel(state, &p.channel)?;
 
     let mgmt_keys = state.backend_keys();
-    let edit = fava_simple_groups::MetadataEdit {
+    let edit = crate::fabric::nip29::management::MetadataEdit {
         about: Some(p.about.clone()),
         ..Default::default()
     };
     let event_id = state
-        .fava()
-        .publish_metadata_edit_and_wait(&channel_h, &edit, mgmt_keys.public_key())
+        .provider()
+        .publish_metadata_edit(&channel_h, &edit, &mgmt_keys)
         .await
         .context("publishing channel description")?;
     let channel = state
         .with_store(|store| super::channel_resolve::channel_reference_for(store, &channel_h))?;
 
     Ok(serde_json::json!({
-        "event_id": event_id.to_hex(),
+        "id": &event_id.to_hex()[..6],
         "channel": channel,
         "about": p.about,
         "confirmed": true,

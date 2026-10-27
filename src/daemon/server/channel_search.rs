@@ -39,7 +39,7 @@ struct SearchChannel {
 
 #[derive(Debug, Serialize)]
 struct SearchMessage {
-    event_id: String,
+    id: String,
     from: String,
     recipients: Vec<String>,
     body: String,
@@ -157,7 +157,7 @@ fn resolve_identities(store: &Store, selectors: &[String]) -> Result<Vec<String>
 }
 
 fn resolve_channel_scopes(store: &Store, selectors: &[String]) -> Result<Vec<String>> {
-    // Bare `#` means every channel in the current retained Fava view.
+    // Bare `#` means every channel in the current current NIP-29 view.
     if selectors.is_empty() || selectors.iter().any(|selector| selector.trim() == "#") {
         return Ok(Vec::new());
     }
@@ -241,7 +241,7 @@ fn render_groups(
                 })
                 .collect();
             groups[index].messages.push(SearchMessage {
-                event_id: hit.message.message_id,
+                id: crate::util::short_id(&hit.message.message_id),
                 from,
                 recipients,
                 body: crate::profile::rewrite_body_mentions(store, &hit.message.body),

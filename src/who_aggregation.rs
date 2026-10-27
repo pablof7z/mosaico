@@ -7,6 +7,8 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod projection;
+#[cfg(test)]
+mod tests;
 
 pub(crate) struct WhoAggregation {
     pub(crate) channels: Vec<Channel>,
@@ -105,6 +107,29 @@ impl WhoAggregation {
                 .iter()
                 .map(|profile| profile.pubkey.clone()),
         );
+        // Session facts come from two bulk reads, not queries per pubkey: the
+        // referenced set includes every stopped session that still holds
+        // channel standing.
+        let mut all_identities = store
+            .session_identities()
+            .context("who aggregation: failed to read session identities")?;
+        // A stopped session whose handle was reclaimed for reuse has no lease
+        // by design and is shown from its profile; a running one must have it.
+        if let Some(session) = local_sessions
+            .iter()
+            .find(|session| !all_identities.contains_key(&session.pubkey))
+        {
+            anyhow::bail!(
+                "who aggregation: running derived session {} has no handle lease",
+                session.pubkey
+            );
+        }
+        let mut all_sessions = store
+            .list_sessions()
+            .context("who aggregation: failed to list sessions")?
+            .into_iter()
+            .map(|session| (session.pubkey.clone(), session))
+            .collect::<BTreeMap<_, _>>();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
         let mut sessions_by_pubkey = BTreeMap::new();
@@ -115,15 +140,10 @@ impl WhoAggregation {
             {
                 profiles.insert(pubkey.clone(), profile);
             }
-            if let Some(identity) = store.session_identity(&pubkey).with_context(|| {
-                format!("who aggregation: failed to read session identity {pubkey}")
-            })? {
+            if let Some(identity) = all_identities.remove(&pubkey) {
                 identities.insert(pubkey.clone(), identity);
             }
-            if let Some(session) = store
-                .get_session(&pubkey)
-                .with_context(|| format!("who aggregation: failed to read session {pubkey}"))?
-            {
+            if let Some(session) = all_sessions.remove(&pubkey) {
                 sessions_by_pubkey.insert(pubkey, session);
             }
         }

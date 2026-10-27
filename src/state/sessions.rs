@@ -204,11 +204,8 @@ impl Store {
     pub fn get_session(&self, pubkey: &str) -> Result<Option<Session>> {
         Ok(self
             .conn
-            .query_row(
-                &format!("SELECT {COLS} FROM sessions WHERE pubkey=?1"),
-                [pubkey],
-                row_to_session,
-            )
+            .prepare_cached(&format!("SELECT {COLS} FROM sessions WHERE pubkey=?1"))?
+            .query_row([pubkey], row_to_session)
             .optional()?)
     }
 

@@ -83,7 +83,7 @@ fn managed_channel_proof_survives_restart_without_relay_group_rows() {
 #[cfg(test)]
 mod group_hierarchy_tests {
     use super::*;
-    use crate::observed_views::{TestGroup, TestGroupDelivery};
+    use crate::state::{TestGroup, TestGroupDelivery};
 
     fn hierarchy_store() -> Store {
         let store = Store::open_memory().unwrap();

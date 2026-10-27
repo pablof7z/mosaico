@@ -20,8 +20,6 @@ use std::time::Duration;
 
 use crate::attachment_contract::EVENT_MARKER;
 
-/// A hostile or misconfigured server must not be able to spend the daemon's
-/// memory on one attachment.
 const MAX_ATTACHMENT_BYTES: usize = 64 * 1024 * 1024;
 
 pub(crate) async fn download(
@@ -70,9 +68,6 @@ pub(crate) async fn download(
                 bytes.len()
             );
         }
-        // Content-addressed, so this is the whole trust story: the bytes are
-        // what the sender uploaded, or they do not reach the disk. Checked
-        // BEFORE the write, under a label the remote side chose.
         let observed = Sha256Hash::of(&bytes);
         if observed != expected {
             bail!(
@@ -114,17 +109,8 @@ pub(crate) fn copy_local(
     Ok(Some(directory))
 }
 
-/// The directory this event's files ALREADY occupy, if it is complete.
-///
-/// A message this daemon sent has its files copied locally at send time, and
-/// the relay echo of that same event arrives through the ordinary inbound path
-/// with the same declared labels. Adopting the local copy is what stops the
-/// echo re-fetching bytes that are already on disk -- the directory is named by
-/// the event id and marker-verified, so "already there" is checkable rather
-/// than assumed.
-///
-/// Deliberately does NOT create anything: a missing or partial directory means
-/// the ordinary download runs.
+/// Return the marker-verified directory when every declared attachment is
+/// already present, as happens when a local publication returns through Nostr runtime.
 pub(crate) fn existing_complete(
     root: &Path,
     event_id: &str,

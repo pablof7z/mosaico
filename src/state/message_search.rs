@@ -1,4 +1,4 @@
-//! Local search over the current Fava kind:9 projection.
+//! Local search over the current NIP-29 kind:9 projection.
 
 use super::{Message, MessageRecipient, Store};
 use anyhow::Result;
@@ -39,7 +39,7 @@ pub(crate) struct MessageSearchPage {
 }
 
 impl Store {
-    /// Search current Fava messages, newest first. Values within one dimension
+    /// Search current Nostr runtime messages, newest first. Values within one dimension
     /// are ORed; dimensions are ANDed.
     pub(crate) fn search_messages(&self, query: &MessageSearchQuery) -> Result<MessageSearchPage> {
         anyhow::ensure!(
@@ -47,12 +47,12 @@ impl Store {
             "message search limit must be between 1 and {MESSAGE_SEARCH_MAX_LIMIT}"
         );
 
-        let backend_pubkeys = self
-            .profile_feed
-            .all_profiles()
-            .into_iter()
+        let view = self.view();
+        let backend_pubkeys = view
+            .profiles()
+            .iter()
             .filter(|profile| profile.is_backend)
-            .map(|profile| profile.pubkey)
+            .map(|profile| profile.pubkey.clone())
             .chain(
                 query
                     .backend_pubkey
@@ -66,10 +66,11 @@ impl Store {
             .iter()
             .map(|value| value.to_lowercase())
             .collect::<Vec<_>>();
-        let mut hits = self
-            .message_projection()?
-            .into_iter()
-            .filter(|(message, recipients)| {
+        let mut hits = view
+            .messages()
+            .iter()
+            .filter(|row| {
+                let (message, recipients) = (&row.message, &row.recipients);
                 !backend_pubkeys.contains(&message.author_pubkey)
                     && !recipients
                         .iter()
@@ -91,10 +92,6 @@ impl Store {
                             .iter()
                             .any(|needle| message.body.to_lowercase().contains(needle)))
             })
-            .map(|(message, recipients)| MessageSearchHit {
-                message,
-                recipients,
-            })
             .collect::<Vec<_>>();
         hits.sort_by(|left, right| {
             (&right.message.created_at, &right.message.message_id)
@@ -103,6 +100,16 @@ impl Store {
 
         let has_more = hits.len() > query.limit as usize;
         hits.truncate(query.limit as usize);
+        // Only the returned page reads local attachment directories.
+        let hits = hits
+            .into_iter()
+            .map(|row| {
+                Ok(MessageSearchHit {
+                    message: self.with_local_attachment(row.message.clone())?,
+                    recipients: row.recipients.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         let next = has_more.then(|| {
             let last = hits.last().expect("a page with more rows is non-empty");
             MessageSearchPosition {
@@ -113,7 +120,7 @@ impl Store {
         Ok(MessageSearchPage { hits, next })
     }
 
-    /// Resolve a public identity from the current Fava profile delivery plus
+    /// Resolve a public identity from the current Nostr runtime profile delivery plus
     /// product-local handle leases.
     pub(crate) fn resolve_message_search_identity(&self, selector: &str) -> Result<String> {
         let selector = selector.trim().trim_start_matches('@');
@@ -126,29 +133,29 @@ impl Store {
         match crate::idref::parse_ref(selector) {
             crate::idref::Ref::Agent { slug, host } => {
                 matches.extend(
-                    self.profile_feed
-                        .all_profiles()
-                        .into_iter()
+                    self.view()
+                        .profiles()
+                        .iter()
                         .filter(|profile| {
                             profile.host == host
                                 && (profile.name == slug
                                     || profile.slug == slug
                                     || profile.agent_slug == slug)
                         })
-                        .map(|profile| profile.pubkey),
+                        .map(|profile| profile.pubkey.clone()),
                 );
             }
             crate::idref::Ref::Token(token) => {
                 matches.extend(
-                    self.profile_feed
-                        .all_profiles()
-                        .into_iter()
+                    self.view()
+                        .profiles()
+                        .iter()
                         .filter(|profile| {
                             profile.name == token
                                 || profile.slug == token
                                 || profile.agent_slug == token
                         })
-                        .map(|profile| profile.pubkey),
+                        .map(|profile| profile.pubkey.clone()),
                 );
                 if let Some(pubkey) = self.pubkey_for_handle(&token)? {
                     matches.push(pubkey);

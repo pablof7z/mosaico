@@ -77,9 +77,9 @@ fn agent_cannot_tag_or_reply_to_its_own_identity() {
                 }),
             )
             .await
-            .expect("publish original message")["event_id"]
+            .expect("publish original message")["id"]
             .as_str()
-            .expect("event id")
+            .expect("id")
             .to_string()
     });
     assert!(

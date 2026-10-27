@@ -1,33 +1,21 @@
-//! NIP-25 reaction reads derived from the active Fava row view.
+//! NIP-25 reaction reads derived from the current Nostr runtime subscription level.
 
-use super::observed_decode::{decode_reaction, MessageProjection, ReactionProjection};
 use super::*;
-use crate::fabric::nip29::wire::KIND_REACTION;
-use std::collections::BTreeMap;
+use crate::fabric::nip29::view::ReactionProjection;
 
 impl Store {
-    /// All retained kind:7 reaction rows decoded from the bounded recent-rows
-    /// window.
-    fn reaction_projections(&self) -> Vec<ReactionProjection> {
-        self.observed_views
-            .recent_rows()
-            .events_by_kind(KIND_REACTION, u32::MAX)
-            .into_iter()
-            .filter_map(decode_reaction)
-            .collect()
-    }
     pub fn reactions_on_authored_after(
         &self,
         author_pubkey: &str,
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.message_projections());
-        let mut reactions = self
-            .reaction_projections()
-            .into_iter()
+        let view = self.view();
+        let mut reactions = view
+            .reactions()
+            .iter()
             .filter_map(|reaction| {
-                let message = messages.get(&reaction.target_message_id)?;
+                let message = &view.message(&reaction.target_message_id)?.message;
                 (message.author_pubkey == author_pubkey
                     && reaction.created_at > since
                     && reaction.reactor_pubkey != author_pubkey)
@@ -47,13 +35,17 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.message_projections());
-        let mut reactions = self
-            .reaction_projections()
-            .into_iter()
+        let view = self.view();
+        let mut reactions = view
+            .reactions()
+            .iter()
             .filter(|reaction| reaction.channel_h == channel_h && reaction.created_at > since)
             .filter_map(|reaction| {
-                let body = messages.get(&reaction.target_message_id)?.body.clone();
+                let body = view
+                    .message(&reaction.target_message_id)?
+                    .message
+                    .body
+                    .clone();
                 Some(row(reaction, body))
             })
             .collect::<Vec<_>>();
@@ -69,27 +61,20 @@ impl Store {
         target_message_id: &str,
         reactor_pubkey: &str,
     ) -> Result<bool> {
-        Ok(self.reaction_projections().into_iter().any(|reaction| {
+        Ok(self.view().reactions().iter().any(|reaction| {
             reaction.target_message_id == target_message_id
                 && reaction.reactor_pubkey == reactor_pubkey
         }))
     }
 }
 
-fn messages_by_id(messages: &[MessageProjection]) -> BTreeMap<String, Message> {
-    messages
-        .iter()
-        .map(|row| (row.message.message_id.clone(), row.message.clone()))
-        .collect()
-}
-
-fn row(reaction: ReactionProjection, target_body: String) -> ReactionRow {
+fn row(reaction: &ReactionProjection, target_body: String) -> ReactionRow {
     ReactionRow {
-        reaction_id: reaction.reaction_id,
-        target_message_id: reaction.target_message_id,
-        channel_h: reaction.channel_h,
-        reactor_pubkey: reaction.reactor_pubkey,
-        emoji: reaction.emoji,
+        reaction_id: reaction.reaction_id.clone(),
+        target_message_id: reaction.target_message_id.clone(),
+        channel_h: reaction.channel_h.clone(),
+        reactor_pubkey: reaction.reactor_pubkey.clone(),
+        emoji: reaction.emoji.clone(),
         created_at: reaction.created_at,
         target_body,
     }
@@ -114,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn authored_reactions_join_only_current_fava_messages() {
+    fn authored_reactions_join_only_current_nip29_messages() {
         let store = Store::open_memory().unwrap();
         store.install_test_relay_delivery(TestRelayDelivery::new().events([
             event("mine", 9, "me", "pushed the fix", 5, "[]"),

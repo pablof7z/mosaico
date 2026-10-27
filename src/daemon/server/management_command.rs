@@ -206,7 +206,7 @@ async fn archive_named_channel(
 
 /// Whether `signer` is named by the channel's relay-signed kind:39001.
 ///
-/// One read of the cache the retained group-records observation keeps current.
+/// One read of the complete group view kept current by the stable product demand.
 /// The relay fallback this used to carry was the same question asked twice —
 /// the second time over the wire, and with the extra defect that it demanded
 /// the literal role string "admin" that NIP-29 does not require a relay to

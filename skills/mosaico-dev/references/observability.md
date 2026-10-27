@@ -112,9 +112,10 @@ tail -n 200 .container-state/claude-acp/mosaico/daemon.log
 
 ## Outgoing writes
 
-There is no app-side log of them. Fava signs and publishes every group write, so
-Mosaico never holds the bytes; Fava's durable publish queue owns outstanding
-delivery obligations.
+There is no durable app-side log of them. Product code signs each group write
+with the selected key, and the runtime reports positive, negative, or
+unconfirmed relay acknowledgement. There are no outstanding generic delivery
+obligations to inspect.
 
 For an earlier failure, search the full file with timestamps. Keep logs until
 the result has been reported.

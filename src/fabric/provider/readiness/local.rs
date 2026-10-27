@@ -28,7 +28,7 @@ pub(super) fn snapshot_ready(
     required_admins: &[String],
     managed: bool,
 ) -> bool {
-    let groups = crate::observed_views::GroupProjection::new(std::slice::from_ref(snapshot));
+    let groups = crate::group_projection::GroupProjection::new(std::slice::from_ref(snapshot));
     if groups.get_channel(ctx.channel).is_none() {
         return false;
     }

@@ -1,6 +1,6 @@
 //! Sending a file with a chat message.
 //!
-//! Fava signs the kind:24242 BUD-11 authorization; this module owns its
+//! The exact selected key signs kind:24242 BUD-11 authorization; this module owns its
 //! `t`/`x`/`expiration` rows, the `Nostr <base64url>` header encoding, the
 //! `PUT /upload`, the response-size ceiling, the descriptor parse, and the
 //! integrity gate that refuses a descriptor whose sha256 does not match the
@@ -13,13 +13,10 @@
 use crate::asset_hash::Sha256Hash;
 use crate::domain::ChatAttachment;
 use anyhow::{bail, Context, Result};
-use nostr::key::PublicKey;
+use nostr::key::Keys;
 use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 use url::Url;
-
-use crate::fava_host::FavaHost;
 
 mod authorization;
 
@@ -126,8 +123,7 @@ pub(crate) fn prepare_message(message: &str, attachments: &[Attachment]) -> Resu
 pub(crate) async fn upload_all(
     attachments: &[Attachment],
     relays: &[String],
-    fava: &Arc<FavaHost>,
-    author: PublicKey,
+    keys: &Keys,
 ) -> Result<Vec<ChatAttachment>> {
     validate(attachments)?;
     if attachments.is_empty() {
@@ -135,22 +131,9 @@ pub(crate) async fn upload_all(
     }
 
     let server = blossom_server(relays)?;
-    // Guard local/private-network destinations the same way the relay engine
-    // does: only allowed if the operator opted that exact host in.
-    let allowed_local = fava.allowed_local_hosts();
-    if is_local_url(&server) {
-        let host = server.host_str().unwrap_or_default().to_string();
-        if !allowed_local.contains(&host) {
-            anyhow::bail!(
-                "Blossom server {} is a local/private host not in allowed_local_hosts",
-                server
-            );
-        }
-    }
-
     let mut uploaded = Vec::with_capacity(attachments.len());
     for attachment in attachments {
-        let descriptor = upload(&server, attachment, fava, author).await?;
+        let descriptor = upload(&server, attachment, keys).await?;
         uploaded.push(ChatAttachment {
             url: descriptor.url,
             label: attachment.label.clone(),
@@ -197,12 +180,7 @@ fn blossom_server(relays: &[String]) -> Result<Url> {
     Ok(url)
 }
 
-async fn upload(
-    server: &Url,
-    attachment: &Attachment,
-    fava: &Arc<FavaHost>,
-    author: PublicKey,
-) -> Result<BlossomDescriptor> {
+async fn upload(server: &Url, attachment: &Attachment, keys: &Keys) -> Result<BlossomDescriptor> {
     let bytes = tokio::fs::read(&attachment.path).await.with_context(|| {
         format!(
             "reading attachment [{}] from {}",
@@ -211,7 +189,7 @@ async fn upload(
         )
     })?;
     let hash = Sha256Hash::of(&bytes);
-    let auth_token = authorization::sign_upload(fava, author, &hash).await?;
+    let auth_token = authorization::sign_upload(keys, &hash)?;
     let content_type = mime_guess::from_path(&attachment.path).first_or_octet_stream();
     let upload_url = server
         .join("upload")
@@ -278,22 +256,6 @@ async fn upload(
         url,
         sha256: returned_sha256,
     })
-}
-
-/// Whether `url` targets a loopback or RFC-1918 private address.
-fn is_local_url(url: &Url) -> bool {
-    use std::net::IpAddr;
-    let host = url.host_str().unwrap_or_default();
-    if host == "localhost" {
-        return true;
-    }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return match ip {
-            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-            IpAddr::V6(v6) => v6.is_loopback(),
-        };
-    }
-    false
 }
 
 #[cfg(test)]

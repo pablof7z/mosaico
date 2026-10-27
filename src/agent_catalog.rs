@@ -15,6 +15,7 @@ mod roots;
 pub use activation::{CodexRootConfig, NativeAgentActivation};
 use parse::{
     discover_codex_named_profiles, discover_dir, discover_hermes_profiles, discover_kimi_profiles,
+    discover_pi_profiles,
 };
 pub use removal::remove_native_profile;
 pub use roots::DiscoveryRoots;
@@ -76,6 +77,7 @@ impl AgentCatalog {
             AgentScope::Global,
             &mut profiles,
         )?;
+        discover_pi_profiles(&roots.pi, AgentScope::Global, &mut profiles)?;
         for workspace in workspaces {
             discover_dir(
                 &workspace.join(".codex/agents"),

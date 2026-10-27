@@ -4,17 +4,18 @@ use crate::state::Store;
 use std::sync::{Arc, Mutex};
 
 async fn offline_provider() -> Nip29Provider {
-    let fava = Arc::new(
-        crate::fava_host::FavaHost::open(
-            &["wss://relay.example.com".into()],
-            None,
-            None,
-            &Keys::generate(),
-        )
-        .unwrap(),
-    );
+    let runtime =
+        Arc::new(crate::nostr_runtime::NostrRuntime::new("wss://relay.example.com").unwrap());
+    let view = Arc::new(crate::fabric::nip29::view::Nip29ViewStore::default());
     let store = Arc::new(Mutex::new(Store::open_memory().unwrap()));
-    Nip29Provider::new(fava, store, None, Vec::new())
+    Nip29Provider::new(
+        runtime,
+        view,
+        store,
+        Keys::generate().public_key(),
+        None,
+        Vec::new(),
+    )
 }
 
 fn chat() -> ChatMessage {
@@ -34,7 +35,7 @@ fn addressed_chat(recipient: &str) -> ChatMessage {
     }
 }
 
-/// The draft is inspected unsigned because that is all Mosaico ever holds: Fava
+/// The draft is inspected unsigned because that is all Mosaico ever holds: Nostr runtime
 /// signs inside its own publish door and hands back an id, never an event.
 fn draft_tags(builder: nostr::event::EventBuilder) -> Vec<Vec<String>> {
     use nostr::event::FinalizeUnsignedEvent;
@@ -92,8 +93,8 @@ async fn no_reply_leaves_no_e_tag() {
     );
 }
 
-/// The context row belongs to Fava's group door, which appends it before the
-/// bytes are signed and REFUSES a draft that supplies its own. A chat draft
+/// The context row belongs to the provider finalization boundary, which appends
+/// it before signing. A chat draft
 /// that wrote an `h` would therefore never publish at all.
 #[tokio::test]
 async fn a_chat_draft_never_writes_its_own_group_context_row() {
@@ -110,7 +111,7 @@ async fn a_chat_draft_never_writes_its_own_group_context_row() {
 }
 
 /// Publishing writes nothing to the local store. A message becomes visible
-/// only after Fava delivers the observed row through the group subscription.
+/// only after Nostr runtime delivers the observed row through the group subscription.
 #[tokio::test]
 async fn publishing_a_chat_seeds_no_local_row() {
     use crate::state::{TestGroup, TestGroupDelivery};
@@ -124,15 +125,15 @@ async fn publishing_a_chat_seeds_no_local_row() {
             .admins(vec![author.clone()])
             .members(vec![author.clone()])]));
     });
-    let published = provider
+    let error = provider
         .publish_chat_checked(&chat(), &keys)
         .await
-        .expect("acceptance never depends on a relay");
+        .expect_err("offline relay cannot confirm acceptance");
 
     provider.with_store(|store| {
-        assert!(store.get_message(&published.event_id).unwrap().is_none());
-        assert!(store.get_event(&published.event_id).unwrap().is_none());
+        assert!(store.recent_chat_messages(0, 10).unwrap().is_empty());
     });
+    assert!(error.to_string().contains("configured relay is absent"));
 }
 
 /// An incomplete acquisition cannot prove that an unlisted signer is absent,
@@ -140,7 +141,7 @@ async fn publishing_a_chat_seeds_no_local_row() {
 /// member. Publishing must not start a second readiness/readback loop merely
 /// because another acquisition branch is still settling.
 #[tokio::test]
-async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
+async fn a_current_member_can_publish_from_the_retained_group_level() {
     use crate::state::{TestGroup, TestGroupDelivery};
 
     let provider = offline_provider().await;
@@ -149,12 +150,12 @@ async fn a_current_member_can_publish_while_group_acquisition_is_incomplete() {
     provider.with_store(|store| {
         store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("chan")
             .metadata("chan", "", "", 1)
-            .members(vec![author])
-            .availability(crate::group_snapshot::GroupAvailability::Acquiring)]));
+            .members(vec![author])]));
     });
 
-    provider
+    let error = provider
         .publish_chat_checked(&chat(), &keys)
         .await
-        .expect("the current positive member row authorizes publishing");
+        .expect_err("offline relay cannot confirm acceptance");
+    assert!(error.to_string().contains("configured relay is absent"));
 }

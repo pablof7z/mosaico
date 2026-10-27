@@ -257,6 +257,10 @@ async fn finish_recovery(
     channel: &str,
     mention_route_active: bool,
 ) -> RecoveryOutcome {
+    // The direct router rang once when it parked the inbox row, before an
+    // offline executor existed. Ring again after resume/spawn; the durable
+    // inbox claim makes this safe and closes the executor-readiness race.
+    crate::session_host::ring_doorbells(state.clone());
     if !mention_route_active {
         return RecoveryOutcome::Complete;
     }

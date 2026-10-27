@@ -4,9 +4,21 @@ pub(super) async fn rpc_sessions(state: &Arc<DaemonState>) {
     super::super::session_termination::shutdown_daemon_owned_rpc_sessions(state).await;
 }
 
-/// When tests/labs set `MOSAICO_REAP_SESSIONS_ON_STOP`, also kill every PTY
-/// supervisor owned by this `$MOSAICO_HOME`. Production leaves the flag unset so
-/// detached sessions survive daemon restart (see AGENTS.md).
+pub(super) async fn wait_for_termination(state: &Arc<DaemonState>) {
+    let mut sigterm =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+    tokio::select! {
+        _ = state.connections.shutdown.notified() => {}
+        _ = async {
+            match &mut sigterm {
+                Some(signal) => { signal.recv().await; }
+                None => std::future::pending().await,
+            }
+        } => {}
+    }
+}
+
+/// Tests and labs may explicitly request that daemon-owned PTY supervisors end.
 pub(super) fn pty_supervisors_if_requested() {
     if !crate::pty::reap_sessions_on_stop_enabled() {
         return;
@@ -23,8 +35,6 @@ pub(super) fn pty_supervisors_if_requested() {
                 tracing::warn!(%error, "PTY supervisor reap failed during daemon stop");
             }
         }
-        Err(error) => {
-            tracing::warn!(%error, "PTY supervisor reap aborted during daemon stop");
-        }
+        Err(error) => tracing::warn!(%error, "PTY supervisor reap aborted during daemon stop"),
     }
 }

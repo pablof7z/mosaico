@@ -6,7 +6,7 @@ durable wire contracts for session admission, termination, and PTY re-homing.
 ## `session_start`
 
 Spawns an in-daemon `SessionTask` (publishes profile and presence, declares its
-Fava live-query demand, and routes mentions — today's `runtime::run_session`).
+SDK product demand, and routes mentions — today's `runtime::run_session`).
 
 ```jsonc
 params: {"agent": "coder", "observed_harness": "claude-code", "claimed_harness": "claude-code"|null, "admitted_preset": "unrestricted"|null, "admitted_transport": "pty"|"acp"|"app-server"|"pi-rpc"|null, "endpoint_provenance": "launch"|"hook", "pty_session": "endpoint-id"|null, "endpoint_kind": "pty"|"acp"|"app-server"|"pi-rpc"|null, "profile": "reviewer"|null, "harness_session": "native-id"|null, "cwd": "/path", "watch_pid": 12345|null}
@@ -17,7 +17,7 @@ result: {"pubkey": "hex"}
 addressed by its dashed public handle, such as `@quill-codex`, backed by the
 session's own minted pubkey. The npub is its permanent copy-paste resume value;
 the handle is a seven-day offline lease. The provider opens the workspace root
-NIP-29 group through Fava, names it from the workspace slug, and adds the session
+NIP-29 group through the provider, names it from the workspace slug, and adds the session
 agent as a relay member before the engine publishes presence.
 
 Launch admission persists `observed_harness`, preset, transport, and endpoint
@@ -50,13 +50,17 @@ The Pi extension keeps one dedicated daemon UDS connection for its inbound
 delivery loop. It never reads Mosaico's database or runs the presentation CLI.
 
 ```jsonc
+session_delivery_open
+params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path"}
+result: {"state":"live"}
+
 session_delivery_wait
 params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",
          "timeout_secs": 1..60}
 result: {"kind":"timeout"}
      | {"kind":"delivery", "lease_id":"pi-<generation>-<nonce>",
         "message":{"custom_type":"mosaico.delivery", "content":"<mosaico>…",
-                   "display":false, "details":{"event_ids":["…"]}}}
+                   "details":{"event_ids":["…"]}}}
 
 session_delivery_ack
 params: {"harness":"pi", "harness_session":"pi-native-uuid", "cwd":"/path",
@@ -70,6 +74,12 @@ acks `accepted:true` only after Pi emits the matching `message_start` carrying
 that lease id. A rejected, stale, expired, or foreign lease cannot consume a
 later delivery. An unacknowledged lease is requeued on expiry or daemon restart.
 Untagged channel chat remains turn-awareness context and never wakes Pi.
+
+Before entering the renewable wait loop, the Pi extension calls
+`session_delivery_open` with its caller identity. This synchronously establishes
+the extension as the session's live wake path, avoiding a startup window where
+an extension-backed session would be mislabeled as unhosted.
+
 Managed `pi-rpc` sessions reject these methods because their RPC transport owns
 delivery and completion.
 
@@ -129,7 +139,7 @@ native resume locator restores the same provider conversation; without one,
 Mosaico launches a fresh provider conversation under the same session pubkey.
 Revocation disables automatic execution but does not discard an already
 observed and parked direct inbox row; that row stays pending for retry or
-manual action. Fava publish acceptance by itself never creates that row.
+manual action. Relay acknowledgement by itself never creates that row.
 
 ## `pty_resume_native`
 

@@ -1,4 +1,4 @@
-use super::format_local_datetime;
+use crate::util::format_local_datetime;
 
 /// Everything needed to render one inbound message as an email-like envelope.
 pub(in crate::cli) struct EnvelopeView<'a> {

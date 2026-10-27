@@ -14,14 +14,14 @@ zero or multiple joined channels must name the destination.
 params: {"id": "event-id"|null, "channel": "#root/child"|null,
          "since": u64|"2h"|null, "limit": u64|null, "offset": u64,
          "tail": bool, "live": bool}
-stream: {"item": {"event_id": "hex", "from_slug": "agent",
+stream: {"item": {"id": "6-char", "from_slug": "agent",
                   "channel": "#root/child", "body": "…",
                   "truncated": false, "created_at": 123}}
 ```
 
 Normal history reads use the shared 100-word render limit and set
 `truncated=true` when content is shortened. Exact `id` reads return the complete
-message body. Both read from the current Fava-delivered message view; Mosaico has
+message body. Both read from the current Nostr runtime-delivered message view; Mosaico has
 no persisted message history to fall back to. Explicit history reads are
 deliberate inspection and are not subject to automatic-context join cutoffs.
 `since` accepts a Unix timestamp or a relative duration with `s`, `m`, `h`, or
@@ -38,7 +38,7 @@ result: {
   "channels": [{
     "ref": "#root/child",
     "messages": [{
-      "event_id": "hex", "from": "public-ref",
+      "id": "6-char", "from": "public-ref",
       "recipients": ["public-ref", …], "body": "…", "created_at": 123
     }, …]
   }, …],
@@ -46,8 +46,8 @@ result: {
 }
 ```
 
-Search is a one-shot query over the current rows delivered by the retained Fava
-observation. It does not open a separate relay query, backfill from SQLite, or
+Search is a one-shot query over the current decoded NIP-29 view. It does not
+open a separate relay query, backfill from SQLite, or
 retain removed messages. An empty `channels` list and `["#"]` both search every
 currently observed channel. Any narrower channel includes its descendants.
 There is no workspace selector: a root channel path already scopes its
@@ -72,16 +72,14 @@ params: {"message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}],
          "tags": ["agent"], "force": false,
          "channel": "#root/child"|null, "wait_intent": false}
-result: {"event_id": "hex", "channel": "#root/child",
-         "mentioned_pubkeys": ["hex"], "mentioned_labels": ["agent"],
-         "recipient_reminders": [], "coaching": []}
+result: {"id": "6-char", "notices": [{"level": "warn", "code": "…", "summary": "…"}]}
 ```
 
 Publishes a kind:9 event signed by the caller's session key and succeeds only
 after checked relay acceptance. That acceptance is a write outcome, not an
 inbound event: it creates no message row, recipient edge, inbox item, or route.
-Destination selection never changes session membership. If the retained Fava
-observation later delivers the message, explicit p-tags to identities owned by
+Destination selection never changes session membership. If the current view
+later receives the message, explicit p-tags to identities owned by
 this daemon are durably parked under the exact recipient pubkey whether the
 executor is running, stopped, route-less, or revoked. Locality selects the
 executor after observation. Remote p-tags cause no local action. Untagged
@@ -90,7 +88,7 @@ observed channel chat remains ambient awareness.
 `wait_intent` is true only when the calling surface will immediately establish
 a correlated wait after acceptance. An unhosted caller's first directed send
 with neither this intent nor an already-active matching wait returns structured
-`unhosted_no_return_path` coaching. The coaching claim is durable for that
+`unhosted_no_return_path` notice. The notice claim is durable for that
 runtime generation; ambient chat never consumes it.
 
 Authored chat is limited to 600 characters and is rejected before any attachment
@@ -98,25 +96,25 @@ upload. The daemon leaves `[label]` markers in content, appends missing markers
 as trailing lines, uploads each file, and adds `["attachment", URL, LABEL]` to
 the signed kind:9. Duplicate labels, unsafe relative labels, and failed uploads
 abort without publishing. Mosaico may persist the verified host-local directory
-for downloaded or authored files, keyed by event id; Fava owns the message and
+for downloaded or authored files, keyed by event id; Nostr runtime owns the message and
 all attachment tags, URLs, and metadata.
 
 ## `channel_wait`
 
 ```jsonc
 params: {"timeout_secs": 60, "channels": ["#root/child"],
-         "from": "human-or-agent"|null, "reply_to": "event-id"|null}
+         "from_labels": ["human-or-agent"], "reply_to": "6-char"|null}
 result: {"outcome": "message", "waited_secs": 4,
          "channels": ["#root/child"],
-         "message": {"event_id": "hex", "channel": "#root/child", "body": "…"}}
+         "message": {"id": "6-char", "channel": "#root/child", "body": "…"}}
       | {"outcome": "timeout", "timeout_secs": 60,
          "channels": ["#root/child"]}
 ```
 
-Wait captures the durable Fava arrival cursor and the caller's local
-joined-channel set before subscribing to the current Fava-delivered view.
+Wait captures the durable Nostr runtime arrival cursor and the caller's local
+joined-channel set before subscribing to the current Nostr runtime-delivered view.
 Repeated `channels` entries may only narrow that set. An omitted list means all
-joined channels, including an empty set. `from` narrows the author. A correlated
+joined channels, including an empty set. `from_labels` narrows the author; repeat for multiple candidates. A correlated
 send-wait additionally requires a native reply tag pointing to the observed
 outbound event. Backend-management traffic and the caller's own messages are
 excluded.
@@ -135,14 +133,12 @@ Timeout is a successful RPC outcome.
 ```jsonc
 params: {"id": "event-id-or-prefix", "message": "see [report]",
          "attachments": [{"label": "report", "path": "/absolute/report.pdf"}]}
-result: {"event_id": "hex", "reply_to": "hex",
-         "channel": "#root/child", "mentioned_pubkey": "hex",
-         "recipient_reminders": [], "coaching": []}
+result: {"id": "6-char", "notices": [{"level": "warn", "code": "…", "summary": "…"}]}
 ```
 
 Publishes a threaded NIP-10 reply in the original message's channel and targets
 its author. The original message and return address must be present in the
-current Fava-delivered view; there is no SQLite message fallback. The caller
+current Nostr runtime-delivered view; there is no SQLite message fallback. The caller
 must belong to that channel. Attachment handling matches `channel_send`.
 
 ## Automatic ambient cutoff
@@ -159,4 +155,4 @@ with count, time window, and authors, plus a pointer to the coordination skill
 for deliberate history navigation. Direct inbox rows do not use this cutoff:
 they belong to an exact local recipient because an observed event explicitly
 p-tagged that pubkey, and remain claimable across route and runtime changes.
-Only event id and arrival order are durable; event content remains in Fava.
+Only event id and arrival order are durable; event content remains in Nostr runtime.

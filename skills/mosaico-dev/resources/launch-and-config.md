@@ -62,6 +62,12 @@ old names and fields; do not add aliases, fallback reads, or conversions.
   managed mode uses `pi --mode rpc`, persists `pi-rpc`, and completes only on
   `agent_end`. Pi exposes no named-profile selector, so both transports reject
   `profile`.
+- **Pi profiles:** a Pi profile is an agent directory `~/.pi/<name>` containing
+  `settings.json`, selected per process by `PI_CODING_AGENT_DIR` (default
+  `~/.pi/agent`). The catalog discovers them under `<name>-pi` slugs, and an
+  unhosted session claims that slug, so its handle is
+  `<codename>-<profile>-pi` (`agent-pi` for the default profile). Sessions
+  Mosaico hosted keep the launch-owned `MOSAICO_AGENT` slug.
 
 Provider-specific lab detail lives in `references/container-backends.md`,
 `references/acp-backends.md`, and `references/grok-pty-lab.md`.

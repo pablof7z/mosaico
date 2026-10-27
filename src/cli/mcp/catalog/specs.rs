@@ -29,12 +29,11 @@ pub(super) const SPECS: &[ToolSpec] = &[
         description: "Wait for the next matching message without polling. Returns a message or \
                       timeout outcome.",
         props: &[
-            Prop::new("timeout_seconds", "integer", "Maximum seconds to wait."),
+            Prop::new("seconds", "integer", "Maximum seconds to wait."),
             Prop::new("channels", "array", "Optional joined channels to watch."),
-            Prop::new("from", "string", "Optional human or agent author filter."),
-            SESSION_PROP,
+            Prop::new("from", "array", "Optional human or agent author filters; matches any value."),
         ],
-        required: &["timeout_seconds"],
+        required: &["seconds"],
         read_only: true,
         destructive: false,
     },
@@ -59,7 +58,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "boolean",
                 "Expand every known workspace and channel, including unjoined ones.",
             ),
-            SESSION_PROP,
         ],
         required: &[],
         read_only: true,
@@ -74,7 +72,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "string",
                 "Full channel path (#workspace/child). Must already be joined.",
             ),
-            SESSION_PROP,
             Prop::new("limit", "integer", "Maximum messages to return."),
             Prop::new("since", "string", "Unix timestamp or duration like 2h."),
             Prop::new("id", "string", "Read one message by id prefix."),
@@ -85,7 +82,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
     },
     ToolSpec {
         name: "mosaico.channel_search",
-        description: "Search messages in the daemon's current Fava view, newest first.",
+        description: "Search messages in the daemon's current Nostr runtime view, newest first.",
         props: &[
             Prop::new("from", "array", "Author identities; matches any value."),
             Prop::new(
@@ -129,16 +126,15 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "force",
                 "boolean",
-                "Publish intentional mention-like or Name: text without coaching.",
+                "Publish intentional mention-like or Name: text without notices.",
             ),
             Prop::new(
                 "channel",
                 "string",
                 "Full channel path (#workspace/child). Must already be joined.",
             ),
-            SESSION_PROP,
             Prop::new(
-                "wait_seconds",
+                "seconds",
                 "integer",
                 "After sending, wait this many seconds for a correlated reply.",
             ),
@@ -164,8 +160,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "Full absolute path for the new leaf (#workspace/epic/child).",
             ),
             Prop::new("about", "string", "Short stable channel description."),
-            Prop::new("agents", "array", "Agent targets as slug@backend strings."),
-            SESSION_PROP,
+            Prop::new("agents", "array", "Agent targets: slug for local agents, slug@backend for remote agents."),
         ],
         required: &["channel", "about"],
         read_only: false,
@@ -177,11 +172,10 @@ pub(super) const SPECS: &[ToolSpec] = &[
                       acknowledgement that never interrupts the target's turn. Prefer \
                       this over a chat reply for a bare ack (\"got it\", 👍, ✅).",
         props: &[
-            Prop::new("message_id", "string", "Target message id or short prefix."),
+            Prop::new("id", "string", "Target message id (6-char prefix)."),
             Prop::new("emoji", "string", "Reaction emoji (e.g. 👍 ✅ 👀) or +/-."),
-            SESSION_PROP,
         ],
-        required: &["message_id", "emoji"],
+        required: &["id", "emoji"],
         read_only: false,
         destructive: false,
     },
@@ -194,7 +188,7 @@ pub(super) const SPECS: &[ToolSpec] = &[
             Prop::new(
                 "target",
                 "string",
-                "Agent target as agent or agent@backend-label.",
+                "Agent slug, or slug@backend for remote agents.",
             ),
             Prop::new("workspace", "string", "Workspace/root channel to run in."),
             Prop::new(
@@ -207,7 +201,6 @@ pub(super) const SPECS: &[ToolSpec] = &[
                 "string",
                 "Opening message delivered after the new session ACKs.",
             ),
-            SESSION_PROP,
         ],
         required: &["target", "workspace", "message"],
         read_only: false,
@@ -225,15 +218,11 @@ pub(super) const SPECS: &[ToolSpec] = &[
     ),
 ];
 
-const SESSION_PROP: Prop = Prop::new(
-    "session",
+const CHANNEL_PROPS: &[Prop] = &[Prop::new(
+    "channel",
     "string",
-    "Public session npub, hex pubkey, or handle.",
-);
-const CHANNEL_PROPS: &[Prop] = &[
-    Prop::new("channel", "string", "Full channel path (#workspace/child)."),
-    SESSION_PROP,
-];
+    "Full channel path (#workspace/child).",
+)];
 
 const fn channel_tool(
     name: &'static str,

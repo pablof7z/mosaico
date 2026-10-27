@@ -12,7 +12,8 @@ pub(super) struct SessionHandle {
     pub(super) runtime_generation: u64,
 }
 
-/// Metadata tracked per live peer session for join/leave derivation.
+/// Metadata tracked only to derive ephemeral join/leave tail events from the
+/// current complete product view.
 #[derive(Clone)]
 pub(super) struct PeerTracked {
     pub(super) first_seen: u64,

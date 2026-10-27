@@ -1,5 +1,5 @@
 use crate::daemon_harness::*;
-use crate::fava_client::FavaRelayClient;
+use crate::nostr_client::NostrRelayClient;
 use mosaico::daemon::client::Client;
 use mosaico::state::Store;
 
@@ -15,12 +15,8 @@ mod human_who;
 mod launch_mentions;
 #[path = "channels/list.rs"]
 mod list;
-#[path = "channels/management_commands.rs"]
-mod management_commands;
 #[path = "channels/native_context.rs"]
 mod native_context;
-#[path = "channels/orchestration.rs"]
-mod orchestration;
 #[path = "channels/pty_bootstrap.rs"]
 mod pty_bootstrap;
 #[path = "channels/publication_membership.rs"]
@@ -80,8 +76,7 @@ fn write_config_with_backend_key(home: &Home, per_session_rooms: bool, backend_k
     let mut body = serde_json::json!({
         "whitelistedPubkeys": [user_pk],
         "backendName": "test-host",
-        "relays": [shared_nip29_relay_url()],
-        "indexerRelay": shared_nip29_relay_url(),
+        "relay": shared_nip29_relay_url(),
         "userNsec": EXAMPLE_USER_NSEC,
         "perSessionRooms": per_session_rooms,
     });
@@ -104,7 +99,7 @@ fn wait_for_channel_metadata(home: &Home, channel: &str) {
         wait_until(std::time::Duration::from_secs(10), || {
             observed_channel_members(&path).is_some()
         }),
-        "channel metadata for {channel:?} was not delivered through Fava; daemon_log={}",
+        "channel metadata for {channel:?} was not delivered through Nostr runtime; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
 }
@@ -127,30 +122,28 @@ pub(crate) fn initialize_workspace_root(channel: &str, path: &str) {
 }
 
 async fn precreate_channel_group_as_user(channel: &str) {
-    use fava_simple_groups::{create_group, edit_metadata, SimpleGroup};
+    use nostr::event::{EventBuilder, Kind, Tag};
     use nostr::key::Keys;
 
     let relay_str = shared_nip29_relay_url();
-    let relay_url = fava::RelayUrl::parse(&relay_str).expect("parse relay url");
     let user_keys = Keys::parse(EXAMPLE_USER_NSEC).unwrap();
-    let client = FavaRelayClient::connect(user_keys.clone(), &relay_str)
+    let client = NostrRelayClient::connect(user_keys.clone(), &relay_str)
         .await
-        .expect("connect Fava relay client");
+        .expect("connect Nostr relay client");
 
-    let sg = SimpleGroup::new(channel, vec![relay_url]).expect("build SimpleGroup");
     let lock_edit = mosaico::fabric::nip29::lifecycle::group_lock_closed(channel, channel);
-
-    for (label, builder) in [
-        (
-            "9007 create-group",
-            create_group(&sg).expect("build create-group"),
-        ),
-        (
-            "9002 lock-closed",
-            edit_metadata(&sg, &lock_edit).expect("build edit-metadata"),
-        ),
-    ] {
-        let out = client.send_fava_builder(builder).await.unwrap();
+    let create = EventBuilder::new(Kind::Custom(9007), "").tag(Tag::custom("h", [channel]));
+    let mut lock = EventBuilder::new(Kind::Custom(9002), "")
+        .tag(Tag::custom("h", [channel]))
+        .tag(Tag::custom("name", [channel]));
+    if let Some(picture) = lock_edit.picture.as_deref() {
+        lock = lock.tag(Tag::custom("picture", [picture]));
+    }
+    if lock_edit.closed {
+        lock = lock.tag(Tag::custom("closed", Vec::<String>::new()));
+    }
+    for (label, builder) in [("9007 create-group", create), ("9002 lock-closed", lock)] {
+        let out = client.send_event_builder(builder).await.unwrap();
         assert!(
             !out.success.is_empty(),
             "{label} should be accepted by the NIP-29 relay: {:?}",

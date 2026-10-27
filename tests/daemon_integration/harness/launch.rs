@@ -9,6 +9,9 @@ if [ "${1:-}" = "--version" ]; then
   echo 1.43.0
   exit 0
 fi
+if [ "${0##*/}" = "grok" ] && [ "$#" -eq 0 ]; then
+  set -- sleep-2
+fi
 case "${1:-forever}" in
   acp)
     test -n "${MOSAICO_PUBKEY:-}" && test -n "${AGENT_NSEC:-}" || exit 3
@@ -55,7 +58,7 @@ case "${1:-forever}" in
   *) exit 2 ;;
 esac
 "#;
-    for executable in ["opencode", "goose", "kimi"] {
+    for executable in ["opencode", "goose", "kimi", "grok"] {
         let shim = bin.join(executable);
         std::fs::write(&shim, body).unwrap();
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();

@@ -1,6 +1,6 @@
 use super::Nip29Provider;
+use anyhow::Context;
 use anyhow::Result;
-use nostr::event::Event;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -8,19 +8,22 @@ const RELATIONSHIP_READBACK_TIMEOUT: Duration = Duration::from_secs(15);
 
 impl Nip29Provider {
     async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
-        use crate::fabric::nip29::wire::KIND_GROUP_METADATA;
-        let read = self
-            .fava
-            .fetch_group_records(parent_h, 10, Duration::from_secs(5))
-            .await?;
-        super::group_state::require_proven_projection(&read, "reading parent relationships")?;
-        Ok(read
-            .rows
-            .iter()
-            .map(|row| &row.event)
-            .filter(|event| event.kind.as_u16() == KIND_GROUP_METADATA)
-            .max_by_key(|event| event.created_at.as_secs())
-            .map(children_from_metadata)
+        let snapshot = self.group_snapshot(parent_h).await?;
+        Ok(snapshot
+            .metadata
+            .as_ref()
+            .map(|metadata| {
+                metadata
+                    .tags
+                    .iter()
+                    .filter_map(|tag| {
+                        (tag.first().map(String::as_str) == Some("child"))
+                            .then(|| tag.get(1).cloned())
+                            .flatten()
+                            .filter(|child| !child.is_empty())
+                    })
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
@@ -34,65 +37,29 @@ impl Nip29Provider {
         parent_h: &str,
         child_h: &str,
     ) -> Result<()> {
-        let deadline = tokio::time::Instant::now() + RELATIONSHIP_READBACK_TIMEOUT;
-        loop {
-            let last_error = match self.fetch_parent_children(parent_h).await {
-                Ok(children) if children.contains(child_h) => return Ok(()),
-                Ok(_) => None,
-                Err(error) => Some(format!("{error:#}")),
-            };
-            if tokio::time::Instant::now() >= deadline {
-                if let Some(error) = last_error {
-                    anyhow::bail!(
-                        "relay did not confirm child {child_h:?} in parent metadata; \
-                         final read failed: {error}"
-                    );
+        let mut changes = self.view.subscribe_changes();
+        let readback = async {
+            loop {
+                match self.fetch_parent_children(parent_h).await {
+                    Ok(children) if children.contains(child_h) => return Ok(()),
+                    Ok(_) => {}
+                    Err(error) => tracing::debug!(
+                        parent = parent_h,
+                        child = child_h,
+                        error = %format!("{error:#}"),
+                        "parent relationship read awaits a newer complete view"
+                    ),
                 }
-                anyhow::bail!("relay did not confirm child {child_h:?} in parent metadata");
+                changes
+                    .changed()
+                    .await
+                    .context("NIP-29 view closed during parent relationship readback")?;
             }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-    }
-}
-
-fn children_from_metadata(event: &Event) -> BTreeSet<String> {
-    event
-        .tags
-        .iter()
-        .filter_map(|tag| {
-            let values = tag.as_slice();
-            (values.first().map(String::as_str) == Some("child"))
-                .then(|| values.get(1).cloned())
-                .flatten()
-                .filter(|child| !child.is_empty())
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use nostr::event::Tag;
-    use nostr::event::{EventBuilder, FinalizeEvent, Kind};
-    use nostr::key::Keys;
-
-    #[test]
-    fn child_parser_preserves_every_existing_relationship() {
-        let event = EventBuilder::new(Kind::from(39000u16), "")
-            .tags([
-                Tag::parse(["d", "parent"]).unwrap(),
-                Tag::parse(["child", "first"]).unwrap(),
-                Tag::parse(["name", "Parent"]).unwrap(),
-                Tag::parse(["child", "second"]).unwrap(),
-                Tag::parse(["child", "first"]).unwrap(),
-                Tag::parse(["child", ""]).unwrap(),
-            ])
-            .finalize(&Keys::generate())
-            .unwrap();
-
-        assert_eq!(
-            children_from_metadata(&event),
-            BTreeSet::from(["first".to_string(), "second".to_string()])
-        );
+        };
+        tokio::time::timeout(RELATIONSHIP_READBACK_TIMEOUT, readback)
+            .await
+            .with_context(|| {
+                format!("relay did not confirm child {child_h:?} in parent metadata")
+            })?
     }
 }

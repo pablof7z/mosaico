@@ -12,14 +12,14 @@ impl fmt::Display for GroupOperationStage {
         let label = match self {
             Self::Configuration => "configuration",
             Self::Build => "event construction",
-            Self::Publish => "Fava publish",
+            Self::Publish => "relay publication",
         };
         formatter.write_str(label)
     }
 }
 
 /// Exact provenance for a group-management operation that did not complete.
-/// The detail may come from pre-publication setup or from Fava's typed terminal
+/// The detail may come from pre-publication setup or from Nostr runtime's typed terminal
 /// result, and is never reclassified by polling Mosaico's projected roster.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GroupOperationError {
@@ -125,7 +125,7 @@ mod tests {
             "{rendered}"
         );
         assert!(
-            rendered.contains("9000 put-user Fava publish failed"),
+            rendered.contains("9000 put-user relay publication failed"),
             "{rendered}"
         );
         assert!(

@@ -3,6 +3,7 @@ use crate::daemon::tail_event::TailEvent;
 use crate::reconcile::{StatusReconciler, SubscriptionReconciler};
 use crate::session::Harness;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
@@ -36,6 +37,47 @@ impl CatalogState {
             agents: Mutex::new(crate::agent_catalog::AgentCatalog::default()),
             harnesses: Mutex::new(Vec::new()),
         }
+    }
+}
+
+/// Coalesces backend-profile refresh triggers without retaining signed events.
+pub(super) struct ProfileRefreshState {
+    dirty: AtomicBool,
+    running: AtomicBool,
+}
+
+impl ProfileRefreshState {
+    pub(super) fn new() -> Self {
+        Self {
+            dirty: AtomicBool::new(false),
+            running: AtomicBool::new(false),
+        }
+    }
+
+    /// Record a newer desired profile and claim the sole worker when idle.
+    pub(super) fn request(&self) -> bool {
+        self.dirty.store(true, Ordering::Release);
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    pub(super) fn take_dirty(&self) -> bool {
+        self.dirty.swap(false, Ordering::AcqRel)
+    }
+
+    pub(super) fn is_dirty(&self) -> bool {
+        self.dirty.load(Ordering::Acquire)
+    }
+
+    /// Release ownership, reclaiming it if a request raced with release.
+    pub(super) fn release_or_reclaim(&self) -> bool {
+        self.running.store(false, Ordering::Release);
+        self.is_dirty()
+            && self
+                .running
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
     }
 }
 
@@ -74,8 +116,9 @@ pub(super) struct SubscriptionState {
     pub(super) roots: Mutex<Vec<String>>,
     pub(super) reconciler: Mutex<SubscriptionReconciler>,
     pub(super) sync: tokio::sync::Mutex<()>,
-    /// The one retained NIP-29 group-records observation. Mosaico owns this
-    /// handle and its lifetime; Fava caches no observation on its behalf.
+    pub(super) profile_authors: Mutex<std::collections::BTreeSet<String>>,
+    /// The one stable NIP-29 group-records demand. Product coverage owns its
+    /// lifetime; the runtime only maps the stable id to an SDK subscription.
     pub(super) group_records: Mutex<super::group_records::GroupRecordsWatch>,
 }
 
@@ -85,6 +128,7 @@ impl SubscriptionState {
             roots: Mutex::new(Vec::new()),
             reconciler: Mutex::new(SubscriptionReconciler::new()),
             sync: tokio::sync::Mutex::new(()),
+            profile_authors: Mutex::new(std::collections::BTreeSet::new()),
             group_records: Mutex::new(super::group_records::GroupRecordsWatch::default()),
         }
     }
@@ -125,7 +169,7 @@ impl ConnectionState {
     }
 }
 
-/// Bounded, rebuildable relay-facing observations used only for projection and dedup.
+/// Bounded, rebuildable projection state for ephemeral tail events only.
 pub(super) struct DedupState {
     pub(super) peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
     pub(super) profiles: Mutex<HashSet<String>>,

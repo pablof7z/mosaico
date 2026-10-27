@@ -5,13 +5,23 @@ use std::path::PathBuf;
 
 pub const OPENCODE_PLUGIN_TS: &str = include_str!("../../../integrations/opencode/mosaico.ts");
 pub const PI_EXTENSION_TS: &str = include_str!("../../../integrations/pi/mosaico.ts");
+pub const PI_COMMAND_TS: &str = include_str!("../../../integrations/pi/command.ts");
+pub const PI_DAEMON_TS: &str = include_str!("../../../integrations/pi/daemon.ts");
 pub const PI_DELIVERY_TS: &str = include_str!("../../../integrations/pi/delivery.ts");
+pub const PI_PANEL_TS: &str = include_str!("../../../integrations/pi/panel.ts");
+pub const PI_PANEL_MODEL_TS: &str = include_str!("../../../integrations/pi/panel-model.ts");
+pub const PI_PANEL_VIEW_TS: &str = include_str!("../../../integrations/pi/panel-view.ts");
 pub const PI_PROTOCOL_TS: &str = include_str!("../../../integrations/pi/protocol.ts");
 pub const PI_STATUS_TS: &str = include_str!("../../../integrations/pi/status.ts");
 pub const PI_TOOLS_TS: &str = include_str!("../../../integrations/pi/tools.ts");
 pub const PI_EXTENSION_FILES: &[(&str, &str)] = &[
     ("index.ts", PI_EXTENSION_TS),
+    ("command.ts", PI_COMMAND_TS),
+    ("daemon.ts", PI_DAEMON_TS),
     ("delivery.ts", PI_DELIVERY_TS),
+    ("panel.ts", PI_PANEL_TS),
+    ("panel-model.ts", PI_PANEL_MODEL_TS),
+    ("panel-view.ts", PI_PANEL_VIEW_TS),
     ("protocol.ts", PI_PROTOCOL_TS),
     ("status.ts", PI_STATUS_TS),
     ("tools.ts", PI_TOOLS_TS),
@@ -247,12 +257,7 @@ pub fn hook_entries(h: &Harness) -> Vec<(&'static str, serde_json::Value)> {
 }
 
 pub fn host_for_harness(h: &Harness) -> &'static str {
-    match h.id {
-        "claude-code" => "claude-code",
-        "codex" => "codex",
-        "grok" => "grok",
-        _ => h.id,
-    }
+    h.id
 }
 
 #[cfg(test)]

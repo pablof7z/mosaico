@@ -39,7 +39,7 @@ fn context<'a>(expect_member: &'a str, parent_hint: Option<&'a str>) -> ChannelC
 }
 
 #[test]
-fn fava_snapshot_proves_existing_member_ready() {
+fn nip29_snapshot_proves_existing_member_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("", &[admin], &[member]);
@@ -53,7 +53,7 @@ fn fava_snapshot_proves_existing_member_ready() {
 }
 
 #[test]
-fn fava_snapshot_does_not_prove_missing_member_ready() {
+fn nip29_snapshot_does_not_prove_missing_member_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let other = nostr::key::Keys::generate().public_key();
@@ -68,7 +68,7 @@ fn fava_snapshot_does_not_prove_missing_member_ready() {
 }
 
 #[test]
-fn fava_snapshot_does_not_prove_missing_admin_ready() {
+fn nip29_snapshot_does_not_prove_missing_admin_ready() {
     let admin = nostr::key::Keys::generate().public_key();
     let other_admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
@@ -83,7 +83,7 @@ fn fava_snapshot_does_not_prove_missing_admin_ready() {
 }
 
 #[test]
-fn managed_fava_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
+fn managed_nip29_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
     let admin = nostr::key::Keys::generate().public_key();
     let obsolete = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
@@ -98,7 +98,7 @@ fn managed_fava_snapshot_is_not_ready_while_an_obsolete_admin_remains() {
 }
 
 #[test]
-fn fava_subgroup_needs_relay_parent_consent_check() {
+fn nip29_subgroup_needs_relay_parent_consent_check() {
     let admin = nostr::key::Keys::generate().public_key();
     let member = nostr::key::Keys::generate().public_key();
     let snapshot = ready_snapshot("parent", &[admin], &[member]);
@@ -144,7 +144,7 @@ fn cold_nested_resolution_intents_preserve_every_ancestor() {
         )
         .unwrap(),
         None,
-        "Fava root metadata must suppress a stale pending ancestor"
+        "Nostr runtime root metadata must suppress a stale pending ancestor"
     );
 }
 
@@ -171,7 +171,7 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
         )
         .unwrap(),
         None,
-        "Fava root truth arriving before execution must suppress the captured hint"
+        "Nostr runtime root truth arriving before execution must suppress the captured hint"
     );
 
     assert_eq!(
@@ -184,51 +184,4 @@ fn execution_time_relay_metadata_overrides_captured_parent_hint() {
         .unwrap(),
         Some("relay-parent".into())
     );
-}
-
-#[tokio::test]
-async fn managed_admin_removal_returns_the_exact_fava_failure_without_local_roster_patch() {
-    use crate::state::{TestGroup, TestGroupDelivery};
-
-    let configured = nostr::key::Keys::generate().public_key().to_hex();
-    let removed = nostr::key::Keys::generate().public_key().to_hex();
-    let state =
-        crate::daemon::server::DaemonState::new_for_test_with_whitelisted(vec![configured.clone()])
-            .await;
-    let management = state.fabric_provider().management_pubkey();
-    let snapshot = ready_snapshot(
-        "",
-        &[
-            nostr::key::PublicKey::from_hex(&management).unwrap(),
-            nostr::key::PublicKey::from_hex(&configured).unwrap(),
-            nostr::key::PublicKey::from_hex(&removed).unwrap(),
-        ],
-        &[],
-    );
-    for _ in 0..2 {
-        state.fava().script_group_snapshot(snapshot.clone());
-    }
-    state
-        .with_store(|store| {
-            store.install_test_group_delivery(TestGroupDelivery::new([TestGroup::new("room")
-                .metadata("Room", "", "", 1)
-                .admins(vec![management, configured, removed.clone()])
-                .members(Vec::new())]));
-            store.upsert_workspace("room", "/tmp/managed-room", 1)?;
-            Ok::<(), anyhow::Error>(())
-        })
-        .unwrap();
-    state
-        .fava()
-        .script_write_error("terminal receipt", "relay explicitly rejected removal");
-
-    let error = state
-        .fabric_provider()
-        .reconcile_managed_admins("room", Some(&[]))
-        .await
-        .unwrap_err();
-    let rendered = format!("{:#}", anyhow::Error::new(error));
-    assert!(rendered.contains("one obsolete admin removal for 1 users"));
-    assert!(rendered.contains("relay explicitly rejected removal"));
-    assert!(state.with_store(|store| store.is_channel_admin("room", &removed).unwrap()));
 }

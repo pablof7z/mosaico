@@ -1,4 +1,5 @@
 use super::*;
+use crate::channel_render::render_channel_read_row;
 
 #[test]
 fn command_line_message_arguments_expand_literal_newlines() {
@@ -18,7 +19,7 @@ fn command_line_message_arguments_preserve_other_backslash_sequences() {
 #[test]
 fn channel_read_row_prints_truncation_recovery_command() {
     let item = serde_json::json!({
-        "event_id": "event-123",
+        "id": "event-123",
         "from_pubkey": "pubkey-1",
         "from_slug": "writer",
         "host": "laptop",
@@ -34,7 +35,7 @@ fn channel_read_row_prints_truncation_recovery_command() {
 #[test]
 fn channel_read_row_renders_hostless_sender_bare_not_with_question_mark() {
     let item = serde_json::json!({
-        "event_id": "event-124",
+        "id": "event-124",
         "from_pubkey": "pubkey-2",
         "from_slug": "Pablo",
         "host": "",
@@ -50,7 +51,7 @@ fn channel_read_row_renders_hostless_sender_bare_not_with_question_mark() {
 #[test]
 fn channel_read_row_renders_local_attachment_directory() {
     let item = serde_json::json!({
-        "event_id": "event-files",
+        "id": "event-files",
         "from_pubkey": "pubkey-3",
         "from_slug": "writer",
         "host": "laptop",

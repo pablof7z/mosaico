@@ -29,9 +29,9 @@ pub(super) async fn materialize(
     if already_materialized {
         return;
     }
-    // This daemon's OWN message reaches here too: Fava injects the accepted
-    // write into the subscription that feeds the demux (#1182), so the send
-    // path's local copy and this path's download are two routes to one
+    // This daemon's own message reaches here too when the relay returns it
+    // through the demand that feeds demux. The send path's local copy and this
+    // path's download are two routes to one
     // directory. If the files are already on disk under this event's id, adopt
     // them rather than fetching bytes back out of Blossom.
     if let Some(directory) = crate::attachment_receive::existing_complete(

@@ -4,6 +4,8 @@ use super::*;
 mod active_registry;
 #[path = "tests/ambient.rs"]
 mod ambient;
+#[path = "tests/withdrawn.rs"]
+mod withdrawn;
 use crate::state::{
     Message, Profile, RegisterSession, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery,
 };
@@ -146,8 +148,7 @@ async fn correlated_wait_skips_unrelated_chat_and_returns_exact_reply() {
         "done",
         Some("original"),
     );
-    let filter =
-        AuthorFilter::from_params(&state, &[X_CHANNEL.into()], &WaitParams::default()).unwrap();
+    let filter = AuthorFilter::from_params(&WaitParams::default()).unwrap();
 
     let found = drain_matching(
         &state,
@@ -180,8 +181,7 @@ async fn ambient_wait_excludes_management_and_callers_own_chat() {
         None,
     );
     deliver_chat(&state, "human-chat", X_CHANNEL, "human-pk", "hello", None);
-    let filter =
-        AuthorFilter::from_params(&state, &[X_CHANNEL.into()], &WaitParams::default()).unwrap();
+    let filter = AuthorFilter::from_params(&WaitParams::default()).unwrap();
 
     let found = drain_matching(
         &state,
@@ -226,11 +226,10 @@ async fn from_filter_resolves_a_human_member_across_the_channel_union() {
         })
         .unwrap();
     let params = WaitParams {
-        from: Some("pablo".into()),
+        from_labels: vec!["pablo".into()],
         ..WaitParams::default()
     };
-    let filter =
-        AuthorFilter::from_params(&state, &[X_CHANNEL.into(), Y_CHANNEL.into()], &params).unwrap();
+    let filter = AuthorFilter::from_params(&params).unwrap();
     let message = Message {
         message_id: "human-message".into(),
         channel_h: Y_CHANNEL.into(),

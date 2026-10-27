@@ -10,6 +10,13 @@ fn pty_spawn_gets_slow_response_budget() {
 }
 
 #[test]
+fn channel_members_covers_bounded_profile_resolution() {
+    let policy = method_policy("channel_members");
+    assert!(policy.response_timeout > Duration::from_secs(4));
+    assert!(policy.retry_after_delivery);
+}
+
+#[test]
 fn pty_spawn_slow_budget_does_not_make_it_retryable_after_delivery() {
     let policy = method_policy("pty_spawn");
     assert!(policy.response_timeout > Duration::from_secs(20));

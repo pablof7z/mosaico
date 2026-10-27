@@ -4,9 +4,9 @@
 //! rendering, `who`, channel context — resolves it HERE so the policy lives in
 //! one place:
 //!
-//!   1. A Row already owned by a retained Fava observation answers immediately.
-//!   2. Otherwise a bounded exact-author Fava read returns its decoded Row value
-//!      directly to the caller. It does not mutate Mosaico's retained view.
+//!   1. The complete decoded profile view answers immediately.
+//!   2. Otherwise a bounded exact-author SDK read returns its decoded value
+//!      directly to the caller. It does not mutate standing product coverage.
 //!
 //! Resolution is the reason remote agents and human operators show up by name
 //! instead of a raw pubkey: their slug never rides the wire, so the only way to
@@ -21,7 +21,7 @@ use nostr::nips::nip19::Nip19Profile;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// Resolve `pubkey` from a retained Row or one bounded exact-author Fava read.
+/// Resolve `pubkey` from the current view or one bounded exact-author SDK read.
 pub async fn resolve_name(state: &Arc<DaemonState>, pubkey: &str) -> Option<String> {
     if let Some(name) = state
         .with_store(|store| store.get_profile(pubkey).ok().flatten())
@@ -83,7 +83,7 @@ pub async fn resolve_chat_labels(
 }
 
 /// Replace every `nostr:npub1…` / `nostr:nprofile1…` mention in `text` with
-/// `@<name>` from the retained Fava view. An unresolved pubkey falls back to a
+/// `@<name>` from the current NIP-29 view. An unresolved pubkey falls back to a
 /// short hex form so the output is never a wall of bech32.
 pub fn rewrite_body_mentions(store: &Store, text: &str) -> String {
     rewrite_body_mentions_with_names(store, text, &BTreeMap::new())

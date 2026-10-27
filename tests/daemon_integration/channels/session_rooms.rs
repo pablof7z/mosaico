@@ -28,7 +28,7 @@ fn wait_for_root_observation(home: &Home, root: &str) {
             )
             .is_ok()
         }),
-        "Fava did not deliver root {root}; daemon_log={}",
+        "Nostr runtime did not deliver root {root}; daemon_log={}",
         test_log(home)
     );
 }
@@ -74,7 +74,7 @@ fn wait_for_channel_member(home: &Home, root: &str, pubkey: &str) -> String {
             path = observed_member_path(root, pubkey);
             path.is_some()
         }),
-        "member {pubkey} was absent from every Fava-delivered channel under #{root}; daemon_log={}",
+        "member {pubkey} was absent from every Nostr runtime-delivered channel under #{root}; daemon_log={}",
         test_log(home)
     );
     path.expect("asserted above")
@@ -276,7 +276,7 @@ fn human_initiated_session_mints_per_session_room() {
         "room id should be channel-agnostic: got {}",
         channel_h
     );
-    // Channel hierarchy labels come from the current Fava group projection,
+    // Channel hierarchy labels come from the current Nostr runtime group projection,
     // while the locally generated opaque id remains channel-agnostic.
 
     wait_for_session_room(&channel_h, "tmp", &rec.pubkey);

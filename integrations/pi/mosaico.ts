@@ -1,5 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent"
+import { registerMosaicoCommand } from "./command.ts"
 import { DeliveryPump } from "./delivery.ts"
+import { isDebugEnabled } from "./display.ts"
+import { installMosaicoPanel } from "./panel.ts"
 import { caller, daemonCall, isHostedPi } from "./protocol.ts"
 import { clearSessionStatus, paintSessionStatus } from "./status.ts"
 import { registerMosaicoTools } from "./tools.ts"
@@ -8,21 +11,25 @@ const HOOK_TIMEOUT_MS = 5_000
 const REGISTER_TIMEOUT_MS = 15_000
 const boundaryWarnings = new Map<string, string>()
 
-export default function mosaico(pi: ExtensionAPI) {
+export default async function mosaico(pi: ExtensionAPI) {
   let pump: DeliveryPump | undefined
+  registerMosaicoCommand(pi)
   registerMosaicoTools(pi)
 
   pi.on("session_start", async (_event, ctx) => {
     if (await register(ctx)) {
-      pump = new DeliveryPump(pi, ctx)
-      pump.start()
+      pump ??= new DeliveryPump(pi, ctx)
+      await pump.start()
     }
     await paintSessionStatus(ctx)
   })
 
   pi.on("before_agent_start", async (event, ctx) => {
     const registered = await register(ctx)
-    if (registered) pump?.start()
+    if (registered) {
+      pump ??= new DeliveryPump(pi, ctx)
+      await pump.start()
+    }
     const context = registered
       ? await turnContext("turn_start", ctx, { prompt: event.prompt })
       : fabricUnavailable()
@@ -49,8 +56,10 @@ export default function mosaico(pi: ExtensionAPI) {
     const warning = boundaryWarnings.get(event.toolCallId)
     boundaryWarnings.delete(event.toolCallId)
     const context = await turnContext("turn_check", ctx)
-    const addition = [warning, context].filter(Boolean).join("\n\n")
-    return addition ? { content: [{ type: "text", text: addition }, ...event.content] } : undefined
+    if (context) {
+      pi.sendMessage({ customType: "mosaico.context", content: context, display: isDebugEnabled() })
+    }
+    return warning ? { content: [{ type: "text", text: warning }, ...event.content] } : undefined
   })
 
   pi.on("message_start", event => pump?.onMessageStart(event))
@@ -71,6 +80,8 @@ export default function mosaico(pi: ExtensionAPI) {
     }, AbortSignal.timeout(HOOK_TIMEOUT_MS)).catch(() => undefined)
     clearSessionStatus(ctx)
   })
+
+  await installMosaicoPanel(pi)
 }
 
 async function register(ctx: ExtensionContext): Promise<boolean> {
@@ -110,7 +121,7 @@ function contextFrom(result: unknown): string {
 }
 
 function customContext(content: string) {
-  return { message: { customType: "mosaico.context", content, display: false } }
+  return { message: { customType: "mosaico.context", content, display: isDebugEnabled() } }
 }
 
 function fabricUnavailable(): string {

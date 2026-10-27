@@ -55,8 +55,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_runtime
 CREATE INDEX IF NOT EXISTS idx_sessions_idle_deadline
     ON sessions(runtime_state, presentation_state, work_state, idle_deadline);
 
--- Generation-scoped progressive coaching already emitted to one session.
-CREATE TABLE IF NOT EXISTS session_coaching (
+-- Generation-scoped progressive notice already emitted to one session.
+CREATE TABLE IF NOT EXISTS session_notice (
     pubkey             TEXT NOT NULL,
     runtime_generation INTEGER NOT NULL CHECK (runtime_generation > 0),
     code               TEXT NOT NULL CHECK (code <> ''),
@@ -86,13 +86,13 @@ CREATE TABLE IF NOT EXISTS session_channels (
 CREATE INDEX IF NOT EXISTS idx_session_channels_channel
     ON session_channels(channel_h, pubkey);
 
--- Minimal durable cursor: event contents remain exclusively in Fava.
+-- Minimal durable cursor: event contents remain exclusively in Nostr runtime.
 CREATE TABLE IF NOT EXISTS event_arrivals (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     event_id TEXT NOT NULL UNIQUE
 );
 
--- Fava owns the event and attachment metadata. Mosaico retains only the
+-- Nostr runtime owns the event and attachment metadata. Mosaico retains only the
 -- verified directory containing host-local downloaded files.
 CREATE TABLE IF NOT EXISTS message_attachments (
     event_id  TEXT PRIMARY KEY,

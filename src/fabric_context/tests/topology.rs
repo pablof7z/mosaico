@@ -15,10 +15,15 @@ fn every_channel_shows_only_last_accepted_activity() {
             .admins(Vec::new())
             .members(pubkeys(&[OTHER_PK])),
     ]));
-    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).events([
-        chat("lounge-old", "lounge-h", 20, "hello", "[]"),
-        chat("task-accepted", TASK_H, 30, "hello", "[]"),
-    ]));
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .events([
+                chat("lounge-old", "lounge-h", 20, "hello", "[]"),
+                chat("task-accepted", TASK_H, 30, "hello", "[]"),
+            ]),
+    );
     let rec = session(&store);
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 140, true)).unwrap();
@@ -89,6 +94,7 @@ fn full_rosters_distinguish_humans_from_agents() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
             .events([human_chat("human-msg", "root", 40)]),
     );
     let rec = session(&store);
@@ -115,42 +121,6 @@ fn unhydrated_membership_omits_the_agent_count() {
     let xml = render_view_text(&assemble::assemble_view(&captured, 0, 100));
     let root = opening_tag(&xml, "#root");
     assert!(!root.contains(" agents="), "{root}");
-}
-
-#[test]
-fn an_acquiring_group_never_claims_a_complete_agent_count() {
-    let store = seed_store();
-    let partial_group = || {
-        TestGroup::new("partial-h")
-            .metadata("partial", "Partial roster", "root", 1)
-            .members(pubkeys(&[OTHER_PK]))
-    };
-    store.install_test_group_delivery(TestGroupDelivery::new([
-        root_group(),
-        task_group(),
-        partial_group().availability(crate::group_snapshot::GroupAvailability::Acquiring),
-    ]));
-    assert_eq!(
-        crate::channel_ref::full_channel_ref(&store, "partial-h"),
-        "#root/partial"
-    );
-    let rec = session(&store);
-
-    let partial = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    assert!(partial.contains("#root/partial"), "{partial}");
-    let partial_tag = opening_tag(&partial, "#root/partial");
-    assert!(!partial_tag.contains(" agents="), "{partial_tag}");
-
-    store.install_test_group_delivery(TestGroupDelivery::new([
-        root_group(),
-        task_group(),
-        partial_group().availability(crate::group_snapshot::GroupAvailability::Ready),
-    ]));
-    let complete = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
-    assert!(
-        opening_tag(&complete, "#root/partial").contains("agents=\"1\""),
-        "{complete}"
-    );
 }
 
 #[test]

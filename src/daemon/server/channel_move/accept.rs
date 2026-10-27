@@ -267,8 +267,9 @@ async fn publish_running_only_moves(
     // Delivered to this backend's own orchestration listener through the group
     // subscription, exactly as a peer's admit-running directive is.
     Ok(state
-        .fava()
-        .publish_group(parent, builder, keys.public_key())?
+        .provider()
+        .publish_group(parent, builder, &keys)
+        .await?
         .to_hex())
 }
 

@@ -29,6 +29,25 @@ pub(crate) fn render_turn_start_text_for_test(
     self_host: &str,
     prev_turn_started_at: u64,
 ) -> Option<String> {
+    render_turn_start_text_with_extension_for_test(
+        store,
+        rec,
+        backend_pubkey,
+        self_host,
+        prev_turn_started_at,
+        false,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn render_turn_start_text_with_extension_for_test(
+    store: &std::sync::Mutex<Store>,
+    rec: &Session,
+    backend_pubkey: &str,
+    self_host: &str,
+    prev_turn_started_at: u64,
+    extension_delivery_live: bool,
+) -> Option<String> {
     let hook_contexts = super::HookContextStates::default();
     assemble_turn_start(
         store,
@@ -37,7 +56,7 @@ pub(crate) fn render_turn_start_text_for_test(
         self_host,
         prev_turn_started_at,
         &hook_contexts,
-        false,
+        extension_delivery_live,
     )
     .unwrap()
     .text
@@ -146,7 +165,7 @@ pub(crate) fn assemble_turn_start(
         // Missing admission is a stable session fact. A hosted endpoint that is
         // temporarily unavailable has a different recovery path and must not be
         // mislabeled as unhosted.
-        if rec.admitted_transport.is_empty() {
+        if rec.admitted_transport.is_empty() && !extension_delivery_live {
             warnings.push(
                 "This session is unhosted. After this turn ends, later mentions will queue but \
                  cannot start another turn. A pending wait can keep the current invocation \

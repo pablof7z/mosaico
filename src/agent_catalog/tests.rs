@@ -7,6 +7,8 @@ mod codex_named;
 mod hermes;
 #[path = "tests/kimi.rs"]
 mod kimi;
+#[path = "tests/pi.rs"]
+mod pi;
 
 fn write(path: &Path, body: &str) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

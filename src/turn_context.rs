@@ -14,7 +14,9 @@ pub(crate) use check::assemble_turn_check;
 pub(crate) use check::assemble_turn_check_context;
 pub(crate) use start::assemble_turn_start;
 #[cfg(test)]
-pub(crate) use start::render_turn_start_text_for_test;
+pub(crate) use start::{
+    render_turn_start_text_for_test, render_turn_start_text_with_extension_for_test,
+};
 
 use crate::fabric_context::ViewInputs;
 use crate::reconcile::{HookContextOutcome, HookContextReceipt, HookContextState};

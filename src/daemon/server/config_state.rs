@@ -23,8 +23,15 @@ impl DaemonState {
             .clone()
     }
 
-    pub(crate) fn fava(&self) -> Arc<crate::fava_host::FavaHost> {
-        self.fava
+    pub(crate) fn nostr(&self) -> Arc<crate::nostr_runtime::NostrRuntime> {
+        self.nostr
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
+    }
+
+    pub(crate) fn nip29_view(&self) -> Arc<crate::fabric::nip29::view::Nip29ViewStore> {
+        self.nip29_view
             .read()
             .unwrap_or_else(|poison| poison.into_inner())
             .clone()
@@ -36,19 +43,11 @@ impl DaemonState {
         self.owners()
     }
 
-    /// The retained kind:0 profile feed driving `Store::get_profile`. The
-    /// coverage refresh calls `set_members` on this `Arc`.
-    pub(crate) fn profile_feed(&self) -> Arc<crate::fava_host::ProfileFeed> {
-        self.with_store(|store| store.profile_feed())
-    }
-
     #[cfg(feature = "stress-harness")]
-    pub(crate) fn stress_fava_snapshot(&self) -> serde_json::Value {
-        let profile_feed = self.profile_feed();
+    pub(crate) fn stress_nostr_snapshot(&self) -> serde_json::Value {
         serde_json::json!({
-            "managed_observations": self.fava().stress_managed_observations(),
-            "profile_authors": profile_feed.stress_member_count(),
-            "profile_observation_active": profile_feed.stress_is_active(),
+            "active_demands": self.nostr().active_demand_count(),
+            "profile_authors": self.nostr().profile_author_count(),
         })
     }
 }

@@ -79,9 +79,9 @@ pub(super) struct OnboardingIdentity {
 
 /// Write `config.json` from onboarding decisions. Onboarding owns the
 /// configuration document; it reuses the same normalization and invariants as
-/// the scriptable flow via `ensure_complete`. `relays` are externally operated
-/// NIP-29 relay URLs — Mosaico no longer runs one.
-pub(super) fn write_onboarding(identity: &OnboardingIdentity, relays: Vec<String>) -> Result<()> {
+/// the scriptable flow via `ensure_complete`. `relay` is externally operated;
+/// Mosaico never runs or routes through another relay.
+pub(super) fn write_onboarding(identity: &OnboardingIdentity, relay: String) -> Result<()> {
     let path = crate::config::config_path();
     let mut doc = if path.exists() {
         read_document(&path)?
@@ -96,7 +96,9 @@ pub(super) fn write_onboarding(identity: &OnboardingIdentity, relays: Vec<String
             json!([identity.operator_pubkey_hex]),
         );
         object.insert("userNsec".into(), json!(identity.operator_nsec));
-        object.insert("relays".into(), json!(relays));
+        object.insert("relay".into(), json!(relay));
+        object.remove("relays");
+        object.remove("indexerRelay");
     }
     ensure_complete(&mut doc)?;
     super::write_json(&path, &doc)?;

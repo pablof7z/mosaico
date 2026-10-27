@@ -19,7 +19,7 @@ agent skill is also packaged for clients that cannot load a local skill install:
 read-only resource `mosaico://skill` (and `mosaico://skill/{name}`), plus the
 `mosaico.skill` tool (prefer the tool when the client does not support resources).
 MCP clients can block without polling through `mosaico.wait`, or set
-`wait_seconds` on `mosaico.channel_send` to await a reply correlated to the sent
+`seconds` on `mosaico.channel_send` to await a reply correlated to the sent
 message.
 Remote HTTP calls do not borrow the server process's caller context:
 

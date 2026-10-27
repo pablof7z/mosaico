@@ -52,7 +52,7 @@ fn human_initiated_session_uses_root_when_per_session_rooms_disabled() {
             observed_path = observed_member_path("tmp", &rec.pubkey);
             observed_path.as_deref() == Some("#tmp")
         }),
-        "Fava's delivered view should place the session in the work-root itself; got {observed_path:?}"
+        "Nostr runtime's delivered view should place the session in the work-root itself; got {observed_path:?}"
     );
     wait_for_exact_relay_groups(
         &crate::daemon_harness::shared_nip29_relay_url(),

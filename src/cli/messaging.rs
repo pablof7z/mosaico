@@ -11,26 +11,16 @@ mod envelope;
 #[cfg(test)]
 pub(super) use envelope::{format_envelope, EnvelopeView};
 
-pub(super) async fn channel_react(
-    id: String,
-    emoji: String,
-    session: Option<String>,
-) -> Result<()> {
+pub(super) async fn channel_react(id: String, emoji: String) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "id": id,
         "emoji": emoji.clone(),
-        "session": session,
     }));
     let v = daemon_call_async("channel_react", params).await?;
-    let event_id = v["event_id"].as_str().unwrap_or("?");
+    let id = v["id"].as_str().unwrap_or("?");
     let target = v["target"].as_str().unwrap_or("?");
     let shown_emoji = v["emoji"].as_str().unwrap_or(&emoji);
-    println!(
-        "reacted {} {} to {}",
-        shown_emoji,
-        crate::util::short_id(event_id),
-        crate::util::short_id(target)
-    );
+    println!("reacted {} {} to {}", shown_emoji, id, target);
     Ok(())
 }
 
@@ -42,7 +32,6 @@ pub(super) struct ChannelReadRequest {
     pub tail: bool,
     pub live: bool,
     pub channel: Option<String>,
-    pub session: Option<String>,
 }
 
 pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
@@ -62,7 +51,6 @@ pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
     let params = crate::cli::rpc_params(serde_json::json!({
         "id": req.id,
         "channel": req.channel,
-        "session": req.session,
         "since": since_ts,
         "limit": effective_limit,
         "offset": req.offset.unwrap_or(0),
@@ -72,61 +60,12 @@ pub(super) async fn channel_read(req: ChannelReadRequest) -> Result<()> {
     let mut client = crate::daemon::client::Client::connect_or_spawn().await?;
     client
         .stream("channel_read", params, move |item| {
-            println!("{}", render_channel_read_row(&item, use_color));
+            println!(
+                "{}",
+                crate::channel_render::render_channel_read_row(&item, use_color)
+            );
         })
         .await
-}
-
-fn render_channel_read_row(item: &serde_json::Value, use_color: bool) -> String {
-    let pubkey = item["from_pubkey"].as_str().unwrap_or_default();
-    let slug = item["from_slug"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| pubkey_short(pubkey));
-    let host = item["host"].as_str().filter(|s| !s.is_empty());
-    let sender = match host {
-        Some(host) => format!("<{slug}@{host}>"),
-        // No host (e.g. a whitelisted human operator, who runs no session):
-        // render bare rather than a misleading `<name@?>`.
-        None => format!("<@{slug}>"),
-    };
-    let sender = color_by_pubkey(&sender, pubkey, use_color);
-    let body = item["body"].as_str().unwrap_or_default().trim_end();
-    let ts = item["created_at"].as_u64().unwrap_or(0);
-    let mut text = format!("{sender} {body}");
-    if item["truncated"].as_bool().unwrap_or(false) {
-        if let Some(id) = item["event_id"].as_str().filter(|s| !s.is_empty()) {
-            text.push_str(&format!(
-                "\n[message truncated; run `mosaico channel read --id {id}`]"
-            ));
-        }
-    }
-    let mut rendered = format!("{text} [{}]", format_local_datetime(ts));
-    if let Some(directory) = item["attachment_dir"]
-        .as_str()
-        .filter(|directory| !directory.is_empty())
-    {
-        rendered.push_str(&format!("\n[attachments: {directory}]"));
-    }
-    rendered
-}
-
-fn color_by_pubkey(text: &str, pubkey: &str, use_color: bool) -> String {
-    if !use_color || pubkey.is_empty() {
-        return text.to_string();
-    }
-    let hash = pubkey.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |acc, b| {
-        acc.wrapping_mul(0x0000_0100_0000_01b3) ^ u64::from(b)
-    });
-    match hash % 6 {
-        0 => text.cyan().to_string(),
-        1 => text.green().to_string(),
-        2 => text.yellow().to_string(),
-        3 => text.magenta().to_string(),
-        4 => text.blue().to_string(),
-        _ => text.red().to_string(),
-    }
 }
 
 pub(super) fn resolve_send_message_body(raw: Option<String>) -> Result<String> {

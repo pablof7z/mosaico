@@ -23,7 +23,7 @@ pub(in crate::daemon::server) async fn archive_channel(
         .with_store(|store| super::super::channel_resolve::channel_reference_for(store, channel))?;
     let delivered = state.provider().group_snapshot(channel).await?;
     let snapshots = [delivered];
-    let groups = crate::observed_views::GroupProjection::new(&snapshots);
+    let groups = crate::group_projection::GroupProjection::new(&snapshots);
     let current = groups
         .get_channel(channel)
         .with_context(|| format!("resolved channel {channel_ref} has no metadata row"))?;
@@ -33,13 +33,13 @@ pub(in crate::daemon::server) async fn archive_channel(
         (String::new(), true)
     } else {
         let mgmt_keys = state.backend_keys();
-        let edit = fava_simple_groups::MetadataEdit {
+        let edit = crate::fabric::nip29::management::MetadataEdit {
             about: Some(archived_about.clone()),
             ..Default::default()
         };
         let event_id = state
-            .fava()
-            .publish_metadata_edit_and_wait(channel, &edit, mgmt_keys.public_key())
+            .provider()
+            .publish_metadata_edit(channel, &edit, &mgmt_keys)
             .await
             .context("publishing archived channel metadata")?;
         (event_id.to_hex(), true)
@@ -51,7 +51,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     if !remove_targets.is_empty() {
         let outcome = state
             .provider()
-            .remove_members_published(channel, &remove_targets)
+            .remove_members_published(channel, &remove_targets, &state.backend_keys())
             .await;
         outcome.require_published(format!(
             "removing {} non-admin member(s) in one event while archiving {}",
@@ -63,7 +63,7 @@ pub(in crate::daemon::server) async fn archive_channel(
     Ok(serde_json::json!({
         "channel": channel_ref,
         "about": archived_about,
-        "event_id": event_id,
+        "id": crate::util::short_id(&event_id),
         "metadata_confirmed": metadata_confirmed,
         "removed_members": remove_targets.len(),
         "admins_remaining": admins,

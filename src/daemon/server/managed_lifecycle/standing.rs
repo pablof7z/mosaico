@@ -128,7 +128,9 @@ async fn reconcile_admission(
         pubkey,
         generation,
         "channel_admitted",
-        Some(ConfirmedGroupScope::from_fava_membership(channel, pubkey)),
+        Some(ConfirmedGroupScope::from_confirmed_membership(
+            channel, pubkey,
+        )),
     )
     .await;
 }

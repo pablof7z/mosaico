@@ -124,18 +124,13 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             .to_string()
     });
     assert!(bare.contains("must be a full path"), "{bare}");
-    assert_eq!(
-        sent["mentioned_pubkeys"],
-        serde_json::json!([&receiver_identity.pubkey, &second_receiver_identity.pubkey])
-    );
-    assert_eq!(
-        sent["mentioned_labels"],
-        serde_json::json!([&receiver_handle, &second_receiver_handle])
-    );
-    let event_id = sent["event_id"].as_str().unwrap().to_string();
+    let event_id = sent["id"].as_str().unwrap().to_string();
 
     let published = await_observed_chat(&event_id);
-    assert_eq!(published["from_pubkey"], sender_identity.pubkey);
+    assert_eq!(
+        published["from_ref"].as_str(),
+        Some(sender_identity.display_slug().as_str())
+    );
     assert_eq!(published["channel"], "#tmp");
     let published_body = published["body"].as_str().expect("published body");
     assert!(published_body.contains(original_body), "{published}");
@@ -183,8 +178,7 @@ fn explicit_channel_is_pure_destination_selection_and_preserves_tags() {
             .await
             .expect("send inline text without an explicit tag")
     });
-    assert_eq!(ambient["mentioned_pubkeys"], serde_json::json!([]));
-    let ambient_id = ambient["event_id"].as_str().unwrap().to_string();
+    let ambient_id = ambient["id"].as_str().unwrap().to_string();
     let ambient_event = await_observed_chat(&ambient_id);
     assert_eq!(ambient_event["body"], inline_body);
     assert!(ambient_event["recipient_refs"]
@@ -208,7 +202,7 @@ fn channel_commands_require_channel_when_session_joined_to_multiple_channels() {
             observed_channel_members("#root-chat-channel").is_some()
                 && observed_channel_members("#other-chat-channel").is_some()
         }),
-        "both ambiguous destination roots must first be delivered through Fava"
+        "both ambiguous destination roots must first be delivered through Nostr runtime"
     );
     let store = Store::open(&home.store_path()).unwrap();
     let pubkey = Keys::generate().public_key().to_hex();

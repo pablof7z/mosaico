@@ -1,30 +1,29 @@
-//! The daemon's ONE retained observation of NIP-29 relay-signed group records.
+//! The daemon's one stable demand for NIP-29 relay-signed group records.
 //!
-//! Kinds 39000/39001/39002 are watched through a single fava `Observation`.
-//! Each fava snapshot is decoded client-side into `Vec<GroupSnapshot>` and
-//! pushed into `ObservedViews` for all downstream consumers. Coverage filtering
-//! happens client-side; no relay-side predicate is used.
+//! Kinds 39000/39001/39002 are read through one stable SDK demand. Consumers
+//! reread the complete decoded view after wake-only notifications.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Result;
-use fava::{Observation, ObservationClosed};
 
 use super::DaemonState;
-use crate::group_snapshot::{self, GroupSnapshot};
+use crate::group_snapshot::GroupSnapshot;
 use crate::reconcile::CoverageSnapshot;
+
+const GROUP_RECORDS_DEMAND: &str = "mosaico-group-records";
 
 #[path = "group_records/root_names.rs"]
 mod root_names;
 
-/// The retained observation and the inputs it was opened for.
+/// The live view task and the inputs its stable demand was opened for.
 #[derive(Default)]
 pub(super) struct GroupRecordsWatch {
     /// Reopened only when these change; an unchanged plan keeps the live
     /// subscription rather than churning the relay.
     coverage: Option<GroupRecordsCoverage>,
-    /// The drain task owns the Observation; aborting drops it → close().
+    /// The task waits for complete-view revisions.
     drain: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -62,79 +61,110 @@ impl GroupRecordsCoverage {
     }
 }
 
-/// Re-point the observation at `coverage`, reopening only if it changed.
-pub(in crate::daemon::server) fn sync(
+/// Re-point the stable demand at `coverage`, replacing only if it changed.
+pub(in crate::daemon::server) async fn sync(
     state: &Arc<DaemonState>,
     coverage: GroupRecordsCoverage,
 ) -> Result<()> {
-    let mut watch = state
-        .subscriptions
-        .group_records
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    if watch.coverage.as_ref() == Some(&coverage) {
-        return Ok(());
-    }
-    // Abort the current drain (drops its Observation → close()) before opening a replacement.
-    if let Some(drain) = watch.drain.take() {
+    let prior_drain = {
+        let mut watch = state
+            .subscriptions
+            .group_records
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if watch.coverage.as_ref() == Some(&coverage) {
+            return Ok(());
+        }
+        watch.coverage = Some(coverage.clone());
+        watch.drain.take()
+    };
+    if let Some(drain) = prior_drain {
         drain.abort();
     }
     if coverage.is_empty() {
-        state.fava().views().set_group_snapshots(Vec::new());
-        watch.coverage = Some(coverage);
+        state
+            .nip29_view()
+            .replace_group_scope(BTreeSet::new(), BTreeSet::new());
+        state.nostr().close_demand(GROUP_RECORDS_DEMAND).await?;
         return Ok(());
     }
-    let observation = state.fava().open_group_records_observation()?;
+    state
+        .nip29_view()
+        .replace_group_scope(coverage.ids.clone(), coverage.subjects.clone());
+    state
+        .nostr()
+        .replace_demand(
+            GROUP_RECORDS_DEMAND,
+            vec![nostr::prelude::Filter::new()
+                .kinds(
+                    [39_000, 39_001, 39_002]
+                        .map(nostr::prelude::Kind::Custom)
+                        .into_iter()
+                        .chain(std::iter::once(nostr::prelude::Kind::EventDeletion)),
+                )
+                .limit(crate::nostr_runtime::GROUP_RECORD_LIMIT)],
+        )
+        .await?;
     let known_ids = coverage.ids.clone();
-    // Observation is moved into the task; aborting the task closes it via Drop.
-    watch.drain = Some(tokio::spawn(drain(
-        state.clone(),
-        observation,
-        coverage.clone(),
-        known_ids,
-    )));
-    watch.coverage = Some(coverage);
+    let drain = tokio::spawn(drain(state.clone(), coverage, known_ids));
+    state
+        .subscriptions
+        .group_records
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .drain = Some(drain);
     Ok(())
 }
 
 /// Withdraw the observation (daemon shutdown).
-pub(in crate::daemon::server) fn shutdown(state: &DaemonState) {
-    let mut watch = state
-        .subscriptions
-        .group_records
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner());
-    if let Some(drain) = watch.drain.take() {
-        drain.abort(); // dropping Observation inside task → close()
+pub(in crate::daemon::server) async fn shutdown(state: &DaemonState) {
+    let drain = {
+        let mut watch = state
+            .subscriptions
+            .group_records
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        watch.coverage = None;
+        watch.drain.take()
+    };
+    if let Some(drain) = drain {
+        drain.abort();
     }
-    state.fava().views().set_group_snapshots(Vec::new());
-    watch.coverage = None;
+    state
+        .nip29_view()
+        .replace_group_scope(BTreeSet::new(), BTreeSet::new());
+    let _ = state.nostr().close_demand(GROUP_RECORDS_DEMAND).await;
 }
 
 async fn drain(
     state: Arc<DaemonState>,
-    mut observation: Observation,
     coverage: GroupRecordsCoverage,
     mut known_ids: BTreeSet<String>,
 ) {
+    let view = state.nip29_view();
+    let mut changes = view.subscribe_changes();
     let mut renamed: BTreeSet<String> = BTreeSet::new();
-    let mut advertised = managed_roots(&state, &state.fava().views().group_snapshots());
-    apply_snapshot(
-        &state,
-        &observation.current(),
-        &coverage,
-        &mut known_ids,
-        &mut renamed,
-        &mut advertised,
-    );
-    loop {
-        let fava_snapshot = match observation.changed().await {
-            Ok(snapshot) => snapshot,
-            Err(ObservationClosed) => return,
-        };
+    // One level for the initial pass, released before waiting for changes.
+    let mut advertised = {
+        let current = view.current();
+        let mut advertised = managed_roots(&state, current.group_snapshots());
         apply_snapshot(
             &state,
-            &fava_snapshot,
+            current.group_snapshots(),
+            &coverage,
+            &mut known_ids,
+            &mut renamed,
+            &mut advertised,
+        );
+        advertised
+    };
+    loop {
+        if changes.changed().await.is_err() {
+            return;
+        }
+        apply_snapshot(
+            &state,
+            view.current().group_snapshots(),
             &coverage,
             &mut known_ids,
             &mut renamed,
@@ -145,17 +175,13 @@ async fn drain(
 
 fn apply_snapshot(
     state: &Arc<DaemonState>,
-    fava_snapshot: &fava::QuerySnapshot,
+    snapshots: &[GroupSnapshot],
     coverage: &GroupRecordsCoverage,
     known_ids: &mut BTreeSet<String>,
     renamed: &mut BTreeSet<String>,
     advertised: &mut Vec<String>,
 ) {
-    let av = group_snapshot::availability_from_evidence(&fava_snapshot.evidence);
-    let all_snapshots = group_snapshot::decode_snapshots(fava_snapshot, &BTreeSet::new(), av);
-    let relevant = filter_for_coverage(&all_snapshots, coverage);
-    state.fava().views().set_group_snapshots(relevant.clone());
-
+    let relevant = filter_for_coverage(snapshots, coverage);
     let discovered = record_discoveries(known_ids, &relevant);
     root_names::repair_delivered(state, &relevant, renamed);
     let managed = managed_roots(state, &relevant);

@@ -82,9 +82,6 @@ pub(crate) struct WhoRow {
     /// Human display label for `work_root`.
     #[serde(default)]
     pub(crate) work_root_display: String,
-    /// Hex pubkey others route to: per-session when derived, else durable agent.
-    #[serde(default)]
-    pub(crate) pubkey: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -154,7 +151,7 @@ pub(crate) fn build_who_snapshot(
         &mut other_agents,
     )?;
 
-    // ── peers: current Fava status rows, minus our own keys ────────────────────
+    // ── peers: current Nostr runtime status rows, minus our own keys ────────────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
     // become rows, root channels out of scope feed the other-workspaces summary.
     let mut channels: Vec<String> = aggregation

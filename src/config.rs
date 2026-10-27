@@ -1,7 +1,7 @@
 //! Device-level config + mosaico's own writable home.
 //!
 //! Mosaico reads `config.json` from the selected instance root (for `whitelistedPubkeys`,
-//! explicit `relays`, `mcpRedirectOrigins`, and `backendName` as the host
+//! one explicit `relay`, `mcpRedirectOrigins`, and `backendName` as the host
 //! label) and keeps all of its writable state under that root. Unset `MOSAICO`
 //! uses `~/.mosaico`; named instances use `~/.mosaico-instances/<name>`.
 //!
@@ -33,15 +33,11 @@ pub use home::{
 };
 pub(crate) use management_key::{ensure_mosaico_private_key, generate_mosaico_private_key};
 
-pub const DEFAULT_INDEXER_RELAY: &str = "wss://purplepag.es";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub whitelisted_pubkeys: Vec<String>,
-    pub relays: Vec<String>,
-    /// Indexer relay for kind:0 profile discovery (default: purplepag.es).
-    /// Receives all kind:0 publishes and is queried for profile lookups.
-    pub indexer_relay: String,
+    /// The sole NIP-29 relay for every Mosaico read and write.
+    pub relay: String,
     /// Host label published on the agent's profile (M1 §3 `host` tag).
     pub host: String,
     /// Human operator's Nostr secret key (bech32 nsec or hex). Used for exactly
@@ -111,10 +107,7 @@ struct RawConfig {
     #[serde(default, rename = "whitelistedPubkeys")]
     whitelisted_pubkeys: Vec<String>,
     #[serde(default)]
-    relays: Vec<String>,
-    /// Indexer relay for kind:0 profile publishing and lookup. Defaults to purplepag.es.
-    #[serde(default, rename = "indexerRelay")]
-    indexer_relay: Option<String>,
+    relay: String,
     #[serde(default, rename = "backendName")]
     backend_name: Option<String>,
     #[serde(default, rename = "userNsec")]
@@ -145,16 +138,11 @@ impl Config {
             .backend_name
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| fallback_host.to_string());
-        let indexer_relay = raw
-            .indexer_relay
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or_else(|| DEFAULT_INDEXER_RELAY.to_string());
         let attachment_receive_directory =
             attachment_directory::resolve(raw.attachment_receive_directory, home)?;
         Ok(Config {
             whitelisted_pubkeys: raw.whitelisted_pubkeys,
-            relays: raw.relays,
-            indexer_relay,
+            relay: raw.relay,
             host,
             user_nsec: raw.user_nsec,
             mosaico_private_key: raw.mosaico_private_key,
@@ -188,7 +176,7 @@ pub(crate) fn ensure_attachment_receive_directory() -> Result<PathBuf> {
 }
 
 fn require_configured_relay(config: Config) -> Result<Config> {
-    if config.relays.is_empty() {
+    if config.relay.trim().is_empty() {
         anyhow::bail!(
             "config has no fabric relay; run `mosaico setup --relay <ws-url>` with an externally operated NIP-29 relay"
         );

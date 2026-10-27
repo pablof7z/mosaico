@@ -22,7 +22,7 @@ pub(super) fn to_status(cmd: &StatusCommand, ttl_secs: u64, now: u64, offline: b
         },
         rel_cwd: cmd.rel_cwd.clone(),
         // NIP-40 expiry is a lease, not a deletion command. An event that
-        // expires at construction cannot enter Fava custody, and a queued
+        // expires at construction cannot enter Nostr runtime custody, and a queued
         // status may not reach the relay until later. Keep the final offline
         // status valid for the normal lease so observers see the transition
         // before it naturally ages off.

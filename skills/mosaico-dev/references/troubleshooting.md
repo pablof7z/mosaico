@@ -131,10 +131,11 @@ While an agent is alive, only host log reads, croissant logs, `nak`, and
 `probe-lab` are safe. Same-profile `sessions`, `channel`, `debug explain`, and
 `debug hook-tail` must wait until the launch container stops.
 
-## Stale SQLite or Fava state
+## Stale local state
 
-A fresh relay paired with old `state.db` or `fava.redb` can retain obsolete
-workspace, membership, or acquisition state. For a disposable lab, rerun:
+A fresh relay paired with old `state.db` can retain obsolete workspace or
+session continuity. Relay groups, memberships, messages, and profiles are never
+loaded from SQLite. For a disposable lab, rerun:
 
 ```bash
 skills/mosaico-dev/scripts/write-container-profiles "${LAB_ENV}" <profile>
@@ -148,39 +149,20 @@ and target only that profile:
 MOSAICO_HOME=.container-state/<profile>/mosaico mosaico daemon reset-state --yes-i-know-this-wipes-local-state
 ```
 
-Never delete these from a live or non-disposable profile without explicit
-authorization.
+Never reset a live or non-disposable profile without explicit authorization.
 
-## Daemon will not start and Fava refuses the store
+## Daemon will not start with local storage errors
 
-Read the selected instance's `daemon.log`. A refused store is a daemon that
-exits before it can answer an RPC; its structured startup error carries the
-exact `condition`, `summary`, and `fix`:
+Read the selected instance's `daemon.log` and preserve the exact SQLite,
+filesystem, or lock error. Do not delete state merely because startup failed.
+Check the selected paths, ownership, permissions, available disk, and whether
+another daemon owns the startup lock.
 
-- `superseded-epoch` — the store is not this build's schema epoch. Fava migrates
-  nothing across an epoch and reads **nothing** inside a store it refused, so no
-  tool can tell you what the file holds; "no readable marker" means *not this
-  epoch*, not *empty*. Run `mosaico daemon reset-state
-  --yes-i-know-this-wipes-local-state`, then restart. This clears all runtime
-  state for the selected instance while preserving configuration. The
-  relay-backed read cache re-acquires; any write Fava had accepted and not yet
-  published is gone with the reset.
-- `unusable` — a refused lock, an unresolvable path, damaged current-epoch
-  bytes. **Do not delete the store.** A fresh file fixes none of these and
-  destroys the only copy of unpublished writes. Check the path, permissions, and
-  disk.
-- `held-by-another-owner` — a daemon is already running for this home; stop it
-  first.
-
-The full reset is offered only for `superseded-epoch`. It stops and reaps the
-selected instance under its startup lock, uses Fava's reset API for `fava.redb`,
-clears SQLite/session/attachment runtime, and leaves configuration and native
-profiles intact. It refuses unsafe attachment targets such as root, HOME, or a
-path overlapping configuration.
-
-Never diagnose this by reading the refusal text. Mosaico branches on
-`fava::EngineError`; a message that says "predates the schema marker" once meant
-both of the first two.
+For an intentionally disposable instance, the explicit full reset stops and
+reaps only that selected instance, clears SQLite/session/attachment runtime,
+and leaves configuration and native profiles intact. It refuses unsafe targets
+such as root, HOME, or paths overlapping configuration. Files not owned by the
+current architecture are ignored.
 
 ## Management key is not admin
 

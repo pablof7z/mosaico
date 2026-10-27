@@ -28,7 +28,7 @@ fn top_level_wait_parses_repeated_channels_and_author() {
         crate::cli::args::Cmd::Wait(args) => {
             assert_eq!(args.timeout_secs, 60);
             assert_eq!(args.channels, ["x", "y"]);
-            assert_eq!(args.from.as_deref(), Some("agent5"));
+            assert_eq!(args.from, vec!["agent5"]);
         }
         _ => panic!("expected wait command"),
     }
@@ -54,12 +54,12 @@ fn wait_has_no_json_mode() {
 
 #[test]
 fn agent_native_wait_renderers_use_one_mosaico_envelope() {
-    let message = render_wait_message(
+    let message = crate::channel_render::render_wait_message(
         &serde_json::json!({
             "channel": "#root/x",
             "from_ref": "agent5",
             "recipient_refs": ["reviewer"],
-            "event_id": "abcdef123",
+            "id": "abcdef123",
             "body": "done",
             "attachment_dir": "/tmp/mosaico-files/abcdef",
             "created_at": 100,
@@ -104,12 +104,12 @@ fn direct_delivery_omits_for_while_wait_keeps_recipients() {
         true,
     )
     .unwrap();
-    let waited = render_wait_message(
+    let waited = crate::channel_render::render_wait_message(
         &serde_json::json!({
             "channel": "#x",
             "from_ref": "pk-sende",
             "recipient_refs": ["pk-targe"],
-            "event_id": "abcdef123",
+            "id": "abcdef123",
             "body": "done & checked",
             "attachment_dir": "/tmp/mosaico-files/abcdef",
             "created_at": 100,

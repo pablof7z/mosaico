@@ -121,7 +121,11 @@ async fn ensure_existing_channel_ready(
             parent_hint: readiness_parent,
             name,
         };
-        state.provider().ensure_channel_ready(ctx).await
+        let management = state.backend_keys();
+        state
+            .provider()
+            .ensure_channel_ready(ctx, &management)
+            .await
     };
 
     let gate = tokio::time::timeout(START_CHANNEL_READY_TIMEOUT, open)
@@ -140,19 +144,6 @@ async fn ensure_existing_channel_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const FAILURE: &str =
-        "fault=latched durability=absent reopen=required: Previous I/O error occurred";
-
-    fn absent_group_snapshot(group: &str) -> crate::group_snapshot::GroupSnapshot {
-        crate::group_snapshot::GroupSnapshot {
-            id: group.to_string(),
-            metadata: None,
-            admins: Vec::new(),
-            members: Vec::new(),
-            availability: crate::group_snapshot::GroupAvailability::Ready,
-        }
-    }
 
     #[tokio::test]
     async fn pending_nested_channel_keeps_its_immediate_parent() {
@@ -199,41 +190,6 @@ mod tests {
             session_parent_hint(&state, "new-room", "workspace", None, Some(&old)).unwrap(),
             "workspace",
             "an old channel's pending parent must not leak into a new channel"
-        );
-    }
-
-    #[tokio::test]
-    async fn session_start_readiness_keeps_exact_checked_publish_failure() {
-        let state =
-            DaemonState::new_for_test_with_relays(vec!["wss://relay.example.com".into()]).await;
-        for _ in 0..4 {
-            state
-                .fava()
-                .script_group_snapshot(absent_group_snapshot("missing-root"));
-        }
-        state
-            .fava()
-            .script_write_error("scripted Fava publish refusal", FAILURE);
-
-        let error = verify_start_channel_ready(
-            &state,
-            "missing-root",
-            None,
-            None,
-            None,
-            &nostr::key::Keys::generate().public_key().to_hex(),
-        )
-        .await
-        .expect_err("session readiness must fail");
-        let rendered = format!("{error:#}");
-        assert!(rendered.contains(FAILURE), "{rendered}");
-        assert!(
-            rendered.contains("9007 create-group Fava publish failed"),
-            "{rendered}"
-        );
-        assert!(
-            !rendered.contains("readiness remains pending"),
-            "{rendered}"
         );
     }
 }

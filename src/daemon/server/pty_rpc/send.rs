@@ -115,19 +115,58 @@ pub(in crate::daemon::server) async fn provision_before_spawn(
         parent_hint,
         name: None,
     };
-    match tokio::time::timeout(timeout, state.provider().ensure_channel_ready(ctx)).await {
-        Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded(error)) => tracing::warn!(
-            slug,
-            channel = scope,
-            error = %error,
-            "provision: channel readiness degraded before spawn; opening local session anyway"
-        ),
-        Ok(_) => {}
-        Err(_) => tracing::warn!(
-            slug,
-            channel = scope,
-            "provision: channel readiness timed out before spawn; opening local session anyway"
-        ),
+    let management = state.backend_keys();
+    let ready = match tokio::time::timeout(
+        timeout,
+        state.provider().ensure_channel_ready(ctx, &management),
+    )
+    .await
+    {
+        Ok(crate::fabric::nip29::readiness::ChannelGate::Degraded(error)) => {
+            tracing::warn!(
+                slug,
+                channel = scope,
+                error = %error,
+                "provision: channel readiness degraded before spawn; opening local session anyway"
+            );
+            false
+        }
+        Ok(_) => true,
+        Err(_) => {
+            tracing::warn!(
+                slug,
+                channel = scope,
+                "provision: channel readiness timed out before spawn; opening local session anyway"
+            );
+            false
+        }
+    };
+    if ready {
+        if let Err(error) = super::super::ensure_subscription(state, scope).await {
+            tracing::warn!(
+                slug,
+                channel = scope,
+                %error,
+                "provision: stable group demand could not be opened before spawn"
+            );
+        } else {
+            match tokio::time::timeout(timeout, state.nip29_view().wait_for_group_metadata(scope))
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => tracing::warn!(
+                    slug,
+                    channel = scope,
+                    %error,
+                    "provision: group view closed before spawn"
+                ),
+                Err(_) => tracing::warn!(
+                    slug,
+                    channel = scope,
+                    "provision: group view timed out before spawn"
+                ),
+            }
+        }
     }
     Ok(())
 }

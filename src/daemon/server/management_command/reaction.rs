@@ -25,8 +25,9 @@ pub(super) async fn publish_thumbs_up(state: &Arc<DaemonState>, event: &Event, c
         }
     };
     if let Err(e) = state
-        .fava()
-        .publish_group(channel_h, builder, keys.public_key())
+        .provider()
+        .publish_group(channel_h, builder, &keys)
+        .await
     {
         tracing::warn!(
             event_id = %short(&event_id),

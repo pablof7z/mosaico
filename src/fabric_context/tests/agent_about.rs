@@ -106,3 +106,92 @@ fn host_profile_delta_emits_through_the_canonical_hook_context() {
     assert!(!text.contains("<channels>"), "{text}");
     assert_eq!(changed.receipt.frame, FrameKind::Delta);
 }
+
+#[test]
+fn republishing_an_unchanged_host_profile_does_not_repeat_its_agents() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut state = HookContextState::default();
+    advertise_host(
+        &store,
+        "backend",
+        "laptop",
+        &[("helper", "For testing")],
+        &["root"],
+        150,
+    );
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
+    state.render_context("sess", "turn_start", 100, 200, before);
+
+    advertise_host(
+        &store,
+        "backend",
+        "laptop",
+        &[("helper", "For testing")],
+        &["root"],
+        250,
+    );
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    let unchanged = state.render_context("sess", "turn_start", 200, 300, after);
+
+    let text = unchanged.text.unwrap_or_default();
+    assert!(!text.contains("<hosts>"), "{text}");
+    assert!(!text.contains("helper@laptop"), "{text}");
+    assert_eq!(unchanged.receipt.frame, FrameKind::Delta);
+}
+
+#[test]
+fn a_fresh_hook_cache_keeps_capabilities_published_after_its_cursor() {
+    let store = seed_store();
+    let rec = session(&store);
+    advertise_host(
+        &store,
+        "backend",
+        "laptop",
+        &[("new-helper", "Newly available")],
+        &["root"],
+        150,
+    );
+    let captured = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
+    let text = HookContextState::default()
+        .render_context("sess", "turn_start", 100, 200, captured)
+        .text
+        .expect("a capability newer than the durable cursor should render");
+
+    assert!(text.contains("new-helper@laptop"), "{text}");
+}
+
+#[test]
+fn changing_one_host_capability_emits_only_that_capability() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut state = HookContextState::default();
+    advertise_host(
+        &store,
+        "backend",
+        "laptop",
+        &[("helper", "Old description"), ("stable", "Unchanged")],
+        &["root"],
+        150,
+    );
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
+    state.render_context("sess", "turn_start", 100, 200, before);
+
+    advertise_host(
+        &store,
+        "backend",
+        "laptop",
+        &[("helper", "New description"), ("stable", "Unchanged")],
+        &["root"],
+        250,
+    );
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    let text = state
+        .render_context("sess", "turn_start", 200, 300, after)
+        .text
+        .expect("the semantic capability change should render");
+
+    assert!(text.contains("helper@laptop"), "{text}");
+    assert!(text.contains("New description"), "{text}");
+    assert!(!text.contains("stable@laptop"), "{text}");
+}

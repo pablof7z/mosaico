@@ -1,40 +1,23 @@
-//! Kind:9 chat projection read through the active Fava view.
+//! Kind:9 chat projection read through the active Nostr runtime view.
 //!
-//! Message identity, content, ordering, and `p`-tag recipients belong to Fava.
+//! Message identity, content, ordering, and `p`-tag recipients belong to Nostr runtime.
 //! SQLite retains only the independently keyed local attachment directory.
 
-use super::observed_decode::{decode_message, MessageProjection};
 use super::*;
-use crate::fabric::nip29::wire::KIND_CHAT;
+use crate::fabric::nip29::view::MessageProjection;
 use std::collections::BTreeMap;
 
 mod attachments;
 mod wait_cursor;
 
 impl Store {
-    /// All retained kind:9 chat rows decoded into the message projection, read
-    /// from the bounded recent-rows window. The mirror's `messages()` is
-    /// retired; this is its sync successor.
-    pub(super) fn message_projections(&self) -> Vec<MessageProjection> {
-        self.observed_views
-            .recent_rows()
-            .events_by_kind(KIND_CHAT, u32::MAX)
-            .into_iter()
-            .filter_map(decode_message)
-            .collect()
-    }
-
     /// One chat projection by id, or `None` if the id is absent or not a chat
     /// row in the retained window.
     pub(super) fn message_projection_by_id(&self, message_id: &str) -> Option<MessageProjection> {
-        self.observed_views
-            .recent_rows()
-            .event(message_id)
-            .filter(|event| event.kind == KIND_CHAT as u32)
-            .and_then(decode_message)
+        self.view().message(message_id).cloned()
     }
 
-    fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
+    pub(super) fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
         message.attachment_dir = self.message_attachment_dir(&message.message_id)?;
         Ok(message)
     }
@@ -43,16 +26,17 @@ impl Store {
         if prefix.len() >= 64 {
             return self.get_message(prefix);
         }
-        let mut matches = self
-            .message_projections()
-            .into_iter()
+        let view = self.view();
+        let mut matches = view
+            .messages()
+            .iter()
             .filter(|row| row.message.message_id.starts_with(prefix));
         let first = matches.next();
         if matches.next().is_some() {
             anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one message");
         }
         first
-            .map(|row| self.with_local_attachment(row.message))
+            .map(|row| self.with_local_attachment(row.message.clone()))
             .transpose()
     }
 
@@ -80,10 +64,12 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<Message>> {
         let mut messages = self
-            .message_projections()
-            .into_iter()
-            .map(|row| row.message)
+            .view()
+            .messages()
+            .iter()
+            .map(|row| &row.message)
             .filter(|message| message.channel_h == channel_h && message.created_at > since)
+            .cloned()
             .collect::<Vec<_>>();
         messages.sort_by(|left, right| {
             (&right.created_at, &right.message_id).cmp(&(&left.created_at, &left.message_id))
@@ -108,10 +94,12 @@ impl Store {
 
     pub fn recent_chat_messages(&self, since: u64, limit: u32) -> Result<Vec<Message>> {
         let mut messages = self
-            .message_projections()
-            .into_iter()
-            .map(|row| row.message)
+            .view()
+            .messages()
+            .iter()
+            .map(|row| &row.message)
             .filter(|message| message.created_at >= since)
+            .cloned()
             .collect::<Vec<_>>();
         messages.sort_by(|left, right| {
             (&right.created_at, &right.message_id).cmp(&(&left.created_at, &left.message_id))
@@ -121,9 +109,9 @@ impl Store {
 
     pub fn latest_message_at_by_channel(&self) -> Result<BTreeMap<String, u64>> {
         let mut latest = BTreeMap::new();
-        for row in self.message_projections() {
+        for row in self.view().messages() {
             latest
-                .entry(row.message.channel_h)
+                .entry(row.message.channel_h.clone())
                 .and_modify(|at: &mut u64| *at = (*at).max(row.message.created_at))
                 .or_insert(row.message.created_at);
         }
@@ -136,7 +124,7 @@ impl Store {
         channel_h: &str,
         since: u64,
     ) -> Result<bool> {
-        Ok(self.message_projections().into_iter().any(|row| {
+        Ok(self.view().messages().iter().any(|row| {
             row.message.author_pubkey == pubkey
                 && row.message.channel_h == channel_h
                 && row.message.created_at > since
@@ -158,16 +146,10 @@ impl Store {
 
     pub fn message_recipients(&self, message_id: &str) -> Result<Vec<MessageRecipient>> {
         Ok(self
-            .message_projection_by_id(message_id)
-            .map(|row| row.recipients)
+            .view()
+            .message(message_id)
+            .map(|row| row.recipients.clone())
             .unwrap_or_default())
-    }
-
-    pub(super) fn message_projection(&self) -> Result<Vec<(Message, Vec<MessageRecipient>)>> {
-        self.message_projections()
-            .into_iter()
-            .map(|row| Ok((self.with_local_attachment(row.message)?, row.recipients)))
-            .collect()
     }
 
     fn messages_matching(
@@ -176,10 +158,12 @@ impl Store {
         include: impl Fn(&Message) -> bool,
     ) -> Result<Vec<Message>> {
         let mut messages = self
-            .message_projections()
-            .into_iter()
-            .map(|row| row.message)
-            .filter(include)
+            .view()
+            .messages()
+            .iter()
+            .map(|row| &row.message)
+            .filter(|message| include(message))
+            .cloned()
             .collect::<Vec<_>>();
         messages.sort_by(|left, right| {
             (&left.created_at, &left.message_id).cmp(&(&right.created_at, &right.message_id))

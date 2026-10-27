@@ -34,8 +34,8 @@ pub struct AddTarget {
 /// Build the `kind:9` add-agents orchestration event.
 ///
 /// Published into the coordination group (`parent_h`) so backends already in the
-/// parent group receive it; the `h` row that routes it there is minted by Fava's
-/// group door at publish time, not written here. The child group id travels in
+/// parent group receive it; the provider adds the routing `h` row at the
+/// finalization boundary, not here. The child group id travels in
 /// an `h-target` tag.
 ///
 /// Tags, in order:

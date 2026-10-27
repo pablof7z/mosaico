@@ -10,6 +10,7 @@ pub(super) struct ManagedAdminTarget {
 
 pub(in crate::daemon::server) fn reconcile_managed_admins(state: &Arc<DaemonState>) {
     let provider = state.provider();
+    let keys = state.backend_keys();
     let targets = match managed_admin_targets(state, &provider) {
         Ok(targets) => targets,
         Err(error) => {
@@ -36,7 +37,7 @@ pub(in crate::daemon::server) fn reconcile_managed_admins(state: &Arc<DaemonStat
                 continue;
             }
             match provider
-                .reconcile_managed_admins(&target.channel, Some(&target.inherited_admins))
+                .reconcile_managed_admins(&target.channel, Some(&target.inherited_admins), &keys)
                 .await
             {
                 Ok(true) => tracing::info!(

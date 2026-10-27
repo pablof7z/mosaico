@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use super::{verify, Nip29Provider};
 use crate::fabric::group_management::GroupMutationOutcome;
 use crate::fabric::nip29::readiness::ChannelReadinessError;
+use nostr::key::Keys;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Policy {
@@ -45,12 +46,13 @@ pub(super) async fn apply(
     required: &[String],
     policy: Policy,
     already_added: &[String],
+    keys: &Keys,
 ) -> Result<Applied, ChannelReadinessError> {
     let snapshot = provider.group_snapshot(channel).await.map_err(|error| {
         ChannelReadinessError::reason(format!("reading administrators failed: {error:#}"))
     })?;
     let snapshots = [snapshot];
-    let current = crate::observed_views::GroupProjection::new(&snapshots)
+    let current = crate::group_projection::GroupProjection::new(&snapshots)
         .list_channel_members(channel)
         .into_iter()
         .filter(|member| member.role == "admin")
@@ -64,7 +66,7 @@ pub(super) async fn apply(
     if !delta.additions.is_empty() {
         published(
             provider
-                .grant_admins_published(channel, &delta.additions)
+                .grant_admins_published(channel, &delta.additions, keys)
                 .await,
             format!(
                 "one admin grant for {} users in {channel}",
@@ -76,7 +78,7 @@ pub(super) async fn apply(
     if !delta.removals.is_empty() {
         published(
             provider
-                .remove_members_published(channel, &delta.removals)
+                .remove_members_published(channel, &delta.removals, keys)
                 .await,
             format!(
                 "one obsolete admin removal for {} users in {channel}",
@@ -111,6 +113,7 @@ impl Nip29Provider {
         &self,
         channel: &str,
         inherited_admins: Option<&[String]>,
+        keys: &Keys,
     ) -> Result<bool, ChannelReadinessError> {
         let managed = self.with_store(|store| store.is_managed_channel(channel));
         if !managed.map_err(|error| {
@@ -124,7 +127,7 @@ impl Nip29Provider {
             None => self.observed_parent_admins(channel).await?,
         };
         let required = verify::required_admins(self, &management, &parent_admins);
-        apply(self, channel, &required, Policy::Exact, &[])
+        apply(self, channel, &required, Policy::Exact, &[], keys)
             .await
             .map(|applied| applied.changed)
     }
@@ -142,7 +145,7 @@ impl Nip29Provider {
         })?;
         let snapshots = [snapshot];
         let parent =
-            crate::observed_views::GroupProjection::new(&snapshots).channel_parent(channel);
+            crate::group_projection::GroupProjection::new(&snapshots).channel_parent(channel);
         let Some(parent) = parent.filter(|parent| !parent.is_empty()) else {
             return Ok(Vec::new());
         };
@@ -152,7 +155,7 @@ impl Nip29Provider {
             ))
         })?;
         let snapshots = [parent_snapshot];
-        Ok(crate::observed_views::GroupProjection::new(&snapshots)
+        Ok(crate::group_projection::GroupProjection::new(&snapshots)
             .list_channel_members(&parent)
             .into_iter()
             .filter(|member| member.role == "admin")

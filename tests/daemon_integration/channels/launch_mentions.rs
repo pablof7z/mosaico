@@ -1,5 +1,5 @@
 use super::*;
-use crate::fava_client::FavaRelayClient;
+use crate::nostr_client::NostrRelayClient;
 use mosaico::daemon::client::Client as DaemonClient;
 use mosaico::domain::{AgentRef, ChatMessage, DomainEvent};
 use mosaico::fabric::nip29::wire::Nip29WireCodec;
@@ -157,7 +157,7 @@ fn wait_for_group_member(home: &Home, channel: &str, pubkey: &str) {
         wait_until(Duration::from_secs(25), || {
             observed_channel_has_role(&path, pubkey, "member")
         }),
-        "{pubkey} was not delivered by Fava as a member of {path}; daemon_log={}; group_log={}",
+        "{pubkey} was not delivered by Nostr runtime as a member of {path}; daemon_log={}; group_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log"))
             .unwrap_or_else(|e| format!("<{e}>")),
         std::fs::read_to_string(home.dir.path().join("logs/group-mgmt.log"))
@@ -185,10 +185,10 @@ fn wait_for_injected_log(log: &Path, body: &str) {
     );
 }
 
-async fn nostr_user_client(keys: Keys) -> FavaRelayClient {
-    FavaRelayClient::connect(keys, &shared_nip29_relay_url())
+async fn nostr_user_client(keys: Keys) -> NostrRelayClient {
+    NostrRelayClient::connect(keys, &shared_nip29_relay_url())
         .await
-        .expect("connect Fava relay client")
+        .expect("connect Nostr relay client")
 }
 
 async fn publish_user_kind9(channel: &str, body: &str, mentioned_pubkey: &str) -> String {

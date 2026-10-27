@@ -15,9 +15,9 @@ pub(in crate::cli) struct SetupArgs {
     dry_run: bool,
     #[arg(long)]
     status: bool,
-    /// Use one or more externally operated relay URLs. Repeat for multiple relays.
+    /// Use the one externally operated NIP-29 relay URL.
     #[arg(long, value_name = "WS_URL")]
-    relay: Vec<String>,
+    relay: Option<String>,
     /// Device label published for agents running on this host.
     #[arg(long, value_name = "LABEL")]
     host_label: Option<String>,
@@ -37,9 +37,6 @@ pub(in crate::cli) struct SetupArgs {
     /// Remove the optional human CLI signing key while preserving backend identity.
     #[arg(long)]
     clear_operator_nsec: bool,
-    /// Relay used for kind:0 profile lookup and publishing.
-    #[arg(long, value_name = "WS_URL")]
-    indexer_relay: Option<String>,
     /// Whether human-started sessions receive their own subgroup.
     #[arg(long, value_name = "BOOL")]
     per_session_rooms: Option<bool>,
@@ -53,13 +50,12 @@ pub(super) struct InstallOpts {
     pub dry_run: bool,
     pub status: bool,
     pub uninstall: bool,
-    pub relay: Vec<String>,
+    pub relay: Option<String>,
     pub host_label: Option<String>,
     pub operator_pubkeys: Option<String>,
     pub clear_operators: bool,
     pub operator_nsec_file: Option<PathBuf>,
     pub clear_operator_nsec: bool,
-    pub indexer_relay: Option<String>,
     pub per_session_rooms: Option<bool>,
 }
 
@@ -78,7 +74,6 @@ impl SetupArgs {
             clear_operators: self.clear_operators,
             operator_nsec_file: self.operator_nsec_file,
             clear_operator_nsec: self.clear_operator_nsec,
-            indexer_relay: self.indexer_relay,
             per_session_rooms: self.per_session_rooms,
         }
     }
@@ -128,8 +123,6 @@ mod tests {
             "abc,def",
             "--operator-nsec-file",
             "/tmp/operator.nsec",
-            "--indexer-relay",
-            "wss://indexer.example",
             "--per-session-rooms",
             "true",
         ])
@@ -142,14 +135,13 @@ mod tests {
                 assert!(args.dry_run);
                 assert!(args.status);
                 assert!(!args.all);
-                assert_eq!(args.relay, ["wss://relay.example"]);
+                assert_eq!(args.relay.as_deref(), Some("wss://relay.example"));
                 assert_eq!(args.host_label.as_deref(), Some("laptop"));
                 assert_eq!(args.operator_pubkeys.as_deref(), Some("abc,def"));
                 assert_eq!(
                     args.operator_nsec_file.as_deref(),
                     Some(std::path::Path::new("/tmp/operator.nsec"))
                 );
-                assert_eq!(args.indexer_relay.as_deref(), Some("wss://indexer.example"));
                 assert_eq!(args.per_session_rooms, Some(true));
             }
             _ => panic!("expected setup command"),

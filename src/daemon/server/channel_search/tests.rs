@@ -95,7 +95,7 @@ fn event_ids(result: &serde_json::Value) -> Vec<&str> {
         .unwrap()
         .iter()
         .flat_map(|channel| channel["messages"].as_array().unwrap())
-        .map(|message| message["event_id"].as_str().unwrap())
+        .map(|message| message["id"].as_str().unwrap())
         .collect()
 }
 
@@ -118,7 +118,7 @@ async fn subtree_scope_is_recursive_and_results_group_after_global_selection() {
     assert_eq!(all, slash);
     assert_eq!(
         event_ids(&all),
-        ["root-new", "root-old", "child", "deep", "other"]
+        ["root-n", "root-o", "child", "deep", "other"]
     );
     assert_eq!(all["channels"][0]["ref"], "#root");
     assert_eq!(all["channels"][1]["ref"], "#root/research");

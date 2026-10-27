@@ -15,7 +15,7 @@ fn installed_codex_home() -> tempfile::TempDir {
     }
     std::fs::write(
         mosaico_home.join("config.json"),
-        r#"{"availableHarnesses":[],"relays":["ws://127.0.0.1:1"]}"#,
+        r#"{"availableHarnesses":[],"relay":"ws://127.0.0.1:1"}"#,
     )
     .unwrap();
     let codex_home = home.path().join(".codex");

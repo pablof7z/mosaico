@@ -130,7 +130,7 @@ pub(in crate::daemon::server) fn tail_event_matches_channel(
     ev_channel == pr
 }
 
-/// Build the backfill event list from the current retained Fava rows plus local
+/// Build the backfill event list from the current current NIP-29 rows plus local
 /// session state.
 ///
 /// Returns recent chat lines as `Msg` events plus a status snapshot for peers
@@ -144,7 +144,7 @@ pub(in crate::daemon::server) fn build_backfill(
     let mut events: Vec<TailEvent> = Vec::new();
     let cap = limit.min(u32::MAX as u64) as u32;
 
-    // ── Recent chat lines from Fava rows ──────────────────────────────────────
+    // ── Recent chat lines from Nostr runtime rows ──────────────────────────────────────
     let chat_rows: Vec<Message> = state.with_store(|s| match channel {
         Some(pr) => s
             .chat_messages_for_channel(pr, since, cap)

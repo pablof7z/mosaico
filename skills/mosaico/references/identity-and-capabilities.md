@@ -29,9 +29,10 @@ capabilities, or identity-bearing environment variables affect a decision.
 ## Interpret The Agent Inventory
 
 - Discover capabilities on demand with `mosaico agents list`.
-- `agent@backend` means the backend advertises an available capability. It is
-  not a guarantee that launch will complete, a live session, channel member,
-  lock, or proof that work is already assigned.
+- `slug@backend` in the inventory means that backend advertises an available
+  capability. Local agents appear as `slug` only; agents on remote backends
+  appear as `slug@backend`. It is not a guarantee that launch will complete, a
+  live session, channel member, lock, or proof that work is already assigned.
 - Mosaico discovers valid Codex, Claude Code, and OpenCode native agent profiles
   from their global and workspace-local agent directories, plus named Hermes
   profiles from `<HERMES_HOME>/profiles`. These capabilities can appear without
