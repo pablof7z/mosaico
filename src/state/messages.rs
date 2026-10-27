@@ -17,7 +17,7 @@ impl Store {
         self.view().message(message_id).cloned()
     }
 
-    fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
+    pub(super) fn with_local_attachment(&self, mut message: Message) -> Result<Message> {
         message.attachment_dir = self.message_attachment_dir(&message.message_id)?;
         Ok(message)
     }
@@ -149,19 +149,6 @@ impl Store {
             .message_projection_by_id(message_id)
             .map(|row| row.recipients)
             .unwrap_or_default())
-    }
-
-    pub(super) fn message_projection(&self) -> Result<Vec<(Message, Vec<MessageRecipient>)>> {
-        self.view()
-            .messages()
-            .iter()
-            .map(|row| {
-                Ok((
-                    self.with_local_attachment(row.message.clone())?,
-                    row.recipients.clone(),
-                ))
-            })
-            .collect()
     }
 
     fn messages_matching(

@@ -47,8 +47,8 @@ impl Store {
             "message search limit must be between 1 and {MESSAGE_SEARCH_MAX_LIMIT}"
         );
 
-        let backend_pubkeys = self
-            .view()
+        let view = self.view();
+        let backend_pubkeys = view
             .profiles()
             .iter()
             .filter(|profile| profile.is_backend)
@@ -66,10 +66,11 @@ impl Store {
             .iter()
             .map(|value| value.to_lowercase())
             .collect::<Vec<_>>();
-        let mut hits = self
-            .message_projection()?
-            .into_iter()
-            .filter(|(message, recipients)| {
+        let mut hits = view
+            .messages()
+            .iter()
+            .filter(|row| {
+                let (message, recipients) = (&row.message, &row.recipients);
                 !backend_pubkeys.contains(&message.author_pubkey)
                     && !recipients
                         .iter()
@@ -91,10 +92,6 @@ impl Store {
                             .iter()
                             .any(|needle| message.body.to_lowercase().contains(needle)))
             })
-            .map(|(message, recipients)| MessageSearchHit {
-                message,
-                recipients,
-            })
             .collect::<Vec<_>>();
         hits.sort_by(|left, right| {
             (&right.message.created_at, &right.message.message_id)
@@ -103,6 +100,16 @@ impl Store {
 
         let has_more = hits.len() > query.limit as usize;
         hits.truncate(query.limit as usize);
+        // Only the returned page reads local attachment directories.
+        let hits = hits
+            .into_iter()
+            .map(|row| {
+                Ok(MessageSearchHit {
+                    message: self.with_local_attachment(row.message.clone())?,
+                    recipients: row.recipients.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         let next = has_more.then(|| {
             let last = hits.last().expect("a page with more rows is non-empty");
             MessageSearchPosition {

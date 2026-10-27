@@ -31,10 +31,11 @@ impl Store {
             .optional()?)
     }
 
-    /// Every event first observed after `sequence`, from one range read.
+    /// Every event first observed after `sequence`, in arrival order, from one
+    /// range read.
     pub(crate) fn event_arrivals_after(&self, sequence: u64) -> Result<Vec<(String, u64)>> {
         let mut statement = self.conn.prepare_cached(
-            "SELECT event_id, sequence FROM event_arrivals WHERE sequence > ?1",
+            "SELECT event_id, sequence FROM event_arrivals WHERE sequence > ?1 ORDER BY sequence",
         )?;
         let rows = statement.query_map([sequence], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

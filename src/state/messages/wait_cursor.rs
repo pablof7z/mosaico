@@ -15,15 +15,16 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<(u64, Message)>> {
         let view = self.view();
-        let mut rows = self
-            .event_arrivals_after(after_sequence)?
-            .into_iter()
-            .filter_map(|(event_id, sequence)| {
-                Some((sequence, view.message(&event_id)?.message.clone()))
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by_key(|(cursor, _)| *cursor);
-        rows.truncate(limit as usize);
+        let mut rows = Vec::new();
+        for (event_id, sequence) in self.event_arrivals_after(after_sequence)? {
+            if rows.len() == limit as usize {
+                break;
+            }
+            // Arrivals that are not chat messages in the current view drop out.
+            if let Some(row) = view.message(&event_id) {
+                rows.push((sequence, row.message.clone()));
+            }
+        }
         rows.into_iter()
             .map(|(cursor, message)| Ok((cursor, self.with_local_attachment(message)?)))
             .collect()

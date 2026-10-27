@@ -41,3 +41,32 @@ fn reply_target_comes_from_the_observed_message_tags() {
         Some("parent")
     );
 }
+
+#[test]
+fn wait_cursor_returns_chat_in_arrival_order_and_stops_at_the_limit() {
+    let store = Store::open_memory().unwrap();
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([event("c", "[]")]));
+    store.record_event_arrival("ghost").unwrap();
+    let mut reaction = event("r", r#"[["e","c"]]"#);
+    reaction.kind = crate::fabric::nip29::wire::KIND_REACTION as u32;
+    reaction.content = "+".to_string();
+    store.install_test_relay_delivery(TestRelayDelivery::new().events([
+        event("a", "[]"),
+        event("b", "[]"),
+        event("c", "[]"),
+        reaction,
+    ]));
+
+    let ids = |limit| {
+        store
+            .messages_after_arrival_sequence(0, limit)
+            .unwrap()
+            .into_iter()
+            .map(|(_, message)| message.message_id)
+            .collect::<Vec<_>>()
+    };
+    // Arrival order (c first), not view order; the ghost id and the reaction
+    // are arrivals but not chat messages in the view.
+    assert_eq!(ids(10), ["c", "a", "b"]);
+    assert_eq!(ids(1), ["c"]);
+}

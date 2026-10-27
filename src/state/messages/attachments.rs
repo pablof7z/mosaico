@@ -20,11 +20,8 @@ impl Store {
     pub(super) fn message_attachment_dir(&self, event_id: &str) -> Result<String> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT directory FROM message_attachments WHERE event_id=?1",
-                [event_id],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT directory FROM message_attachments WHERE event_id=?1")?
+            .query_row([event_id], |row| row.get(0))
             .optional()?
             .unwrap_or_default())
     }
