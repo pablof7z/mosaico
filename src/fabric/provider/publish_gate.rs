@@ -1,6 +1,20 @@
 use super::Nip29Provider;
 use anyhow::Result;
 
+/// The local publish gate could not verify a channel or membership from the
+/// current group view. Unlike a relay rejection, this can resolve once the
+/// view delivers the group (for example right after a daemon restart).
+#[derive(Debug)]
+pub(crate) struct PublishScopeUnverified(String);
+
+impl std::fmt::Display for PublishScopeUnverified {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for PublishScopeUnverified {}
+
 /// Exact, short-lived authority returned by one relay-acknowledged group mutation.
 ///
 /// This is not roster state and is never retained. It only bridges the command
@@ -63,15 +77,15 @@ impl Nip29Provider {
     ) -> Result<()> {
         anyhow::ensure!(!channel.is_empty(), "publish: channel must not be empty");
         self.with_store(|store| {
-            anyhow::ensure!(
-                store.get_channel(channel)?.is_some(),
-                "publish: channel {channel} does not exist; create it explicitly before publishing"
-            );
-            if require_member {
-                anyhow::ensure!(
-                    store.is_channel_member(channel, signer)?,
+            if store.get_channel(channel)?.is_none() {
+                return Err(anyhow::Error::new(PublishScopeUnverified(format!(
+                    "publish: channel {channel} does not exist; create it explicitly before publishing"
+                ))));
+            }
+            if require_member && !store.is_channel_member(channel, signer)? {
+                return Err(anyhow::Error::new(PublishScopeUnverified(format!(
                     "publish: signer is not a member of channel {channel}; join it explicitly before publishing"
-                );
+                ))));
             }
             Ok(())
         })

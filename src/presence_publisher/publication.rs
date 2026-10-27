@@ -12,6 +12,15 @@ use crate::state::Store;
 const PUBLISH_ATTEMPTS: usize = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(250);
 
+/// What one job's publication achieved.
+pub(super) struct PublishReport {
+    pub(super) ids: Vec<String>,
+    /// Some effect stopped only because the local publish gate could not yet
+    /// verify its channel from the group view; it can succeed once the view
+    /// delivers the group.
+    pub(super) deferred: bool,
+}
+
 pub(super) async fn apply_status_effects(
     outcome: &StatusOutcome,
     provider: &Nip29Provider,
@@ -19,8 +28,9 @@ pub(super) async fn apply_status_effects(
     trigger: &str,
     confirmed_scope: Option<&ConfirmedGroupScope>,
     pending: &Arc<Mutex<PendingPublishJobs>>,
-) -> Vec<String> {
+) -> PublishReport {
     let mut ids = Vec::new();
+    let mut deferred = false;
     for effect in &outcome.effects {
         let (status, require_member) = match effect {
             StatusEffect::Publish { status, .. } => (status, true),
@@ -47,6 +57,10 @@ pub(super) async fn apply_status_effects(
                         .expect("presence publish queue poisoned")
                         .supersedes(&status.agent.pubkey, outcome.revision);
                     if superseded || attempt == PUBLISH_ATTEMPTS {
+                        deferred |= !superseded
+                            && error
+                                .downcast_ref::<crate::fabric::provider::PublishScopeUnverified>()
+                                .is_some();
                         tracing::warn!(
                             error = %format!("{error:#}"),
                             source_ref,
@@ -61,7 +75,7 @@ pub(super) async fn apply_status_effects(
             }
         }
     }
-    ids
+    PublishReport { ids, deferred }
 }
 
 async fn enqueue_status(

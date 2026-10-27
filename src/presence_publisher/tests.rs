@@ -14,7 +14,7 @@ type BlockedPublisher = (
     mpsc::UnboundedReceiver<ObservedPublish>,
 );
 
-fn renewal(pubkey: &str, revision: u64) -> StatusOutcome {
+pub(super) fn renewal(pubkey: &str, revision: u64) -> StatusOutcome {
     StatusOutcome {
         effects: vec![StatusEffect::Publish {
             status: Status {
@@ -64,8 +64,10 @@ fn blocked_publisher() -> BlockedPublisher {
     let gate = Arc::new(Semaphore::new(0));
     let calls = Arc::new(AtomicUsize::new(0));
     let (observed_tx, observed_rx) = mpsc::unbounded_channel();
-    let publisher =
-        PresencePublisher::start(Arc::new(Mutex::new(PendingPublishJobs::default())), {
+    let publisher = PresencePublisher::start(
+        Arc::new(Mutex::new(PendingPublishJobs::default())),
+        Arc::new(Mutex::new(deferred::DeferredJobs::default())),
+        {
             let gate = gate.clone();
             Arc::new(move |job: PublishJob| {
                 let gate = gate.clone();
@@ -88,7 +90,8 @@ fn blocked_publisher() -> BlockedPublisher {
                     }
                 })
             })
-        });
+        },
+    );
     (publisher, gate, observed_rx)
 }
 
@@ -212,12 +215,18 @@ async fn an_awaited_publication_waits_for_the_running_job_and_replaces_queued_st
                 .await
         }
     });
+    // The running job holds the publication lane until its gate opens, so the
+    // awaited publication cannot have started, however long we look.
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
     assert!(
-        timeout(Duration::from_millis(50), observed_rx.recv())
+        timeout(Duration::from_millis(200), observed_rx.recv())
             .await
             .is_err(),
         "an awaited publication must not overtake the running job"
     );
+    assert!(!awaited.is_finished());
     gate.add_permits(1);
 
     // Then it runs after the in-flight job, and the queued older state never does.
@@ -231,9 +240,9 @@ async fn an_awaited_publication_waits_for_the_running_job_and_replaces_queued_st
         .await
         .expect("the awaited publication must return")
         .expect("the awaited publication must not panic");
-    assert!(timeout(Duration::from_millis(50), observed_rx.recv())
-        .await
-        .is_err());
+    // The older queued state was discarded, so nothing remains to publish.
+    assert_eq!(publisher.pending.lock().unwrap().len(), 0);
+    assert!(observed_rx.try_recv().is_err());
 }
 
 #[test]
@@ -246,6 +255,7 @@ fn a_closed_worker_retains_no_unserviceable_presence_job() {
         pending: pending.clone(),
         lane: Arc::new(tokio::sync::Mutex::new(())),
         publish: Arc::new(|_| Box::pin(async {})),
+        deferred: Arc::new(Mutex::new(deferred::DeferredJobs::default())),
     };
 
     publisher.submit(renewal("pk-a", 1), &Keys::generate(), "renewal", None);

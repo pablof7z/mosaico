@@ -17,6 +17,8 @@ use crate::{domain::Status, reconcile::StatusEffect};
 
 const PUBLISH_SIGNAL_CAPACITY: usize = 1;
 
+#[path = "presence_publisher/deferred.rs"]
+mod deferred;
 #[path = "presence_publisher/publication.rs"]
 mod publication;
 
@@ -98,6 +100,8 @@ pub(crate) struct PresencePublisher {
     /// awaited publications, so neither can land a stale state after the other.
     lane: Arc<tokio::sync::Mutex<()>>,
     publish: PublishFn,
+    /// Jobs the local publish gate refused until the group view catches up.
+    deferred: Arc<Mutex<deferred::DeferredJobs>>,
 }
 
 impl PresencePublisher {
@@ -106,19 +110,24 @@ impl PresencePublisher {
         store: Arc<Mutex<Store>>,
     ) -> PresencePublisher {
         let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
+        let deferred = Arc::new(Mutex::new(deferred::DeferredJobs::default()));
         let publish_pending = pending.clone();
-        Self::start(
+        let publish_provider = provider.clone();
+        let publish_deferred = deferred.clone();
+        let publisher = Self::start(
             pending,
+            deferred.clone(),
             Arc::new(move |job: PublishJob| {
-                let provider = provider.clone();
+                let provider = publish_provider.clone();
                 let store = store.clone();
                 let pending = publish_pending.clone();
+                let deferred = publish_deferred.clone();
                 Box::pin(async move {
                     let provider = provider
                         .read()
                         .unwrap_or_else(|poison| poison.into_inner())
                         .clone();
-                    let event_ids = publication::apply_status_effects(
+                    let report = publication::apply_status_effects(
                         &job.outcome,
                         &provider,
                         &job.keys,
@@ -127,13 +136,30 @@ impl PresencePublisher {
                         &pending,
                     )
                     .await;
-                    publication::record_status_receipt(&store, &job.outcome, &event_ids);
+                    publication::record_status_receipt(&store, &job.outcome, &report.ids);
+                    if report.deferred {
+                        deferred
+                            .lock()
+                            .expect("deferred presence queue poisoned")
+                            .park(job);
+                    }
                 })
             }),
-        )
+        );
+        deferred::spawn_requeue_on_group_change(
+            provider,
+            deferred,
+            publisher.pending.clone(),
+            publisher.signal_tx.clone(),
+        );
+        publisher
     }
 
-    fn start(pending: Arc<Mutex<PendingPublishJobs>>, publish: PublishFn) -> PresencePublisher {
+    fn start(
+        pending: Arc<Mutex<PendingPublishJobs>>,
+        deferred: Arc<Mutex<deferred::DeferredJobs>>,
+        publish: PublishFn,
+    ) -> PresencePublisher {
         let (signal_tx, signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
         let lane = Arc::new(tokio::sync::Mutex::new(()));
         spawn_publish_worker(signal_rx, pending.clone(), lane.clone(), publish.clone());
@@ -142,6 +168,7 @@ impl PresencePublisher {
             pending,
             lane,
             publish,
+            deferred,
         }
     }
 
@@ -167,6 +194,10 @@ impl PresencePublisher {
         self.pending
             .lock()
             .expect("presence publish queue poisoned")
+            .discard_superseded(&pubkey, outcome.revision);
+        self.deferred
+            .lock()
+            .expect("deferred presence queue poisoned")
             .discard_superseded(&pubkey, outcome.revision);
         (self.publish)(PublishJob {
             outcome,

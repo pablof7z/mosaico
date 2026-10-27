@@ -11,7 +11,7 @@ mod publish_gate;
 mod reactions;
 mod readiness;
 
-pub(crate) use publish_gate::ConfirmedGroupScope;
+pub(crate) use publish_gate::{ConfirmedGroupScope, PublishScopeUnverified};
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -82,6 +82,11 @@ impl Nip29Provider {
 
     pub fn decode(&self, envelope: &RawEnvelope) -> Option<DomainEvent> {
         self.wire.decode(envelope)
+    }
+
+    /// Wakes when the decoded relay-signed group state changes.
+    pub(crate) fn subscribe_group_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.view.subscribe_group_changes()
     }
 
     pub(crate) fn management_pubkey(&self) -> String {
