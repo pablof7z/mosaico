@@ -37,8 +37,8 @@ pub(crate) use reconcile_witness::{daemon_log_boundary, wait_for_reconciled_sess
 #[path = "harness/relay_witness.rs"]
 mod relay_witness;
 pub(crate) use relay_witness::{
-    publish_addressed_chat, sign_builder_into_group, wait_for_exact_relay_groups,
-    wait_for_relay_group_parent,
+    latest_relay_status_at, publish_addressed_chat, sign_builder_into_group,
+    wait_for_exact_relay_groups, wait_for_relay_group_parent,
 };
 #[path = "harness/terminal.rs"]
 mod terminal;

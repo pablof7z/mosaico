@@ -163,6 +163,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
 
     let log_boundary = daemon_log_boundary(&home);
     stop_daemon_for_restart(&home);
+    let restarted_at = mosaico::util::now_secs();
     cleanup.assert_exact_processes_live();
     // A version-skew exit deliberately leaves daemon creation to the next
     // compatible thin client. Reconnect before asserting the new daemon's
@@ -177,6 +178,15 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         &session.pubkey,
         session.runtime_generation,
         log_boundary,
+    );
+    // The re-adopted session's heartbeat must not wait for the 30 s lease
+    // renewal while the restarted daemon's group view is still empty.
+    assert!(
+        wait_until(Duration::from_secs(15), || {
+            latest_relay_status_at(&relay, &session.pubkey).is_some_and(|at| at >= restarted_at)
+        }),
+        "the restarted daemon did not republish the session's presence; daemon_log={}",
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
     // The bounded SDK memory database starts empty after restart. Session adoption and
     // relay-backed group rehydration are independent, so await the public level.

@@ -186,6 +186,18 @@ fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>
     Ok(groups)
 }
 
+/// The newest kind:30315 presence status `pubkey` has on the relay, as its
+/// `created_at`, read independently of the daemon.
+pub(crate) fn latest_relay_status_at(relay: &str, pubkey: &str) -> Option<u64> {
+    let stdout = run_nak_req_bounded(relay, &["-k", "30315", "-a", pubkey, "-l", "20"]).ok()?;
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event["pubkey"].as_str() == Some(pubkey))
+        .filter_map(|event| event["created_at"].as_u64())
+        .max()
+}
+
 fn run_nak_req_bounded(relay: &str, filters: &[&str]) -> Result<String> {
     let scratch = tempfile::tempdir().context("create nak query scratch")?;
     let stdout_path = scratch.path().join("stdout.log");
