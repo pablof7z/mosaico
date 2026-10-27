@@ -100,6 +100,13 @@ fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
         root_group_with_roster(&[SELF_PK], &[]),
         task_group(),
     ]));
+    // The late member is present (a live status), so it is listed once the
+    // roster row arrives; a dormant member would not be.
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
+    );
     let rec = session(&store);
     let mut hook = HookContextState::default();
     let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
@@ -113,7 +120,7 @@ fn a_late_roster_addition_behind_the_cursor_still_emits_a_member_delta() {
         .expect("the frozen-input comparison must recover the late roster row");
 
     assert!(delta.contains("<members>"), "{delta}");
-    assert!(delta.contains("<agent name=\"@reviewer\" />"), "{delta}");
+    assert!(delta.contains("<agent name=\"@reviewer\""), "{delta}");
 }
 
 #[test]

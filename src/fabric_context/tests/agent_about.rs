@@ -80,11 +80,11 @@ fn host_profile_delta_emits_through_the_canonical_hook_context() {
 
     let before = capture_inputs(&store, &input(Some(&rec), "root", 100, 200, false)).unwrap();
     let baseline = state.render_context("sess", "turn_start", 100, 200, before);
-    let baseline = baseline
-        .text
-        .expect("a fresh hook cache re-baselines joined members");
-    assert!(baseline.contains("<channel name=\"#root\""), "{baseline}");
-    assert!(!baseline.contains("<hosts>"), "{baseline}");
+    assert!(
+        baseline.text.is_none(),
+        "the only peer is dormant, so the fresh baseline has no member to list: {:?}",
+        baseline.text
+    );
 
     advertise_host(
         &store,

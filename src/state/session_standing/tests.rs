@@ -39,10 +39,6 @@ fn stopped_session_standing_does_not_expire_before_explicit_leave() {
     assert_eq!(standing.state, StandingState::Member);
     assert!(store.has_session_route("pk", "room").unwrap());
     assert_eq!(store.list_cleanup_due_member_standing().unwrap(), []);
-    assert_eq!(
-        store.list_stopped_member_standing().unwrap(),
-        std::slice::from_ref(&standing)
-    );
 
     store
         .conn
@@ -55,7 +51,6 @@ fn stopped_session_standing_does_not_expire_before_explicit_leave() {
         store.list_cleanup_due_member_standing().unwrap(),
         [standing]
     );
-    assert_eq!(store.list_stopped_member_standing().unwrap(), []);
 }
 
 #[test]

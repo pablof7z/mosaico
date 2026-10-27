@@ -7,12 +7,13 @@ use crate::util::relative_time;
 
 /// Full-snapshot member rows from the frozen roster, profile, and status inputs.
 ///
-/// Every nameable roster member earns a row. Only a live heartbeat carries a
-/// `state` label — presence is a
-/// lifecycle fact, and a peer we have merely seen talking has no lifecycle we
-/// can vouch for. Nameable roster members remain visible even without activity;
-/// their row simply omits state, status, and since. Only an unaddressable member
-/// is withheld until a current profile row gives it a usable name.
+/// Every present, nameable roster member earns a row. Only a live heartbeat
+/// carries a `state` label — presence is a lifecycle fact, and a peer we have
+/// merely seen talking has no lifecycle we can vouch for, so its row omits
+/// state. A dormant agent (stopped, or remote without a live status) that has
+/// not spoken in the channel keeps its membership but gets no row: bare roster
+/// existence is not presence. An unaddressable member is withheld until a
+/// current profile row names it.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
     inputs
         .members
@@ -32,6 +33,7 @@ pub(in crate::fabric_context) fn member_row(
     now: u64,
 ) -> Option<MemberRow> {
     let members = &inputs.members;
+    let is_self = pubkey == inputs.meta.self_pubkey;
     if members.backend.contains(pubkey)
         || !members
             .roster
@@ -47,8 +49,11 @@ pub(in crate::fabric_context) fn member_row(
         .map(Vec::as_slice)
         .unwrap_or_default();
     let status_map = status_map(statuses);
-    let is_self = pubkey == inputs.meta.self_pubkey;
     let status = status_map.get(pubkey);
+    let live_status_here = status.is_some_and(|status| status.state.is_live());
+    if !is_self && !members.agent_present(channel, pubkey, live_status_here) {
+        return None;
+    }
     let presence = status.map(|status| projected_presence(status));
     // A live heartbeat owns both the state label and its `since`; without one,
     // the most recent thing the member said stands in for liveness.

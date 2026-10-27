@@ -1,7 +1,7 @@
 //! Canonical store aggregation for the human and JSON `who` projections.
 
 use crate::identity::SessionIdentity;
-use crate::state::{Channel, ChannelMember, Profile, Session, SessionStanding, Status, Store};
+use crate::state::{Channel, ChannelMember, Profile, Session, Status, Store};
 use anyhow::{Context, Result};
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,7 +14,6 @@ pub(crate) struct WhoAggregation {
     pub(crate) channels: Vec<Channel>,
     pub(crate) local_sessions: Vec<Session>,
     pub(crate) local_pubkeys: BTreeSet<String>,
-    pub(crate) stopped_standing: Vec<SessionStanding>,
     pub(crate) backend_profiles: Vec<Profile>,
     pub(crate) local_spawnable: BTreeMap<String, (String, Option<String>)>,
     channels_by_id: BTreeMap<String, Channel>,
@@ -22,7 +21,6 @@ pub(crate) struct WhoAggregation {
     statuses: BTreeMap<String, Vec<Status>>,
     profiles: BTreeMap<String, Profile>,
     identities: BTreeMap<String, SessionIdentity>,
-    sessions_by_pubkey: BTreeMap<String, Session>,
     session_routes: BTreeMap<String, Vec<String>>,
     local_presence: BTreeMap<String, crate::session_presence::PublicPresence>,
     workspace_paths: BTreeMap<String, String>,
@@ -48,9 +46,6 @@ impl WhoAggregation {
             .into_iter()
             .map(|(slug, command, byline)| (slug, (command, byline)))
             .collect();
-        let stopped_standing = store
-            .list_stopped_member_standing()
-            .context("who aggregation: failed to list stopped session standing")?;
         let channels_by_id = channels
             .iter()
             .cloned()
@@ -86,17 +81,6 @@ impl WhoAggregation {
         let mut referenced_pubkeys = BTreeSet::new();
         referenced_pubkeys.extend(local_sessions.iter().map(|session| session.pubkey.clone()));
         referenced_pubkeys.extend(
-            stopped_standing
-                .iter()
-                .map(|standing| standing.pubkey.clone()),
-        );
-        referenced_pubkeys.extend(
-            members
-                .values()
-                .flatten()
-                .map(|member| member.pubkey.clone()),
-        );
-        referenced_pubkeys.extend(
             statuses
                 .values()
                 .flatten()
@@ -107,9 +91,6 @@ impl WhoAggregation {
                 .iter()
                 .map(|profile| profile.pubkey.clone()),
         );
-        // Session facts come from two bulk reads, not queries per pubkey: the
-        // referenced set includes every stopped session that still holds
-        // channel standing.
         let mut all_identities = store
             .session_identities()
             .context("who aggregation: failed to read session identities")?;
@@ -124,15 +105,8 @@ impl WhoAggregation {
                 session.pubkey
             );
         }
-        let mut all_sessions = store
-            .list_sessions()
-            .context("who aggregation: failed to list sessions")?
-            .into_iter()
-            .map(|session| (session.pubkey.clone(), session))
-            .collect::<BTreeMap<_, _>>();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
-        let mut sessions_by_pubkey = BTreeMap::new();
         for pubkey in referenced_pubkeys {
             if let Some(profile) = store
                 .get_profile(&pubkey)
@@ -141,10 +115,7 @@ impl WhoAggregation {
                 profiles.insert(pubkey.clone(), profile);
             }
             if let Some(identity) = all_identities.remove(&pubkey) {
-                identities.insert(pubkey.clone(), identity);
-            }
-            if let Some(session) = all_sessions.remove(&pubkey) {
-                sessions_by_pubkey.insert(pubkey, session);
+                identities.insert(pubkey, identity);
             }
         }
         let local_presence = local_sessions
@@ -183,7 +154,6 @@ impl WhoAggregation {
             channels,
             local_sessions,
             local_pubkeys,
-            stopped_standing,
             backend_profiles,
             local_spawnable,
             channels_by_id,
@@ -191,7 +161,6 @@ impl WhoAggregation {
             statuses,
             profiles,
             identities,
-            sessions_by_pubkey,
             session_routes,
             local_presence,
             workspace_paths,

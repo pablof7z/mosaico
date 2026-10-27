@@ -21,6 +21,16 @@ pub(crate) struct MemberFacts {
     is_live: bool,
 }
 
+impl MemberFacts {
+    pub(crate) fn is_named_agent(self) -> bool {
+        self.is_named_agent
+    }
+
+    pub(crate) fn is_live(self) -> bool {
+        self.is_live
+    }
+}
+
 /// Identity evidence shared by every member normalization in one capture.
 #[derive(Default)]
 pub(crate) struct MemberFactIndex {

@@ -14,21 +14,15 @@ mod lifecycle;
 mod native_outcome;
 
 #[test]
-fn full_snapshot_keeps_nameable_members_while_empty_presence_deltas_stay_quiet() {
+fn full_snapshot_omits_dormant_agents_while_empty_presence_deltas_stay_quiet() {
     let store = seed_store();
     let rec = session(&store);
 
+    // Relay membership outlives the runtime: an agent with no live status and
+    // nothing said in the channel is dormant, not present.
     let snapshot = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true))
         .expect("snapshot should render");
-    assert!(snapshot.contains("<members>"), "got: {snapshot}");
-    // Membership itself is relevant awareness. Unknown lifecycle facts are
-    // omitted instead of hiding the nameable member.
-    assert!(
-        snapshot.contains("<agent name=\"@reviewer\" />"),
-        "got: {snapshot}"
-    );
-    assert!(!snapshot.contains("since=\"unknown\""), "got: {snapshot}");
-    assert!(!snapshot.contains("status=\"\""), "got: {snapshot}");
+    assert!(!snapshot.contains("@reviewer"), "got: {snapshot}");
 
     store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
         [Status {

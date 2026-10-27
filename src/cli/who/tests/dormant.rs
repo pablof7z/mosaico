@@ -55,16 +55,12 @@ fn seed_stopped_member(store: &Store) {
 }
 
 #[test]
-fn stopped_session_keeps_membership_as_dormant_presence() {
+fn a_stopped_session_keeps_membership_but_is_not_live_presence() {
     let store = Store::open_memory().unwrap();
     seed_stopped_member(&store);
 
     let snapshot = load_who_snapshot(&store, Some("proj"), 1_000, "laptop").unwrap();
-    let row = snapshot.rows.first().expect("dormant row");
-    assert!(row.dormant);
-    assert_eq!(row.slug, "codex");
-    assert_eq!(row.age_secs, Some(100));
-    assert!(!row.remote);
+    assert!(snapshot.rows.is_empty(), "{:?}", snapshot.rows);
     assert!(store.has_session_route("pk-codex", "proj").unwrap());
     assert_eq!(
         store
@@ -80,9 +76,8 @@ fn stopped_session_keeps_membership_as_dormant_presence() {
 fn stopped_membership_does_not_expire() {
     let store = Store::open_memory().unwrap();
     seed_stopped_member(&store);
-    let snapshot = load_who_snapshot(&store, Some("proj"), 4_501, "laptop").unwrap();
-    let row = snapshot.rows.first().expect("dormant row");
-    assert!(row.dormant);
-    assert_eq!(row.age_secs, Some(3_601));
+
+    let later = load_who_snapshot(&store, Some("proj"), 4_501, "laptop").unwrap();
+    assert!(later.rows.is_empty());
     assert!(store.has_session_route("pk-codex", "proj").unwrap());
 }

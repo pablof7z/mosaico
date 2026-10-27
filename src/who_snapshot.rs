@@ -2,7 +2,6 @@ use crate::state::Store;
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-mod dormant;
 mod row_builders;
 mod scope;
 
@@ -62,9 +61,6 @@ pub(crate) struct WhoRow {
     /// title while mid-turn; empty (and not rendered) when idle.
     #[serde(default)]
     pub(crate) activity: String,
-    /// A stopped local session whose relay membership remains active.
-    #[serde(default)]
-    pub(crate) dormant: bool,
     pub(crate) host: String,
     pub(crate) age_secs: Option<u64>,
     /// Channel-relative working dir (§8e). Empty or "." → rendered without a
@@ -142,15 +138,6 @@ pub(crate) fn build_who_snapshot(
             }
         }
     }
-    dormant::push_stopped_rows(
-        aggregation,
-        current_root,
-        now,
-        &local_host,
-        &mut rows,
-        &mut other_agents,
-    )?;
-
     // ── peers: current Nostr runtime status rows, minus our own keys ────────────────────
     // Scan every channel even when a `current_root` is set: in-scope statuses
     // become rows, root channels out of scope feed the other-workspaces summary.

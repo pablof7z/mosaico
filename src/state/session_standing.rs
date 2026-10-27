@@ -135,23 +135,6 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    pub fn list_stopped_member_standing(&self) -> Result<Vec<SessionStanding>> {
-        let mut statement = self.conn.prepare(
-            "SELECT standing.pubkey, standing.channel_h, standing.state,
-                    standing.standing_epoch, standing.session_lifecycle_epoch,
-                    standing.updated_at
-               FROM session_standing standing
-               JOIN sessions session ON session.pubkey=standing.pubkey
-               JOIN session_channels route
-                 ON route.pubkey=standing.pubkey
-                AND route.channel_h=standing.channel_h
-              WHERE standing.state='member' AND session.runtime_state='stopped'
-              ORDER BY standing.updated_at DESC, standing.pubkey, standing.channel_h",
-        )?;
-        let rows = statement.query_map([], row_to_standing)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
     pub fn mark_member_standing_absent_if_epoch(
         &self,
         pubkey: &str,

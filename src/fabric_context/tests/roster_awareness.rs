@@ -226,3 +226,39 @@ fn the_full_session_briefing_withholds_an_unnameable_member() {
         "{fabric}"
     );
 }
+
+/// A session this daemon owns and has stopped is dormant even while its last
+/// live status is still in the relay view: local lifecycle wins, as it does
+/// for agent counts.
+#[test]
+fn a_stopped_local_session_with_a_stale_live_status_is_not_listed() {
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
+            pubkey: OTHER_PK.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "reviewer".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
+            child_pid: Some(42),
+            now: 10,
+        })
+        .unwrap();
+    store
+        .mark_runtime_stopped(OTHER_PK, crate::state::StopReason::Unknown, 20)
+        .unwrap();
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([heartbeat(OTHER_PK, "reviewer", 50)]),
+    );
+
+    let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
+    assert!(
+        !member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("@reviewer")),
+        "{xml}"
+    );
+}

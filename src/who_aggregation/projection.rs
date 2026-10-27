@@ -1,6 +1,6 @@
 use super::WhoAggregation;
 use crate::identity::SessionIdentity;
-use crate::state::{Channel, Profile, Session};
+use crate::state::{Channel, Profile};
 
 impl WhoAggregation {
     pub(crate) fn profile(&self, pubkey: &str) -> Option<&Profile> {
@@ -9,10 +9,6 @@ impl WhoAggregation {
 
     pub(crate) fn session_identity(&self, pubkey: &str) -> Option<&SessionIdentity> {
         self.identities.get(pubkey)
-    }
-
-    pub(crate) fn session(&self, pubkey: &str) -> Option<&Session> {
-        self.sessions_by_pubkey.get(pubkey)
     }
 
     pub(crate) fn workspace_path(&self, channel_h: &str) -> Option<&str> {

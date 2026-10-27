@@ -29,7 +29,7 @@ result: {
     "source": "Local"|"Peer",
     "state": "working"|"idle"|"suspended"|"offline",
     "slug": "…", "channel": "…", "status": "…", "activity": "…",
-    "dormant": bool, "host": "…", "age_secs": u64|null,
+    "host": "…", "age_secs": u64|null,
     "rel_cwd": "…", "remote": bool,
     "work_root": "…", "work_root_display": "…"
   }, …],

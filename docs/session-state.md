@@ -64,11 +64,15 @@ recovery authority, and per-channel fabric standing:
   work. Ordinary exit and eviction do not revoke recovery or membership.
 
 Relay membership outlives the runtime, so a channel roster accumulates every
-session that ever joined. Public agent counts (`channel list`, fabric context
-`agents=`) therefore count only *live* named agents: a local session whose
-runtime is running, or a remote agent with a current unexpired live status.
-Dormant members keep membership and exact p-tag resume; they are simply not
-reported as active.
+session that ever joined. Public surfaces therefore report presence, not
+membership. Agent counts (`channel list`, fabric context `agents=`) count only
+*live* named agents: a local session whose runtime is running, or a remote
+agent with a current unexpired live status. Member lists (fabric context
+`<members>`, the `who` view and its JSON) show a named agent in a channel only
+while it is live with a live status there, or once it has spoken in that
+channel. Dormant members keep membership and exact p-tag resume; they are
+simply not reported. `who --expired` lists stopped local sessions that have a
+native resume locator.
 
 Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying
