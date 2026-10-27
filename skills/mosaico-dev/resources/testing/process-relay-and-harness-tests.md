@@ -43,7 +43,7 @@ relay-signed group projections, or cross-backend discovery. Supply it through
 infrastructure.
 
 CI pins Croissant commit
-`74b0b51df4128bb84107ce7210d5e59a10e5b5d5`, Go `1.25.12`, and `nak`
+`d7cea0dc5cda1fd7da751c18f023e7fd5604b585`, Go `1.25.12`, and `nak`
 `v0.20.0` for deterministic BDD evidence.
 
 Use ephemeral loopback ports and isolated relay data. Readiness means a bounded
