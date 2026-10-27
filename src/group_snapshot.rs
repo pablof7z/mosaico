@@ -157,7 +157,10 @@ pub(crate) fn decode_snapshots(
 fn insert_latest(map: &mut std::collections::BTreeMap<String, Event>, key: String, event: Event) {
     map.entry(key)
         .and_modify(|existing| {
-            if event.created_at > existing.created_at {
+            // NIP-01: on a `created_at` tie the lowest event id wins.
+            if event.created_at > existing.created_at
+                || (event.created_at == existing.created_at && event.id < existing.id)
+            {
                 *existing = event.clone();
             }
         })
@@ -217,4 +220,41 @@ fn d_tag(event: &Event) -> Option<&str> {
             None
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::prelude::{EventBuilder, FinalizeEvent, Keys, Kind, Tag, Timestamp};
+
+    fn metadata(keys: &Keys, name: &str) -> Event {
+        EventBuilder::new(Kind::Custom(39_000), "")
+            .tags([Tag::custom("d", ["group"]), Tag::custom("name", [name])])
+            .custom_created_at(Timestamp::from_secs(100))
+            .finalize(keys)
+            .unwrap()
+    }
+
+    #[test]
+    fn same_timestamp_records_keep_the_lowest_event_id() {
+        let keys = Keys::generate();
+        let first = metadata(&keys, "first");
+        let second = metadata(&keys, "second");
+        let expected = if first.id < second.id {
+            "first"
+        } else {
+            "second"
+        };
+        let forward = decode_snapshots(
+            &[first.clone(), second.clone()],
+            &BTreeSet::new(),
+            GroupAvailability::Ready,
+        );
+        let reverse =
+            decode_snapshots(&[second, first], &BTreeSet::new(), GroupAvailability::Ready);
+
+        assert_eq!(forward, reverse);
+        let name = forward[0].metadata.as_ref().unwrap().name.as_deref();
+        assert_eq!(name, Some(expected));
+    }
 }

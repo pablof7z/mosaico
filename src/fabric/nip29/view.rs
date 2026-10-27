@@ -184,15 +184,18 @@ pub(crate) struct Nip29ViewStore {
     current: RwLock<Arc<Nip29View>>,
     group_scope: RwLock<GroupScope>,
     changed: watch::Sender<u64>,
+    groups_changed: watch::Sender<u64>,
 }
 
 impl Default for Nip29ViewStore {
     fn default() -> Self {
         let (changed, _) = watch::channel(0);
+        let (groups_changed, _) = watch::channel(0);
         Self {
             current: RwLock::new(Arc::default()),
             group_scope: RwLock::new(GroupScope::default()),
             changed,
+            groups_changed,
         }
     }
 }
@@ -212,12 +215,21 @@ impl Nip29ViewStore {
             .unwrap_or_else(|poison| poison.into_inner())
             .clone();
         let next = Arc::new(Nip29View::decode(events, &scope));
-        *self
-            .current
-            .write()
-            .unwrap_or_else(|poison| poison.into_inner()) = next;
+        let groups_changed = {
+            let mut current = self
+                .current
+                .write()
+                .unwrap_or_else(|poison| poison.into_inner());
+            let groups_changed = current.group_snapshots != next.group_snapshots;
+            *current = next;
+            groups_changed
+        };
         self.changed
             .send_modify(|revision| *revision = revision.wrapping_add(1));
+        if groups_changed {
+            self.groups_changed
+                .send_modify(|revision| *revision = revision.wrapping_add(1));
+        }
     }
 
     /// The current level. Cloning the `Arc` is the whole cost of a read.
@@ -234,8 +246,13 @@ impl Nip29ViewStore {
         self.changed.subscribe()
     }
 
+    /// Wake only consumers whose input is the decoded relay-signed group state.
+    pub(crate) fn subscribe_group_changes(&self) -> watch::Receiver<u64> {
+        self.groups_changed.subscribe()
+    }
+
     pub(crate) async fn wait_for_group_metadata(&self, group: &str) -> anyhow::Result<()> {
-        let mut changes = self.subscribe_changes();
+        let mut changes = self.subscribe_group_changes();
         loop {
             if self
                 .current()

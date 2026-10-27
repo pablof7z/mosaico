@@ -37,7 +37,7 @@ impl Nip29Provider {
         parent_h: &str,
         child_h: &str,
     ) -> Result<()> {
-        let mut changes = self.view.subscribe_changes();
+        let mut changes = self.view.subscribe_group_changes();
         let readback = async {
             loop {
                 match self.fetch_parent_children(parent_h).await {
