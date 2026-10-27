@@ -143,10 +143,30 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
         state.with_store(|s| s.has_session_route(&rec.pubkey, &channel).unwrap_or(false));
     let left = if was_joined {
         let _lane = state.standing_sync.lock().await;
+        super::presence::withdraw_before_leave(
+            state,
+            &rec.pubkey,
+            rec.runtime_generation,
+            &channel,
+            "channel_leave",
+        )
+        .await;
         let removed = state
             .provider()
             .remove_member_published(&channel, &rec.pubkey, &state.backend_keys())
             .await;
+        if !removed.is_published() {
+            // The session is still a member: restore the presence the
+            // withdrawal narrowed from the store's unchanged routes.
+            super::presence::reconcile_generation(
+                state,
+                &rec.pubkey,
+                rec.runtime_generation,
+                "channel_leave_failed",
+                None,
+            )
+            .await;
+        }
         removed.require_published(format!(
             "leaving agent {} from channel {}",
             rec.agent_slug, channel_ref
