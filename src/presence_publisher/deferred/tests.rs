@@ -13,6 +13,7 @@ fn job(outcome: StatusOutcome) -> PublishJob {
         keys: Keys::generate(),
         trigger: "test".into(),
         confirmed_scope: None,
+        deferrals: 0,
     }
 }
 
@@ -197,5 +198,61 @@ async fn a_parked_status_is_retried_without_a_group_change() {
             .await
             .expect("a parked status must be retried without a group change"),
         Some(4)
+    );
+}
+
+#[test]
+fn a_gate_refusal_is_deferred_at_once_and_warns_only_the_first_time() {
+    use crate::presence_publisher::publication::{on_failure, FailureAction};
+
+    // The local gate's answer cannot change within the job: no in-job retry.
+    assert_eq!(
+        on_failure(true, false, 1, 0),
+        FailureAction::Stop {
+            deferred: true,
+            warn: true
+        }
+    );
+    assert_eq!(
+        on_failure(true, false, 1, 7),
+        FailureAction::Stop {
+            deferred: true,
+            warn: false
+        }
+    );
+    // A relay failure still retries within the job, then stops loudly.
+    assert_eq!(on_failure(false, false, 1, 0), FailureAction::Retry);
+    assert_eq!(
+        on_failure(false, false, 3, 0),
+        FailureAction::Stop {
+            deferred: false,
+            warn: true
+        }
+    );
+}
+
+#[test]
+fn each_deferral_of_a_parked_status_is_counted() {
+    let mut deferred = DeferredJobs::default();
+    deferred.settle(job(renewal("pk-a", 1)), true);
+    let mut pending = PendingPublishJobs::default();
+    deferred.requeue_into(&mut pending);
+    let requeued = pending.pop_front().expect("requeued");
+    assert_eq!(requeued.deferrals, 1);
+    deferred.settle(requeued, true);
+    let mut pending = PendingPublishJobs::default();
+    deferred.requeue_into(&mut pending);
+    assert_eq!(pending.pop_front().expect("requeued").deferrals, 2);
+}
+
+/// With nothing parked, a requeue never touches the publication lane.
+#[tokio::test]
+async fn an_empty_requeue_never_waits_for_the_lane() {
+    let (publisher, _gate, _observed) = recording_publisher();
+    let _held = publisher.hold_lane_for_test().await;
+    assert!(
+        !timeout(Duration::from_millis(100), publisher.requeue_deferred())
+            .await
+            .expect("an empty requeue must not wait for the lane")
     );
 }

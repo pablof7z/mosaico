@@ -36,6 +36,8 @@ struct PublishJob {
     keys: Keys,
     trigger: String,
     confirmed_scope: Option<ConfirmedGroupScope>,
+    /// How often the local publish gate has already refused this job.
+    deferrals: u32,
 }
 
 #[derive(Default)]
@@ -133,6 +135,7 @@ impl PresencePublisher {
                         &job.keys,
                         &job.trigger,
                         job.confirmed_scope.as_ref(),
+                        job.deferrals,
                         &pending,
                     )
                     .await;
@@ -197,6 +200,7 @@ impl PresencePublisher {
             keys: keys.clone(),
             trigger: trigger.to_string(),
             confirmed_scope,
+            deferrals: 0,
         })
         .await;
     }
@@ -225,6 +229,7 @@ impl PresencePublisher {
                 keys: keys.clone(),
                 trigger: trigger.to_string(),
                 confirmed_scope,
+                deferrals: 0,
             });
         match self.signal_tx.try_send(()) {
             Ok(()) | Err(mpsc::error::TrySendError::Full(())) => {}

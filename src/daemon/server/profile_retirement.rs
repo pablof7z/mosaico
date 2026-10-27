@@ -76,20 +76,46 @@ async fn publish(state: &Arc<DaemonState>, pubkey: &str) -> std::result::Result<
 }
 
 fn record_failure(state: &Arc<DaemonState>, pubkey: &str, error: &str) {
-    let failures = state
-        .with_store(|store| store.record_profile_retirement_failure(pubkey, now_secs()))
-        .unwrap_or(0);
-    if warns_on_failure(failures) {
-        tracing::warn!(pubkey, %error, "reclaimed handle retirement profile remains due");
-    } else {
-        tracing::debug!(pubkey, failures, %error, "retirement retry failed");
+    static STORE_ERROR_LOGGED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    let recorded =
+        state.with_store(|store| store.record_profile_retirement_failure(pubkey, now_secs()));
+    let first_store_error =
+        recorded.is_err() && !STORE_ERROR_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed);
+    match failure_log(recorded.as_ref().ok().copied(), first_store_error) {
+        FailureLog::Warn => {
+            tracing::warn!(pubkey, %error, "reclaimed handle retirement profile remains due")
+        }
+        FailureLog::Debug => tracing::debug!(pubkey, %error, "retirement retry failed"),
+        FailureLog::StoreError => tracing::error!(
+            pubkey,
+            %error,
+            store_error = %recorded.err().map(|error| format!("{error:#}")).unwrap_or_default(),
+            "profile retirement failure could not be recorded; backoff is unavailable"
+        ),
+        FailureLog::Silent => {}
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum FailureLog {
+    Warn,
+    Debug,
+    StoreError,
+    Silent,
+}
+
 /// Only the first failure of a retirement is a warning; its retries, which
-/// can continue for as long as a relay stays unreachable, log at debug.
-fn warns_on_failure(failures: u32) -> bool {
-    failures <= 1
+/// can continue for as long as a relay stays unreachable, log at debug. A
+/// failure that cannot even be recorded has no backoff, so its store error is
+/// logged once per daemon and never turns into a warning every tick.
+fn failure_log(failures: Option<u32>, first_store_error: bool) -> FailureLog {
+    match failures {
+        Some(failures) if failures <= 1 => FailureLog::Warn,
+        Some(_) => FailureLog::Debug,
+        None if first_store_error => FailureLog::StoreError,
+        None => FailureLog::Silent,
+    }
 }
 
 fn complete(state: &Arc<DaemonState>, pubkey: &str) {
@@ -147,7 +173,13 @@ mod tests {
 
     #[test]
     fn only_the_first_failure_of_a_retirement_warns() {
-        assert!(warns_on_failure(1));
-        assert!((2..=50).all(|failures| !warns_on_failure(failures)));
+        assert_eq!(failure_log(Some(1), false), FailureLog::Warn);
+        assert!((2..=50).all(|failures| failure_log(Some(failures), false) == FailureLog::Debug));
+    }
+
+    #[test]
+    fn an_unrecordable_failure_logs_its_store_error_once_and_never_warns() {
+        assert_eq!(failure_log(None, true), FailureLog::StoreError);
+        assert_eq!(failure_log(None, false), FailureLog::Silent);
     }
 }

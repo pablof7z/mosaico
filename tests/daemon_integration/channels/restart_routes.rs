@@ -162,8 +162,10 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     assert_eq!(before_channels, expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
-    let before_restart = status_epoch_after_current(&relay, &session.pubkey);
     stop_daemon_for_restart(&home);
+    // Read only once the old daemon is gone, so none of its statuses can land
+    // later and pass for the restarted daemon's republication.
+    let before_restart = status_epoch_after_current(&relay, &session.pubkey);
     cleanup.assert_exact_processes_live();
     // A version-skew exit deliberately leaves daemon creation to the next
     // compatible thin client. Reconnect before asserting the new daemon's

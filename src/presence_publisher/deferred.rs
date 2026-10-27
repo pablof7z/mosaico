@@ -37,8 +37,9 @@ impl DeferredJobs {
     /// Record how a job's publication ended: park it if the publish gate
     /// refused it, otherwise retire any older parked state for its pubkey so a
     /// later group change cannot requeue a status this one replaced.
-    pub(super) fn settle(&mut self, job: PublishJob, deferred: bool) {
+    pub(super) fn settle(&mut self, mut job: PublishJob, deferred: bool) {
         if deferred {
+            job.deferrals = job.deferrals.saturating_add(1);
             self.park(job);
         } else if let Some(pubkey) = job.outcome.pubkey.as_deref() {
             self.discard_superseded(pubkey, job.outcome.revision);
@@ -53,6 +54,10 @@ impl DeferredJobs {
         {
             self.0.remove(pubkey);
         }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     #[cfg(test)]
@@ -115,6 +120,15 @@ impl PresencePublisher {
     /// now settles first (retiring the parked one) instead of being
     /// overwritten by it afterwards. Returns whether anything was requeued.
     pub(super) async fn requeue_deferred(&self) -> bool {
+        // Nothing parked: never take the lane (an awaited publication may want it).
+        if self
+            .deferred
+            .lock()
+            .expect("deferred presence queue poisoned")
+            .is_empty()
+        {
+            return false;
+        }
         let _lane = self.lane.lock().await;
         let requeued = {
             let mut pending = self

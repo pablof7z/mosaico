@@ -77,7 +77,11 @@ fn who_live(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
             let human = v["fabric_human"]
                 .as_str()
                 .context("who response missing human fabric view")?;
-            render::draw_fabric_live(human, refresh)?;
+            let human = match unresolved_note(&v) {
+                Some(note) => format!("{human}\n{note}\n"),
+                None => human.to_string(),
+            };
+            render::draw_fabric_live(&human, refresh)?;
             next_draw = Instant::now() + refresh;
         }
 

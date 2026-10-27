@@ -217,10 +217,13 @@ pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStat
 /// The second after which every new status from `pubkey` is distinguishable
 /// from what the relay holds now: status timestamps have one-second
 /// resolution, and a republished status with identical content in the same
-/// second is the identical event. Waits until the clock has passed the
-/// newest current status's second.
+/// second is the identical event. Call it only once nothing can still
+/// publish for `pubkey` (its daemon is stopped). Requires a current status
+/// and waits until the clock has passed its second.
 pub(crate) fn status_epoch_after_current(relay: &str, pubkey: &str) -> u64 {
-    let current = latest_relay_status(relay, pubkey).map_or(0, |status| status.created_at);
+    let current = latest_relay_status(relay, pubkey)
+        .expect("the session must have a status on the relay before restart")
+        .created_at;
     assert!(
         super::wait_until(Duration::from_secs(3), || mosaico::util::now_secs()
             > current),
