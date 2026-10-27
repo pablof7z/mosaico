@@ -25,35 +25,54 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
         "both workspace roots must be delivered by Nostr runtime before renderer sessions start"
     );
 
-    let out = run_cli_stdin(
+    // The opencode plugin names its own process; the observed harness is given
+    // explicitly so the result never depends on the test runner's ancestors.
+    let observed = [("MOSAICO_OBSERVED_HARNESS", "opencode")];
+    let pid = std::process::id();
+    let out = run_cli_stdin_with_env(
         &home,
         &["harness", "hook", "opencode", "--type", "session-start"],
-        r#"{"cwd":"/tmp","session_id":"sid-tmp"}"#,
+        &format!(r#"{{"cwd":"/tmp","session_id":"sid-tmp","pid":{pid}}}"#),
+        &observed,
     );
     assert!(out.status.success(), "session-start (tmp) failed");
 
     let payload = serde_json::json!({
         "cwd": second_dir.path().display().to_string(),
         "session_id": "sid-proj2",
+        "pid": pid,
     })
     .to_string();
     let out = run_cli_stdin_with_env_in_dir(
         &home,
         &["harness", "hook", "opencode", "--type", "session-start"],
         &payload,
-        &[],
+        &observed,
         second_dir.path(),
     );
     assert!(out.status.success(), "session-start (proj2) failed");
 
+    let handle_for = |harness_session: &str| {
+        let store = Store::open(&home.store_path()).unwrap();
+        let pubkey = pubkey_for_harness_session(&store, "opencode", harness_session)
+            .unwrap_or_else(|| panic!("session-start did not register {harness_session}"));
+        store
+            .session_identity(&pubkey)
+            .unwrap()
+            .expect("session identity")
+            .display_slug()
+    };
+    let (tmp_handle, proj2_handle) = (handle_for("sid-tmp"), handle_for("sid-proj2"));
+
+    // Presence is the heartbeat: each session is listed in its own channel
+    // block once its first status lands.
     let mut out = None;
     let ready = wait_until(std::time::Duration::from_secs(25), || {
         let candidate = run_cli(&home, &["who", "--all-workspaces"]);
         let who = String::from_utf8_lossy(&candidate.stdout);
         let is_ready = candidate.status.success()
-            && who.contains("opencode")
-            && who.contains("tmp")
-            && who.contains("proj2")
+            && channel_block(&who, "#tmp").contains(&format!("@{tmp_handle} "))
+            && channel_block(&who, "#proj2").contains(&format!("@{proj2_handle} "))
             && !who.contains("no relay-backed channel metadata");
         out = Some(candidate);
         is_ready
@@ -61,7 +80,8 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
     let out = out.expect("who --all-workspaces was not attempted");
     assert!(
         ready,
-        "who --all-workspaces did not observe relay-backed channels:\nstdout:\n{}\nstderr:\n{}",
+        "who --all-workspaces did not list @{tmp_handle} under #tmp and @{proj2_handle} \
+         under #proj2:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
@@ -70,14 +90,24 @@ fn all_workspaces_uses_unified_fabric_render_not_old_table() {
         !who.contains("| Agent | Host | Title | Status |"),
         "who --all-workspaces still uses the old markdown table renderer:\n{who}"
     );
-    assert!(
-        who.contains("opencode"),
-        "who --all-workspaces missing agent:\n{who}"
-    );
-    assert!(
-        who.contains("tmp") && who.contains("proj2"),
-        "who --all-workspaces missing a channel block:\n{who}"
-    );
 
     stop_daemon(&home);
+}
+
+/// The rendered block for one channel: its header line up to the next
+/// top-level channel header.
+fn channel_block<'a>(who: &'a str, header: &str) -> &'a str {
+    let Some(start) = who
+        .match_indices(header)
+        .map(|(index, _)| index)
+        .find(|&index| {
+            (index == 0 || who[..index].ends_with('\n'))
+                && who[index + header.len()..].starts_with('\n')
+        })
+    else {
+        return "";
+    };
+    let body = &who[start + header.len()..];
+    let end = body.find("\n#").map_or(body.len(), |index| index + 1);
+    &body[..end]
 }
