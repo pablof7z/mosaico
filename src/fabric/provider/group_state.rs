@@ -43,6 +43,12 @@ impl Nip29Provider {
         if let Some(snapshot) = self.current_group_snapshot(group) {
             return Ok(snapshot);
         }
+        self.relay_group_snapshot(group).await
+    }
+
+    /// Read `group`'s records from the relay itself, bypassing the decoded
+    /// view, which may not yet hold the echo of a just-accepted mutation.
+    pub(crate) async fn relay_group_snapshot(&self, group: &str) -> Result<GroupSnapshot> {
         let _serial = self.group_read.lock().await;
         let filter = Filter::new()
             .kinds([

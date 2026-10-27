@@ -262,6 +262,10 @@ fn schedule_cleanup_in_transaction(
     Ok(PendingAdmissionOutcome::CleanupDue)
 }
 
+#[path = "session_routes/leave.rs"]
+mod leave;
+pub use leave::LeavingRoute;
+
 #[cfg(test)]
 #[path = "session_routes/tests.rs"]
 mod tests;

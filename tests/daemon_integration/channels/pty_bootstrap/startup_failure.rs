@@ -7,6 +7,10 @@ fn missing_provider_is_a_cli_failure_without_live_metadata_or_session() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let home = Home::new();
     write_config(&home, false);
+    // The daemon resolves harness executables from `$HOME/.local/bin` (and
+    // other fixed install dirs) regardless of the caller's PATH, so the
+    // provider is only missing once the test home's harness shim is gone.
+    std::fs::remove_file(home.dir.path().join(".local/bin/grok")).unwrap();
     let channel = unique_session("missing-provider");
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);
@@ -78,6 +82,9 @@ fn interactive_launch(home: &Home, cwd: &std::path::Path, slug: &str, answer: &[
     command.env("MOSAICO_BIN", bin());
     command.env("MOSAICO_DAEMON_GRACE_S", "30");
     let mut child = pair.slave.spawn_command(command).unwrap();
+    // Only the CLI may hold the terminal's slave side: on Linux the master
+    // reports end of output only once every slave descriptor is closed.
+    drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().unwrap();
     let output = std::thread::spawn(move || {
         let mut output = String::new();

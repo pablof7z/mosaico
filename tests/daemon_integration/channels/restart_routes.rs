@@ -157,14 +157,15 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         Duration::from_secs(25),
     );
 
-    let (before_slug, before_channels) =
-        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
-            .expect("who row for session before restart");
-    assert_eq!(before_slug, handle);
+    let before_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
+        .unwrap_or_else(|rows| panic!("who row for session before restart; last rows: {rows}"));
     assert_eq!(before_channels, expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
     stop_daemon_for_restart(&home);
+    // Read only once the old daemon is gone, so none of its statuses can land
+    // later and pass for the restarted daemon's republication.
+    let before_restart = status_epoch_after_current(&relay, &session.pubkey);
     cleanup.assert_exact_processes_live();
     // A version-skew exit deliberately leaves daemon creation to the next
     // compatible thin client. Reconnect before asserting the new daemon's
@@ -180,11 +181,23 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         session.runtime_generation,
         log_boundary,
     );
+    // The re-adopted session's heartbeat must not wait for the 30 s lease
+    // renewal while the restarted daemon's group view is still empty.
+    assert!(
+        new_relay_status_covers(&relay, &session.pubkey, before_restart, &expected_routes,),
+        "the restarted daemon did not republish the session's presence; daemon_log={}",
+        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+    );
     // The bounded SDK memory database starts empty after restart. Session adoption and
     // relay-backed group rehydration are independent, so await the public level.
-    let (after_slug, after_channels) =
-        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
-            .expect("restarted daemon did not rehydrate the session's exact public routes");
+    let after_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
+        .unwrap_or_else(|rows| {
+            panic!(
+                "restarted daemon did not rehydrate the session's exact public routes; \
+                 last rows: {rows}; daemon_log={}",
+                std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+            )
+        });
     assert!(
         exact_state_is_current(
             &home,
@@ -194,7 +207,6 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         ),
         "the reconciled session lost identity, generation, routes, or standing"
     );
-    assert_eq!(after_slug, handle);
     assert_eq!(after_channels, expected_paths);
     cleanup.assert_exact_processes_live();
 

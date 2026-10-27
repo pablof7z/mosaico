@@ -12,15 +12,26 @@ use crate::state::Store;
 const PUBLISH_ATTEMPTS: usize = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(250);
 
+/// What one job's publication achieved.
+pub(super) struct PublishReport {
+    pub(super) ids: Vec<String>,
+    /// Some effect stopped only because the local publish gate could not yet
+    /// verify its channel from the group view; it can succeed once the view
+    /// delivers the group.
+    pub(super) deferred: bool,
+}
+
 pub(super) async fn apply_status_effects(
     outcome: &StatusOutcome,
     provider: &Nip29Provider,
     keys: &Keys,
     trigger: &str,
     confirmed_scope: Option<&ConfirmedGroupScope>,
+    prior_deferrals: u32,
     pending: &Arc<Mutex<PendingPublishJobs>>,
-) -> Vec<String> {
+) -> PublishReport {
     let mut ids = Vec::new();
+    let mut deferred = false;
     for effect in &outcome.effects {
         let (status, require_member) = match effect {
             StatusEffect::Publish { status, .. } => (status, true),
@@ -46,22 +57,68 @@ pub(super) async fn apply_status_effects(
                         .lock()
                         .expect("presence publish queue poisoned")
                         .supersedes(&status.agent.pubkey, outcome.revision);
-                    if superseded || attempt == PUBLISH_ATTEMPTS {
-                        tracing::warn!(
-                            error = %format!("{error:#}"),
-                            source_ref,
-                            attempt,
-                            superseded,
-                            "status publication stopped"
-                        );
-                        break;
+                    let unverified = error
+                        .downcast_ref::<crate::fabric::provider::PublishScopeUnverified>()
+                        .is_some();
+                    match on_failure(unverified, superseded, attempt, prior_deferrals) {
+                        FailureAction::Retry => tokio::time::sleep(RETRY_DELAY).await,
+                        FailureAction::Stop {
+                            deferred: defer,
+                            warn,
+                        } => {
+                            deferred |= defer;
+                            let error = format!("{error:#}");
+                            if warn {
+                                tracing::warn!(%error, source_ref, attempt, superseded, "status publication stopped");
+                            } else {
+                                tracing::debug!(%error, source_ref, attempt, superseded, "status publication deferred again");
+                            }
+                            break;
+                        }
                     }
-                    tokio::time::sleep(RETRY_DELAY).await;
                 }
             }
         }
     }
-    ids
+    PublishReport { ids, deferred }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum FailureAction {
+    Retry,
+    Stop { deferred: bool, warn: bool },
+}
+
+/// What a failed status publication does next. The local publish gate's
+/// refusal is not retried in-job (only a group change can change its
+/// answer): the job is deferred, warning only on its first deferral so a
+/// permanently refused status cannot warn on every periodic retry.
+pub(super) fn on_failure(
+    unverified: bool,
+    superseded: bool,
+    attempt: usize,
+    prior_deferrals: u32,
+) -> FailureAction {
+    if superseded {
+        return FailureAction::Stop {
+            deferred: false,
+            warn: true,
+        };
+    }
+    if unverified {
+        return FailureAction::Stop {
+            deferred: true,
+            warn: prior_deferrals == 0,
+        };
+    }
+    if attempt < PUBLISH_ATTEMPTS {
+        FailureAction::Retry
+    } else {
+        FailureAction::Stop {
+            deferred: false,
+            warn: true,
+        }
+    }
 }
 
 async fn enqueue_status(

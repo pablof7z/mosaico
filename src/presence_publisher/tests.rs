@@ -14,7 +14,7 @@ type BlockedPublisher = (
     mpsc::UnboundedReceiver<ObservedPublish>,
 );
 
-fn renewal(pubkey: &str, revision: u64) -> StatusOutcome {
+pub(super) fn renewal(pubkey: &str, revision: u64) -> StatusOutcome {
     StatusOutcome {
         effects: vec![StatusEffect::Publish {
             status: Status {
@@ -61,39 +61,37 @@ fn effect_name(job: &PublishJob) -> &'static str {
 }
 
 fn blocked_publisher() -> BlockedPublisher {
-    let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
-    let (signal_tx, signal_rx) = mpsc::channel(PUBLISH_SIGNAL_CAPACITY);
-    let publisher = PresencePublisher {
-        signal_tx,
-        pending: pending.clone(),
-    };
     let gate = Arc::new(Semaphore::new(0));
     let calls = Arc::new(AtomicUsize::new(0));
     let (observed_tx, observed_rx) = mpsc::unbounded_channel();
-    spawn_publish_worker(signal_rx, pending, {
-        let gate = gate.clone();
-        move |job| {
+    let publisher = PresencePublisher::start(
+        Arc::new(Mutex::new(PendingPublishJobs::default())),
+        Arc::new(Mutex::new(deferred::DeferredJobs::default())),
+        {
             let gate = gate.clone();
-            let calls = calls.clone();
-            let observed_tx = observed_tx.clone();
-            async move {
-                let call = calls.fetch_add(1, Ordering::SeqCst);
-                observed_tx
-                    .send((
-                        job.outcome.pubkey.clone().expect("job must name pubkey"),
-                        job.outcome.revision,
-                        effect_name(&job),
-                    ))
-                    .expect("test observer must remain open");
-                if call == 0 {
-                    gate.acquire()
-                        .await
-                        .expect("test gate must remain open")
-                        .forget();
-                }
-            }
-        }
-    });
+            Arc::new(move |job: PublishJob| {
+                let gate = gate.clone();
+                let calls = calls.clone();
+                let observed_tx = observed_tx.clone();
+                Box::pin(async move {
+                    let call = calls.fetch_add(1, Ordering::SeqCst);
+                    observed_tx
+                        .send((
+                            job.outcome.pubkey.clone().expect("job must name pubkey"),
+                            job.outcome.revision,
+                            effect_name(&job),
+                        ))
+                        .expect("test observer must remain open");
+                    if call == 0 {
+                        gate.acquire()
+                            .await
+                            .expect("test gate must remain open")
+                            .forget();
+                    }
+                })
+            })
+        },
+    );
     (publisher, gate, observed_rx)
 }
 
@@ -195,6 +193,52 @@ async fn different_pubkeys_keep_first_pending_order_while_each_stays_latest() {
         .is_err());
 }
 
+#[tokio::test]
+async fn an_awaited_publication_waits_for_the_running_job_and_replaces_queued_state() {
+    // Given one publish is running and an older state for the same pubkey is queued,
+    let (publisher, gate, mut observed_rx) = blocked_publisher();
+    let keys = Keys::generate();
+    publisher.submit(renewal("pk-a", 1), &keys, "opened", None);
+    timeout(Duration::from_secs(1), observed_rx.recv())
+        .await
+        .expect("the running job must start")
+        .expect("the running job must be observed");
+    publisher.submit(renewal("pk-a", 2), &keys, "renewal", None);
+
+    // When an expiration is published and awaited,
+    let awaited = tokio::spawn({
+        let publisher = publisher.clone();
+        let keys = keys.clone();
+        async move {
+            publisher
+                .publish_now(expiration("pk-a", 3), &keys, "channel_leave", None)
+                .await
+        }
+    });
+    // The running job holds the publication lane until its gate opens, so the
+    // awaited publication cannot start: structurally, not by timing.
+    tokio::task::yield_now().await;
+    assert!(publisher.lane.try_lock().is_err());
+    assert!(!awaited.is_finished());
+    assert!(observed_rx.try_recv().is_err());
+    gate.add_permits(1);
+
+    // Then it runs after the in-flight job, and the queued older state never does.
+    assert_eq!(
+        timeout(Duration::from_secs(1), observed_rx.recv())
+            .await
+            .expect("the awaited expiration must execute"),
+        Some(("pk-a".into(), 3, "expire"))
+    );
+    timeout(Duration::from_secs(1), awaited)
+        .await
+        .expect("the awaited publication must return")
+        .expect("the awaited publication must not panic");
+    // The older queued state was discarded, so nothing remains to publish.
+    assert_eq!(publisher.pending.lock().unwrap().len(), 0);
+    assert!(observed_rx.try_recv().is_err());
+}
+
 #[test]
 fn a_closed_worker_retains_no_unserviceable_presence_job() {
     let pending = Arc::new(Mutex::new(PendingPublishJobs::default()));
@@ -203,6 +247,9 @@ fn a_closed_worker_retains_no_unserviceable_presence_job() {
     let publisher = PresencePublisher {
         signal_tx,
         pending: pending.clone(),
+        lane: Arc::new(tokio::sync::Mutex::new(())),
+        publish: Arc::new(|_| Box::pin(async {})),
+        deferred: Arc::new(Mutex::new(deferred::DeferredJobs::default())),
     };
 
     publisher.submit(renewal("pk-a", 1), &Keys::generate(), "renewal", None);

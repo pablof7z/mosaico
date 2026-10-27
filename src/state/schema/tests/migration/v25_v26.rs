@@ -26,7 +26,7 @@ fn schema_twenty_five_renames_session_coaching_to_session_notice_preserving_rows
 
     drop(Store::open(&path).expect("schema twenty-five upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 26);
+    assert_eq!(version(&conn), 27);
     assert!(crate::state::schema::tests::table_exists(
         &conn,
         "session_notice"

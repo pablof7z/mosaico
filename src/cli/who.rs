@@ -48,7 +48,21 @@ fn who_once(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
         .as_str()
         .context("who response missing human fabric view")?;
     print!("{human}");
+    if let Some(note) = unresolved_note(&v) {
+        eprintln!("{note}");
+    }
     Ok(())
+}
+
+/// Channels the daemon left out because their ancestry is not yet known.
+fn unresolved_note(v: &serde_json::Value) -> Option<String> {
+    let count = v["unresolved_channels"].as_array().map_or(0, Vec::len);
+    (count > 0).then(|| {
+        format!(
+            "note: {count} channel(s) not shown: their parent channels have not \
+             been delivered by the relay yet"
+        )
+    })
 }
 
 fn who_live(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
@@ -63,7 +77,11 @@ fn who_live(workspace: Option<String>, all_workspaces: bool) -> Result<()> {
             let human = v["fabric_human"]
                 .as_str()
                 .context("who response missing human fabric view")?;
-            render::draw_fabric_live(human, refresh)?;
+            let human = match unresolved_note(&v) {
+                Some(note) => format!("{human}\n{note}\n"),
+                None => human.to_string(),
+            };
+            render::draw_fabric_live(&human, refresh)?;
             next_draw = Instant::now() + refresh;
         }
 

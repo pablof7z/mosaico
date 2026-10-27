@@ -186,6 +186,66 @@ fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>
     Ok(groups)
 }
 
+/// The newest kind:30315 presence status `pubkey` has on the relay, read
+/// independently of the daemon.
+pub(crate) struct RelayStatus {
+    pub(crate) created_at: u64,
+    /// The channels (`h` tags) the one status event covers.
+    pub(crate) channels: BTreeSet<String>,
+}
+
+pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStatus> {
+    let stdout = run_nak_req_bounded(relay, &["-k", "30315", "-a", pubkey, "-l", "20"]).ok()?;
+    stdout
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|event| event["pubkey"].as_str() == Some(pubkey))
+        .filter_map(|event| {
+            Some(RelayStatus {
+                created_at: event["created_at"].as_u64()?,
+                channels: event["tags"]
+                    .as_array()?
+                    .iter()
+                    .filter(|tag| tag[0] == "h")
+                    .filter_map(|tag| tag[1].as_str().map(str::to_string))
+                    .collect(),
+            })
+        })
+        .max_by_key(|status| status.created_at)
+}
+
+/// The second after which every new status from `pubkey` is distinguishable
+/// from what the relay holds now: status timestamps have one-second
+/// resolution, and a republished status with identical content in the same
+/// second is the identical event. Call it only once nothing can still
+/// publish for `pubkey` (its daemon is stopped). Requires a current status
+/// and waits until the clock has passed its second.
+pub(crate) fn status_epoch_after_current(relay: &str, pubkey: &str) -> u64 {
+    let current = latest_relay_status(relay, pubkey)
+        .expect("the session must have a status on the relay before restart")
+        .created_at;
+    assert!(
+        super::wait_until(Duration::from_secs(3), || mosaico::util::now_secs()
+            > current),
+        "clock did not pass the current status second"
+    );
+    current
+}
+
+/// Wait (15 s) for a status created strictly after `after` whose `h` tags
+/// cover exactly `channels`.
+pub(crate) fn new_relay_status_covers(
+    relay: &str,
+    pubkey: &str,
+    after: u64,
+    channels: &BTreeSet<String>,
+) -> bool {
+    super::wait_until(Duration::from_secs(15), || {
+        latest_relay_status(relay, pubkey)
+            .is_some_and(|status| status.created_at > after && &status.channels == channels)
+    })
+}
+
 fn run_nak_req_bounded(relay: &str, filters: &[&str]) -> Result<String> {
     let scratch = tempfile::tempdir().context("create nak query scratch")?;
     let stdout_path = scratch.path().join("stdout.log");

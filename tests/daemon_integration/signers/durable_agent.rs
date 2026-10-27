@@ -274,14 +274,8 @@ fn durable_agent_reuses_key_and_rejects_concurrency() {
         }),
         "durable kind:0 must use the bare agent slug"
     );
-    let chat_full_id = Store::open(&home.store_path())
-        .unwrap()
-        .get_message_by_prefix(&chat_id_prefix)
-        .unwrap()
-        .expect("chat message must be in store")
-        .message_id;
     assert_eq!(
-        relay::event_author(&relay, &chat_full_id).as_deref(),
+        relay::chat_author_by_id_prefix(&relay, &chat_id_prefix).as_deref(),
         Some(durable_pubkey.as_str()),
         "command-triggered chat must use the durable signer"
     );

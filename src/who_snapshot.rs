@@ -37,6 +37,11 @@ pub(crate) struct WhoSnapshot {
     /// descendants, and `*` for all workspaces.
     #[serde(default)]
     pub(crate) root_display: String,
+    /// Channels left out because the group view has not delivered their
+    /// whole ancestry. Usually transient (rehydration); a channel that stays
+    /// here names an ancestry the relay never delivers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) unresolved_channels: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -112,6 +117,7 @@ pub(crate) fn build_who_snapshot(
     let my_pubkeys: HashSet<String> = aggregation.local_pubkeys.iter().cloned().collect();
 
     let mut rows = Vec::new();
+    let mut unresolved = BTreeSet::new();
     let mut other_agents: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     // ── local sessions on this machine (read failure must error, not go quiet) ──
@@ -124,11 +130,17 @@ pub(crate) fn build_who_snapshot(
             if is_archived_channel(aggregation, &scope) {
                 continue;
             }
-            if current_root
-                .map(|p| scope_contains_channel(aggregation, p, &scope))
-                .transpose()?
-                .unwrap_or(true)
-            {
+            let in_scope = match current_root {
+                Some(root) => match scope_contains_channel(aggregation, root, &scope) {
+                    Some(in_scope) => in_scope,
+                    None => {
+                        unresolved.insert(scope.clone());
+                        continue;
+                    }
+                },
+                None => true,
+            };
+            if in_scope {
                 rows.push(local_row(aggregation, s, &scope, &local_host, now)?);
             } else if aggregation.has_heartbeat(&s.pubkey, &scope)
                 && is_root_channel(aggregation, &scope)
@@ -162,10 +174,21 @@ pub(crate) fn build_who_snapshot(
             if my_pubkeys.contains(&st.pubkey) {
                 continue;
             }
-            let in_scope = current_root
-                .map(|p| scope_contains_channel(aggregation, p, ch))
-                .transpose()?
-                .unwrap_or(true);
+            let in_scope = match current_root {
+                Some(root) => match scope_contains_channel(aggregation, root, ch) {
+                    Some(in_scope) => in_scope,
+                    None => {
+                        unresolved.insert(ch.clone());
+                        continue;
+                    }
+                },
+                None => true,
+            };
+            if in_scope && aggregation.root_for_channel(ch).is_err() {
+                // A peer row names its work root; not yet known, so skip.
+                unresolved.insert(ch.clone());
+                continue;
+            }
             if in_scope {
                 rows.push(peer_row(aggregation, st, &local_host, now)?);
             } else if st.is_heartbeat() && is_root_channel(aggregation, ch) {
@@ -260,5 +283,6 @@ pub(crate) fn build_who_snapshot(
         spawnable,
         channel_parent,
         root_display,
+        unresolved_channels: unresolved.into_iter().collect(),
     })
 }

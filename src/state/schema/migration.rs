@@ -24,6 +24,8 @@ mod v23_v24;
 mod v24_v25;
 #[path = "migration/steps/v25_v26.rs"]
 mod v25_v26;
+#[path = "migration/steps/v26_v27.rs"]
+mod v26_v27;
 
 const OLDEST_SUPPORTED_VERSION: u32 = 4;
 
@@ -125,6 +127,10 @@ const MIGRATIONS: [Migration; (version::SCHEMA_VERSION - OLDEST_SUPPORTED_VERSIO
     Migration {
         from: 25,
         apply: v25_v26::migrate,
+    },
+    Migration {
+        from: 26,
+        apply: v26_v27::migrate,
     },
 ];
 

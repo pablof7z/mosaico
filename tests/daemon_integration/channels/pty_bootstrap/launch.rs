@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "launch/exit.rs"]
+mod exit;
 #[path = "launch/unreachable.rs"]
 mod unreachable;
 
@@ -20,19 +22,6 @@ fn launch_no_hook(home: &Home, agent: &str, channel: &str, mode: &str) {
         out.status.success(),
         "launch failed: {}",
         String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-fn wait_for_member_standing(home: &Home, pubkey: &str, channel: &str) {
-    assert!(
-        wait_until(Duration::from_secs(25), || Store::open(&home.store_path())
-            .and_then(|store| store.get_session_standing(pubkey, channel))
-            .ok()
-            .flatten()
-            .is_some_and(|standing| {
-                standing.state == mosaico::state::StandingState::Member
-            })),
-        "confirmed membership did not survive runtime stop"
     );
 }
 
@@ -59,21 +48,21 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
     .unwrap();
 
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
-    let out = run_cli_with_env_in_dir(
+    let out = run_cli_in_terminal(
         &home,
         &["writing-partner"],
         &[("HOME", &isolated_home)],
         &work_dir,
     );
     assert!(
-        out.status.success(),
+        out.handed_off,
         "native Claude launch failed: {}",
-        String::from_utf8_lossy(&out.stderr)
+        out.output
     );
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("Launched "),
+        out.output.contains("Launched "),
         "launch did not report its public handle: {}",
-        String::from_utf8_lossy(&out.stderr)
+        out.output
     );
     assert!(!home.dir.path().join("agents/writing-partner.json").exists());
 
@@ -122,22 +111,23 @@ fn launch_lists_and_starts_harness_despite_invalid_same_named_agent() {
     assert!(listed.status.success());
     assert!(String::from_utf8_lossy(&listed.stdout).contains("opencode"));
 
-    let launched = run_cli_with_env_in_dir(
+    let launched = run_cli_in_terminal(
         &home,
         &["opencode", "--", "--yolo"],
         &[("HOME", &isolated_home), ("XDG_CONFIG_HOME", &xdg)],
         &work_dir,
     );
     assert!(
-        launched.status.success(),
+        launched.handed_off,
         "bare harness launch failed: {}",
-        String::from_utf8_lossy(&launched.stderr)
+        launched.output
     );
     let meta = mosaico::pty::read_all_metadata()
         .into_iter()
         .find(|meta| meta.agent == "opencode")
         .expect("launched bare opencode harness metadata");
-    assert_eq!(meta.command, ["opencode", "forever", "--yolo"]);
+    // No preset means no implicit arguments; only the launch's own args follow.
+    assert_eq!(meta.command, ["opencode", "--yolo"]);
     let stale = mosaico::identity::agent_launch_config(home.dir.path(), "opencode").unwrap();
     assert_eq!(stale.harness, "opencode");
 
@@ -189,12 +179,8 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
     configure_pty_agent_with_args(&home, agent, &["capture-identity", &capture_arg]);
     let isolated_home = home.dir.path().to_string_lossy().into_owned();
 
-    let out = run_cli_with_env_in_dir(&home, &[agent], &[("HOME", &isolated_home)], &work_dir);
-    assert!(
-        out.status.success(),
-        "launch failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    let out = run_cli_in_terminal(&home, &[agent], &[("HOME", &isolated_home)], &work_dir);
+    assert!(out.handed_off, "launch failed: {}", out.output);
     let metadata = mosaico::pty::read_all_metadata()
         .into_iter()
         .find(|meta| meta.agent == agent)
@@ -203,9 +189,9 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
     let cleanup = PtyCleanup(pty_id.clone());
     assert!(
         wait_until(Duration::from_secs(10), || capture.exists()),
-        "PTY harness did not capture its assigned identity; command={:?}; stderr={}",
+        "PTY harness did not capture its assigned identity; command={:?}; output={}",
         metadata.command,
-        String::from_utf8_lossy(&out.stderr)
+        out.output
     );
 
     let captured = std::fs::read_to_string(&capture).unwrap();
@@ -224,91 +210,5 @@ fn pty_agent_receives_the_signer_matching_its_assigned_pubkey() {
         wait_until(Duration::from_secs(5), || !mosaico::pty::is_live(&pty_id)),
         "identity test PTY was not reaped"
     );
-    stop_daemon(&home);
-}
-
-#[test]
-fn supervisor_exit_stops_runtime_without_leaving_the_channel() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
-    write_config(&home, false);
-
-    let channel = unique_session("launch-exit");
-    let agent = "launch-exit-agent";
-    launch_no_hook(&home, agent, &channel, "sleep-2");
-    let pty_id = mosaico::pty::read_all_metadata()
-        .into_iter()
-        .find(|metadata| metadata.agent == agent)
-        .map(|metadata| metadata.id)
-        .expect("PTY metadata");
-    let _attached = mosaico::pty::attach_stream(&pty_id, 24, 80).expect("attach before exit");
-    let rec = wait_for_alive(&home, agent, &channel);
-
-    assert!(
-        wait_until(Duration::from_secs(10), || {
-            Store::open(&home.store_path())
-                .and_then(|store| store.get_session(&rec.pubkey))
-                .ok()
-                .flatten()
-                .is_some_and(|session| !session.is_running())
-        }),
-        "supervisor exit did not retire session {}; daemon_log={}",
-        rec.pubkey,
-        std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
-    );
-    let stopped = Store::open(&home.store_path())
-        .unwrap()
-        .get_session(&rec.pubkey)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        stopped.stop_reason,
-        Some(mosaico::state::StopReason::AttachedCleanExit)
-    );
-    wait_for_member_standing(&home, &rec.pubkey, &channel);
-    let standing = Store::open(&home.store_path())
-        .unwrap()
-        .get_session_standing(&rec.pubkey, &channel)
-        .unwrap()
-        .unwrap();
-    assert_eq!(standing.state, mosaico::state::StandingState::Member);
-    assert!(Store::open(&home.store_path())
-        .unwrap()
-        .has_session_route(&rec.pubkey, &channel)
-        .unwrap());
-    stop_daemon(&home);
-}
-
-#[test]
-fn headless_clean_exit_preserves_member_standing() {
-    let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let home = Home::new();
-    write_config(&home, false);
-
-    let channel = unique_session("launch-headless-exit");
-    let agent = "launch-headless-exit-agent";
-    launch_no_hook(&home, agent, &channel, "sleep-2");
-    let rec = wait_for_alive(&home, agent, &channel);
-    assert!(wait_until(Duration::from_secs(10), || {
-        Store::open(&home.store_path())
-            .and_then(|store| store.get_session(&rec.pubkey))
-            .ok()
-            .flatten()
-            .is_some_and(|session| !session.is_running())
-    }));
-    let store = Store::open(&home.store_path()).unwrap();
-    let stopped = store.get_session(&rec.pubkey).unwrap().unwrap();
-    assert_eq!(
-        stopped.stop_reason,
-        Some(mosaico::state::StopReason::HeadlessExit)
-    );
-    drop(store);
-    wait_for_member_standing(&home, &rec.pubkey, &channel);
-    let standing = Store::open(&home.store_path())
-        .unwrap()
-        .get_session_standing(&rec.pubkey, &channel)
-        .unwrap()
-        .unwrap();
-    assert_eq!(standing.state, mosaico::state::StandingState::Member);
     stop_daemon(&home);
 }

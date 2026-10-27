@@ -26,7 +26,7 @@ pub(crate) use observed::{
     observed_channel_h, observed_channel_has_role, observed_channel_members, observed_chat,
     only_session_route, pubkey_for_harness_session, read_channel_messages,
     session_for_harness_session, session_identity_pubkey, session_routes,
-    wait_for_who_session_projection,
+    wait_for_who_session_channels,
 };
 #[path = "harness/pty_guard.rs"]
 mod pty_guard;
@@ -37,9 +37,12 @@ pub(crate) use reconcile_witness::{daemon_log_boundary, wait_for_reconciled_sess
 #[path = "harness/relay_witness.rs"]
 mod relay_witness;
 pub(crate) use relay_witness::{
-    publish_addressed_chat, sign_builder_into_group, wait_for_exact_relay_groups,
-    wait_for_relay_group_parent,
+    new_relay_status_covers, publish_addressed_chat, sign_builder_into_group,
+    status_epoch_after_current, wait_for_exact_relay_groups, wait_for_relay_group_parent,
 };
+#[path = "harness/terminal.rs"]
+mod terminal;
+pub(crate) use terminal::{run_cli_in_terminal, TerminalRun};
 #[path = "harness/wedge_relay.rs"]
 mod wedge_relay;
 pub(crate) use wedge_relay::WedgeRelay;

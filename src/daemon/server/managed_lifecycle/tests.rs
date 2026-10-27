@@ -166,3 +166,38 @@ async fn replay_finalizes_reserved_idle_stop_once() {
     assert_eq!(replayed.stop_reason, Some(StopReason::IdleEvicted));
     assert_eq!(replayed.stopped_at, exited_at);
 }
+
+/// An explicit leave leaves a removed route with member standing, which is
+/// exactly durable cleanup work. While the leave runs, its presence
+/// withdrawal must reach the relay before the member is removed, so standing
+/// repair leaves that pair alone; once the leave is gone (or after a crash),
+/// cleanup owns it again.
+#[tokio::test]
+async fn standing_cleanup_waits_for_an_explicit_leave_in_flight() {
+    let state = DaemonState::new_for_test().await;
+    let session = reserve_running(&state, "leaving");
+    let due = state.with_store(|store| {
+        store
+            .commit_confirmed_session_admission(
+                &session.pubkey,
+                "room",
+                session.runtime_generation,
+                session.lifecycle_epoch,
+                2,
+            )
+            .unwrap();
+        store
+            .begin_route_leave(&session.pubkey, "room")
+            .unwrap()
+            .expect("route");
+        store
+            .get_session_standing(&session.pubkey, "room")
+            .unwrap()
+            .unwrap()
+    });
+
+    let leaving = state.begin_leaving(&session.pubkey, "room");
+    assert!(!standing::cleanup_still_due(&state, &due).unwrap());
+    drop(leaving);
+    assert!(standing::cleanup_still_due(&state, &due).unwrap());
+}

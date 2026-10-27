@@ -52,39 +52,46 @@ pub(crate) fn observed_chat(event_id: &str) -> Option<serde_json::Value> {
         .next()
 }
 
-pub(crate) fn wait_for_who_session_projection(
-    pubkey: &str,
+/// Wait until `who` lists this host's session with public `handle` in exactly
+/// `expected_channels`. `who` rows identify a session by its public handle;
+/// they carry no pubkey. On timeout the error is the last `who` reply.
+pub(crate) fn wait_for_who_session_channels(
+    handle: &str,
     workspace: &str,
     expected_channels: &std::collections::BTreeSet<String>,
-) -> Option<(String, std::collections::BTreeSet<String>)> {
-    let mut projection = None;
-    wait_until(std::time::Duration::from_secs(25), || {
-        projection = rt().block_on(async {
+) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut last = String::from("<no who reply>");
+    let mut channels = None;
+    let matched = wait_until(std::time::Duration::from_secs(25), || {
+        let reply = rt().block_on(async {
             let mut client = mosaico::daemon::client::Client::connect_or_spawn()
                 .await
-                .ok()?;
-            let value = client
+                .map_err(|error| format!("connect: {error:#}"))?;
+            client
                 .call("who", serde_json::json!({ "workspace": workspace }))
                 .await
-                .ok()?;
-            let rows = value["rows"].as_array()?;
-            let ours = rows
-                .iter()
-                .filter(|row| row["pubkey"].as_str() == Some(pubkey))
-                .collect::<Vec<_>>();
-            let slug = ours.first()?.get("slug")?.as_str()?.to_string();
-            let channels = ours
-                .iter()
-                .map(|row| row["channel"].as_str().map(str::to_string))
-                .collect::<Option<std::collections::BTreeSet<_>>>()?;
-            Some((slug, channels))
+                .map_err(|error| format!("who failed: {error:#}"))
         });
-        projection
-            .as_ref()
-            .is_some_and(|(_, channels)| channels == expected_channels)
-    })
-    .then_some(projection)
-    .flatten()
+        let reply = match reply {
+            Ok(reply) => reply,
+            Err(error) => {
+                last = error;
+                return false;
+            }
+        };
+        last = reply["rows"].to_string();
+        channels = reply["rows"].as_array().and_then(|rows| {
+            rows.iter()
+                .filter(|row| row["source"] == "Local" && row["slug"] == handle)
+                .map(|row| row["channel"].as_str().map(str::to_string))
+                .collect::<Option<std::collections::BTreeSet<_>>>()
+        });
+        channels.as_ref() == Some(expected_channels)
+    });
+    match channels {
+        Some(channels) if matched => Ok(channels),
+        _ => Err(last),
+    }
 }
 
 pub(crate) fn session_identity_pubkey(

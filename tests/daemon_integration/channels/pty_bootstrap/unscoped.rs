@@ -12,11 +12,11 @@ fn direct_launch_from_unknown_directory_starts_unscoped_in_that_directory() {
     let agent = "unscoped-launch-agent";
     configure_pty_agent(&home, agent, "forever");
 
-    let output = run_cli_with_env_in_dir(&home, &[agent], &[], &work_dir);
+    let output = run_cli_in_terminal(&home, &[agent], &[], &work_dir);
     assert!(
-        output.status.success(),
+        output.handed_off,
         "unscoped launch failed: {}",
-        String::from_utf8_lossy(&output.stderr)
+        output.output
     );
 
     let session = wait_for_alive(&home, agent, "");

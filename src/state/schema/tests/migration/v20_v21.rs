@@ -16,7 +16,7 @@ fn schema_twenty_adds_empty_session_notice_ledger() {
 
     drop(Store::open(&path).expect("schema twenty upgrades to current"));
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 26);
+    assert_eq!(version(&conn), 27);
     assert_eq!(
         crate::state::schema::tests::columns(&conn, "session_notice"),
         ["pubkey", "runtime_generation", "code", "shown_at"]

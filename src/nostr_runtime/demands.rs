@@ -7,31 +7,67 @@ impl NostrRuntime {
         product_id: &str,
         filters: Vec<Filter>,
     ) -> Result<()> {
-        self.close_demand(product_id).await?;
         if filters.is_empty() {
-            return Ok(());
+            return self.close_demand(product_id).await;
         }
-        let id = SubscriptionId::new(product_id);
-        self.completed
+        // Relays may handle one connection's messages concurrently (khatru
+        // runs each frame in its own goroutine), so a CLOSE followed by a REQ
+        // reusing the same subscription id can be applied in reverse and
+        // silently drop the new live subscription. Every REQ therefore gets a
+        // fresh id, and the replaced subscription is closed only after its
+        // successor is open: a late CLOSE can only ever reach the old id.
+        let sequence = self
+            .subscription_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = SubscriptionId::new(format!("{product_id}:{sequence}"));
+        self.opening
             .lock()
-            .expect("completion state poisoned")
-            .remove(&id);
-        let output = self
+            .expect("opening subscriptions poisoned")
+            .insert(id.clone());
+        let opened = self
             .client
             .subscribe(nostr_sdk::client::ReqTarget::single(
                 self.relay.clone(),
                 filters.clone(),
             ))
             .with_id(id.clone())
-            .await
-            .with_context(|| format!("opening Nostr demand {product_id}"))?;
-        if !output.failed.is_empty() || !output.success.contains_key(&self.relay) {
-            anyhow::bail!("configured relay did not accept Nostr demand {product_id}")
+            .await;
+        let accepted = matches!(
+            &opened,
+            Ok(output) if output.failed.is_empty() && output.success.contains_key(&self.relay)
+        );
+        if !accepted {
+            // Keep the prior subscription, which still serves its demand, and
+            // drop whatever part of the failed replacement the SDK registered.
+            self.opening
+                .lock()
+                .expect("opening subscriptions poisoned")
+                .remove(&id);
+            let _ = self.client.unsubscribe(&id).await;
+            self.prune_completed();
+            return match opened {
+                Err(error) => {
+                    Err(error).with_context(|| format!("opening Nostr demand {product_id}"))
+                }
+                Ok(_) => anyhow::bail!("configured relay did not accept Nostr demand {product_id}"),
+            };
         }
-        self.demands
-            .lock()
-            .expect("demands poisoned")
-            .insert(product_id.to_string(), Demand { id, filters });
+        let prior = {
+            let mut demands = self.demands.lock().expect("demands poisoned");
+            self.opening
+                .lock()
+                .expect("opening subscriptions poisoned")
+                .remove(&id);
+            demands.insert(product_id.to_string(), Demand { id, filters })
+        };
+        if let Some(prior) = prior {
+            // The replacement already serves the demand. A failed CLOSE of the
+            // old id must not fail it: the old subscription is unregistered
+            // locally either way, and the relay drops it with the connection.
+            if let Err(error) = self.close_subscription(product_id, &prior.id).await {
+                tracing::warn!(product_id, error = %format!("{error:#}"), "closing replaced Nostr subscription failed");
+            }
+        }
         self.wake();
         Ok(())
     }
@@ -75,21 +111,33 @@ impl NostrRuntime {
             .expect("demands poisoned")
             .remove(product_id);
         if let Some(prior) = prior {
-            self.completed
-                .lock()
-                .expect("completion state poisoned")
-                .remove(&prior.id);
-            let output = self
-                .client
-                .unsubscribe(&prior.id)
-                .await
-                .with_context(|| format!("closing Nostr demand {product_id}"))?;
-            if !output.failed.is_empty() {
-                anyhow::bail!("configured relay did not close Nostr demand {product_id}")
-            }
+            self.close_subscription(product_id, &prior.id).await?;
             self.wake();
         }
         Ok(())
+    }
+
+    async fn close_subscription(&self, product_id: &str, id: &SubscriptionId) -> Result<()> {
+        let output = self.client.unsubscribe(id).await;
+        // Fresh ids mean a late EOSE for a closed subscription would otherwise
+        // stay in the completion set forever. Pruning here (not at EOSE time,
+        // which can precede the demand install) bounds it to live and opening
+        // subscriptions.
+        self.prune_completed();
+        let output = output.with_context(|| format!("closing Nostr demand {product_id}"))?;
+        if !output.failed.is_empty() {
+            anyhow::bail!("configured relay did not close Nostr demand {product_id}")
+        }
+        Ok(())
+    }
+
+    fn prune_completed(&self) {
+        let demands = self.demands.lock().expect("demands poisoned");
+        let opening = self.opening.lock().expect("opening subscriptions poisoned");
+        self.completed
+            .lock()
+            .expect("completion state poisoned")
+            .retain(|id| opening.contains(id) || demands.values().any(|demand| &demand.id == id));
     }
 
     pub(crate) async fn snapshot(&self) -> Result<RawSnapshot> {

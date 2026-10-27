@@ -25,24 +25,36 @@ pub(super) async fn initialize_created_group(
         .cloned()
         .collect::<Vec<_>>();
     if !additional_admins.is_empty() {
-        admins::published(
-            provider
-                .grant_admins_published(ctx.channel, &additional_admins, keys)
-                .await,
+        let outcome = provider
+            .grant_admins_published(ctx.channel, &additional_admins, keys)
+            .await;
+        admins::confirmed_or_published(
+            provider,
+            ctx.channel,
+            &additional_admins,
+            "admin",
+            outcome,
             format!(
                 "initial admin grant for {} users in {}",
                 additional_admins.len(),
                 ctx.channel
             ),
-        )?;
+        )
+        .await?;
     }
     if !ctx.expect_member.is_empty() && !required.iter().any(|key| key == ctx.expect_member) {
-        admins::published(
-            provider
-                .grant_member_published(ctx.channel, ctx.expect_member, keys)
-                .await,
+        let outcome = provider
+            .grant_member_published(ctx.channel, ctx.expect_member, keys)
+            .await;
+        admins::confirmed_or_published(
+            provider,
+            ctx.channel,
+            &[ctx.expect_member.to_string()],
+            "member",
+            outcome,
             format!("initial member grant in {}", ctx.channel),
-        )?;
+        )
+        .await?;
     }
     Ok(())
 }

@@ -5,7 +5,7 @@ use std::process::Command;
 /// Used to prove each agent instance publishes its OWN display label (issue #98):
 /// "claude1", "claude2", etc. never clobber each other.
 pub(super) fn kind0_name_for_author(relay: &str, pubkey: &str) -> Option<String> {
-    let output = Command::new("nak")
+    let output = Command::new(crate::common::nak_bin())
         .args(["req", "-k", "0", "-a", pubkey, "-l", "5", relay])
         .output()
         .expect("run nak req kind:0");
@@ -25,14 +25,24 @@ pub(super) fn kind0_name_for_author(relay: &str, pubkey: &str) -> Option<String>
         })
 }
 
-pub(super) fn event_author(relay: &str, event_id: &str) -> Option<String> {
-    let output = Command::new("nak")
-        .args(["req", "-i", event_id, "-l", "1", relay])
+/// The author of the one relay-stored chat whose id starts with the short id
+/// the daemon returned for it.
+pub(super) fn chat_author_by_id_prefix(relay: &str, id_prefix: &str) -> Option<String> {
+    let output = Command::new(crate::common::nak_bin())
+        .args(["req", "-k", "9", "-l", "500", relay])
         .output()
-        .expect("run nak req by event id");
+        .expect("run nak req for chats");
     output.status.success().then_some(())?;
-    String::from_utf8_lossy(&output.stdout)
+    let mut authors = String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find_map(|event| event.get("pubkey")?.as_str().map(str::to_string))
+        .filter(|event| {
+            event
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.starts_with(id_prefix))
+        })
+        .filter_map(|event| event.get("pubkey")?.as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    (authors.len() == 1).then(|| authors.remove(0))
 }

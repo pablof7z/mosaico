@@ -168,7 +168,7 @@ pub(super) async fn rpc_session_start_inner(
         runtime::bind_locators(store, &p, &admitted.observed_harness, &pubkey, now)?;
         Ok(())
     })?;
-    retire_reclaimed_profile(state, reclaimed_pubkey.as_deref()).await?;
+    retire_reclaimed_profile(state, reclaimed_pubkey.as_deref())?;
 
     let request = advisory::SessionStartRequest {
         pubkey: pubkey.clone(),

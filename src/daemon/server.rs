@@ -72,6 +72,12 @@ pub struct DaemonState {
     /// are asynchronous, so an expired removal finishes before a concurrent
     /// exact-session re-admission decides whether it must add again.
     standing_sync: tokio::sync::Mutex<()>,
+    /// (pubkey, channel) explicit leaves in flight. Their removed route plus
+    /// member standing looks like durable cleanup work, which standing repair
+    /// must leave to the leave itself until it finishes. In memory only: after
+    /// a crash the set is empty and cleanup completes the interrupted leave.
+    /// Counted, so one leave finishing never clears another for the same key.
+    leaving: std::sync::Mutex<std::collections::BTreeMap<(String, String), usize>>,
     /// Makes remote caller correlation and first-session creation atomic across
     /// concurrent MCP requests for the same conversation.
     mcp_actor_sync: tokio::sync::Mutex<()>,
@@ -163,8 +169,10 @@ mod cross_project_boundary;
 mod cursor;
 mod diagnostics;
 mod engine_lifecycle;
+mod leaving;
 mod lifecycle;
 mod mcp_actor;
+mod profile_retirement;
 mod profile_rpc;
 mod resolution;
 mod session_end;
@@ -194,11 +202,11 @@ use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, sp
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
 use my_session::{rpc_my_session, rpc_my_session_status};
+use profile_retirement::retire_reclaimed_profile;
 use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, resolve_pubkey_hex};
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
 use session_pty_wrap::rpc_session_pty_wrap;
-use session_signing::retire_reclaimed_profile;
 pub(crate) use session_signing::{
     load_session_identity, prepare_session_identity, PreparedIdentity,
 };

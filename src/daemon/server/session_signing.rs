@@ -169,34 +169,6 @@ pub(crate) fn load_session_identity(
     })
 }
 
-pub(in crate::daemon::server) async fn retire_reclaimed_profile(
-    state: &Arc<DaemonState>,
-    reclaimed_pubkey: Option<&str>,
-) -> Result<()> {
-    let Some(pubkey) = reclaimed_pubkey else {
-        return Ok(());
-    };
-    let Some(session) = state.with_store(|store| store.get_session(pubkey))? else {
-        tracing::warn!(pubkey, "reclaimed handle had no local runtime projection");
-        return Ok(());
-    };
-    let keys = state.session_signing_keys(pubkey)?;
-    let npub = crate::idref::npub(pubkey).unwrap_or_else(|| pubkey.to_string());
-    let profile = crate::domain::Profile::agent(
-        crate::domain::AgentRef::new(pubkey.to_string(), npub.clone()),
-        session.agent_slug.clone(),
-        state.host().clone(),
-        state.owners().clone(),
-    );
-    let domain = crate::domain::DomainEvent::Profile(profile);
-    state
-        .provider()
-        .enqueue(&domain, &keys)
-        .await
-        .with_context(|| format!("queueing reclaimed handle retirement profile for {pubkey}"))?;
-    Ok(())
-}
-
 #[cfg(test)]
 #[path = "session_signing/tests.rs"]
 mod tests;

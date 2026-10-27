@@ -53,6 +53,12 @@ pub(crate) struct NostrRuntime {
     relay: RelayUrl,
     demands: Mutex<BTreeMap<String, Demand>>,
     completed: Mutex<BTreeSet<SubscriptionId>>,
+    /// Source of per-REQ subscription ids. A replaced demand never reuses the
+    /// id of the subscription it replaces; see `replace_demand`.
+    subscription_sequence: std::sync::atomic::AtomicU64,
+    /// Subscription ids sent but not yet installed as a demand. Their EOSE may
+    /// arrive before the install, so completion pruning must keep them.
+    opening: Mutex<BTreeSet<SubscriptionId>>,
     reference_read: tokio::sync::Mutex<()>,
     changed: watch::Sender<u64>,
     send_timeout: Duration,
@@ -77,6 +83,8 @@ impl NostrRuntime {
             relay,
             demands: Mutex::new(BTreeMap::new()),
             completed: Mutex::new(BTreeSet::new()),
+            subscription_sequence: std::sync::atomic::AtomicU64::new(0),
+            opening: Mutex::new(BTreeSet::new()),
             reference_read: tokio::sync::Mutex::new(()),
             changed,
             send_timeout,
@@ -176,4 +184,4 @@ impl NostrRuntime {
 
 #[cfg(test)]
 #[path = "nostr_runtime/tests.rs"]
-mod tests;
+pub(crate) mod tests;
