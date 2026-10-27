@@ -169,7 +169,12 @@ pub(crate) fn load_session_identity(
     })
 }
 
-pub(in crate::daemon::server) async fn retire_reclaimed_profile(
+/// Republish a reclaimed handle's previous owner under its retired profile.
+///
+/// Session start serves hooks, which must return within their latency budget
+/// even when the relay is wedged, so the relay publication runs in the
+/// background; only the local signer and profile construction are inline.
+pub(in crate::daemon::server) fn retire_reclaimed_profile(
     state: &Arc<DaemonState>,
     reclaimed_pubkey: Option<&str>,
 ) -> Result<()> {
@@ -189,11 +194,17 @@ pub(in crate::daemon::server) async fn retire_reclaimed_profile(
         state.owners().clone(),
     );
     let domain = crate::domain::DomainEvent::Profile(profile);
-    state
-        .provider()
-        .enqueue(&domain, &keys)
-        .await
-        .with_context(|| format!("queueing reclaimed handle retirement profile for {pubkey}"))?;
+    let state = state.clone();
+    let pubkey = pubkey.to_string();
+    tokio::spawn(async move {
+        if let Err(error) = state.provider().enqueue(&domain, &keys).await {
+            tracing::warn!(
+                pubkey,
+                error = %format!("{error:#}"),
+                "reclaimed handle retirement profile was not published"
+            );
+        }
+    });
     Ok(())
 }
 
