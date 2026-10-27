@@ -241,13 +241,10 @@ fn drain_matching(
     backend_pubkey: &str,
 ) -> Result<Option<Message>> {
     loop {
-        let rows = state
+        let batch = state
             .with_store(|store| store.messages_after_arrival_sequence(*cursor, MESSAGE_BATCH))?;
-        if rows.is_empty() {
-            return Ok(None);
-        }
-        let full_batch = rows.len() == MESSAGE_BATCH as usize;
-        for (arrival_sequence, message) in rows {
+        let full_batch = batch.messages.len() == MESSAGE_BATCH as usize;
+        for (arrival_sequence, message) in batch.messages {
             *cursor = arrival_sequence;
             if !scopes.contains(&message.channel_h) || own_pubkeys.contains(&message.author_pubkey)
             {
@@ -267,6 +264,9 @@ fn drain_matching(
             }
             return Ok(Some(message));
         }
+        // Nothing matched: skip every arrival this batch scanned, chat or not,
+        // so later wakes do not re-read status and reaction arrivals.
+        *cursor = (*cursor).max(batch.scanned_through);
         if !full_batch {
             return Ok(None);
         }

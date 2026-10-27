@@ -12,12 +12,6 @@ pub(super) const COLS: &str =
      stopped_at, stop_reason, turn_count, busy_seconds, created_at, last_seen, turn_started_at, \
      seen_cursor, title, state_changed_at";
 
-pub(crate) struct SessionCountFacts {
-    pub(crate) pubkey: String,
-    pub(crate) named: bool,
-    pub(crate) running: bool,
-}
-
 fn conversion<T>(index: usize, result: Result<T>) -> rusqlite::Result<T> {
     result.map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
@@ -217,22 +211,6 @@ impl Store {
 
     pub(crate) fn session_exists(&self, pubkey: &str) -> Result<bool> {
         Ok(self.get_session(pubkey)?.is_some())
-    }
-
-    /// The facts agent counting needs about every local session, without
-    /// loading full session rows.
-    pub(crate) fn list_session_count_facts(&self) -> Result<Vec<SessionCountFacts>> {
-        let mut statement = self
-            .conn
-            .prepare("SELECT pubkey, agent_slug, runtime_state='running' FROM sessions")?;
-        let rows = statement.query_map([], |row| {
-            Ok(SessionCountFacts {
-                pubkey: row.get(0)?,
-                named: !row.get_ref(1)?.as_str()?.trim().is_empty(),
-                running: row.get(2)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn list_running_sessions(&self) -> Result<Vec<Session>> {

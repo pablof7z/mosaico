@@ -9,7 +9,6 @@ use std::sync::{Arc, RwLock};
 use nostr::prelude::Event;
 use tokio::sync::watch;
 
-use crate::domain::DomainEvent;
 use crate::group_projection::GroupProjection;
 use crate::group_snapshot::{decode_snapshots, GroupAvailability, GroupSnapshot};
 use crate::state::{Profile, RelayEvent, Status};
@@ -17,7 +16,9 @@ use crate::state::{Profile, RelayEvent, Status};
 #[path = "view/decode.rs"]
 mod decode;
 
-use decode::{decode_message, decode_reaction};
+use decode::{
+    decode_message, decode_reaction, profile_from_event, relay_event, statuses_from_event,
+};
 pub(crate) use decode::{MessageProjection, ReactionProjection};
 
 #[derive(Clone, Default)]
@@ -71,7 +72,14 @@ impl Nip29View {
             .collect::<Vec<_>>();
         let statuses = content.iter().flat_map(statuses_from_event).collect();
         let relay_events = content.iter().map(relay_event).collect();
-        Self::assemble(content, group_snapshots, groups, profiles, statuses, relay_events)
+        Self::assemble(
+            content,
+            group_snapshots,
+            groups,
+            profiles,
+            statuses,
+            relay_events,
+        )
     }
 
     /// A level from already-projected parts, for tests that install rows
@@ -161,7 +169,9 @@ impl Nip29View {
     }
 
     pub(crate) fn message(&self, id: &str) -> Option<&MessageProjection> {
-        self.message_index.get(id).map(|&index| &self.messages[index])
+        self.message_index
+            .get(id)
+            .map(|&index| &self.messages[index])
     }
 
     pub(crate) fn reactions(&self) -> &[ReactionProjection] {
@@ -262,76 +272,6 @@ fn group_matches(snapshot: &GroupSnapshot, scope: &GroupScope) -> bool {
             .members
             .iter()
             .any(|member| scope.subjects.contains(&member.pubkey.to_hex()))
-}
-
-fn statuses_from_event(event: &Event) -> Vec<Status> {
-    let Some(DomainEvent::Status(status)) =
-        crate::fabric::nip29::wire::Nip29WireCodec.decode_event(event)
-    else {
-        return Vec::new();
-    };
-    let updated_at = event.created_at.as_secs();
-    status
-        .channels
-        .iter()
-        .map(|channel_h| Status {
-            pubkey: status.agent.pubkey.clone(),
-            channel_h: channel_h.clone(),
-            slug: status.agent.slug.clone(),
-            title: status.title.clone(),
-            activity: status.activity.clone(),
-            workspace: status.workspace.clone(),
-            branch: status.branch.clone(),
-            state: status.state,
-            state_since: status.state_since,
-            last_seen: updated_at,
-            updated_at,
-            expiration: status.expires_at.unwrap_or(0),
-        })
-        .collect()
-}
-
-fn relay_event(event: &Event) -> RelayEvent {
-    RelayEvent {
-        id: event.id.to_hex(),
-        kind: event.kind.as_u16() as u32,
-        pubkey: event.pubkey.to_hex(),
-        created_at: event.created_at.as_secs(),
-        channel_h: crate::fabric::nip29::nostr_tag(event, "h")
-            .unwrap_or("")
-            .to_string(),
-        d_tag: crate::fabric::nip29::nostr_tag(event, "d")
-            .unwrap_or("")
-            .to_string(),
-        content: event.content.clone(),
-        tags_json: serde_json::to_string(
-            &event
-                .tags
-                .iter()
-                .map(|tag| tag.as_slice().to_vec())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or_else(|_| "[]".to_string()),
-    }
-}
-
-fn profile_from_event(event: &Event) -> Option<Profile> {
-    let DomainEvent::Profile(profile) =
-        crate::fabric::nip29::wire::Nip29WireCodec.decode_event(event)?
-    else {
-        return None;
-    };
-    Some(Profile {
-        pubkey: profile.agent.pubkey,
-        name: profile.agent.slug.clone(),
-        slug: profile.agent.slug,
-        agent_slug: profile.agent_slug,
-        host: profile.host,
-        is_backend: profile.is_backend,
-        agents: profile.agents,
-        workspaces: profile.workspaces,
-        updated_at: event.created_at.as_secs(),
-    })
 }
 
 #[cfg(test)]

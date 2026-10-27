@@ -1,13 +1,16 @@
-//! Decode the level's [`RelayEvent`]s into the chat and reaction projections
-//! the view serves. Runs once per view replacement.
+//! Decode the level's signed events into the rows the view serves: profiles,
+//! statuses, relay events, and the chat and reaction projections. Runs once
+//! per view replacement.
 //!
-//! These decoders read only the relay-event fields Nostr runtime surfaces
+//! The chat and reaction decoders read only the relay-event fields Nostr runtime surfaces
 //! (`tags_json`, `content`, `pubkey`, `kind`, `channel_h`, `created_at`, and
 //! `id`).
 
-use crate::domain::Reaction;
-use crate::fabric::nip29::wire::{KIND_CHAT, KIND_REACTION};
-use crate::state::{Message, MessageRecipient, RelayEvent};
+use nostr::prelude::Event;
+
+use crate::domain::{DomainEvent, Reaction};
+use crate::fabric::nip29::wire::{KIND_CHAT, KIND_PROFILE, KIND_REACTION, KIND_STATUS};
+use crate::state::{Message, MessageRecipient, Profile, RelayEvent, Status};
 
 #[derive(Clone)]
 pub(crate) struct MessageProjection {
@@ -101,6 +104,82 @@ fn reply_target(tags: &[Vec<String>]) -> Option<String> {
         fallback = Some(id.clone());
     }
     fallback
+}
+
+pub(super) fn statuses_from_event(event: &Event) -> Vec<Status> {
+    if event.kind.as_u16() != KIND_STATUS {
+        return Vec::new();
+    }
+    let Some(DomainEvent::Status(status)) =
+        crate::fabric::nip29::wire::Nip29WireCodec.decode_event(event)
+    else {
+        return Vec::new();
+    };
+    let updated_at = event.created_at.as_secs();
+    status
+        .channels
+        .iter()
+        .map(|channel_h| Status {
+            pubkey: status.agent.pubkey.clone(),
+            channel_h: channel_h.clone(),
+            slug: status.agent.slug.clone(),
+            title: status.title.clone(),
+            activity: status.activity.clone(),
+            workspace: status.workspace.clone(),
+            branch: status.branch.clone(),
+            state: status.state,
+            state_since: status.state_since,
+            last_seen: updated_at,
+            updated_at,
+            expiration: status.expires_at.unwrap_or(0),
+        })
+        .collect()
+}
+
+pub(super) fn relay_event(event: &Event) -> RelayEvent {
+    RelayEvent {
+        id: event.id.to_hex(),
+        kind: event.kind.as_u16() as u32,
+        pubkey: event.pubkey.to_hex(),
+        created_at: event.created_at.as_secs(),
+        channel_h: crate::fabric::nip29::nostr_tag(event, "h")
+            .unwrap_or("")
+            .to_string(),
+        d_tag: crate::fabric::nip29::nostr_tag(event, "d")
+            .unwrap_or("")
+            .to_string(),
+        content: event.content.clone(),
+        tags_json: serde_json::to_string(
+            &event
+                .tags
+                .iter()
+                .map(|tag| tag.as_slice().to_vec())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".to_string()),
+    }
+}
+
+pub(super) fn profile_from_event(event: &Event) -> Option<Profile> {
+    if event.kind.as_u16() != KIND_PROFILE {
+        return None;
+    }
+    let DomainEvent::Profile(profile) =
+        crate::fabric::nip29::wire::Nip29WireCodec.decode_event(event)?
+    else {
+        return None;
+    };
+    Some(Profile {
+        pubkey: profile.agent.pubkey,
+        name: profile.agent.slug.clone(),
+        slug: profile.agent.slug,
+        agent_slug: profile.agent_slug,
+        host: profile.host,
+        is_backend: profile.is_backend,
+        agents: profile.agents,
+        workspaces: profile.workspaces,
+        updated_at: event.created_at.as_secs(),
+    })
 }
 
 #[cfg(test)]

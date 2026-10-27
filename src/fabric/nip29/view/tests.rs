@@ -155,19 +155,19 @@ fn decode_derives_every_read_model_from_signed_events() {
     // A status is a several-group write: the provider adds one `h` per channel.
     let status_builder = Nip29WireCodec
         .encode_event(&DomainEvent::Status(Status {
-        agent: AgentRef::new(pubkey.clone(), ""),
-        channels: vec!["alpha".into()],
-        host: "laptop".into(),
-        workspace: "alpha".into(),
-        branch: String::new(),
-        title: "reviewing".into(),
-        activity: String::new(),
-        state: crate::session_state::SessionState::Working,
-        state_since: 1,
-        rel_cwd: String::new(),
-        expires_at: None,
-        dispatch_event: None,
-    }))
+            agent: AgentRef::new(pubkey.clone(), ""),
+            channels: vec!["alpha".into()],
+            host: "laptop".into(),
+            workspace: "alpha".into(),
+            branch: String::new(),
+            title: "reviewing".into(),
+            activity: String::new(),
+            state: crate::session_state::SessionState::Working,
+            state_since: 1,
+            rel_cwd: String::new(),
+            expires_at: None,
+            dispatch_event: None,
+        }))
         .unwrap();
     let status =
         crate::fabric::nip29::signed_into_groups(&["alpha"], status_builder, &agent).unwrap();
@@ -193,7 +193,10 @@ fn decode_derives_every_read_model_from_signed_events() {
     let statuses = current.statuses();
     assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0].channel_h, "alpha");
-    assert_eq!(statuses[0].slug, "reviewer", "slug enriched from the profile");
+    assert_eq!(
+        statuses[0].slug, "reviewer",
+        "slug enriched from the profile"
+    );
     let chat_id = chat.id.to_hex();
     assert_eq!(current.event(&chat_id).unwrap().channel_h, "alpha");
     let message = current.message(&chat_id).unwrap();

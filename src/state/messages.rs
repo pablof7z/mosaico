@@ -3,8 +3,8 @@
 //! Message identity, content, ordering, and `p`-tag recipients belong to Nostr runtime.
 //! SQLite retains only the independently keyed local attachment directory.
 
-use crate::fabric::nip29::view::MessageProjection;
 use super::*;
+use crate::fabric::nip29::view::MessageProjection;
 use std::collections::BTreeMap;
 
 mod attachments;
@@ -146,8 +146,9 @@ impl Store {
 
     pub fn message_recipients(&self, message_id: &str) -> Result<Vec<MessageRecipient>> {
         Ok(self
-            .message_projection_by_id(message_id)
-            .map(|row| row.recipients)
+            .view()
+            .message(message_id)
+            .map(|row| row.recipients.clone())
             .unwrap_or_default())
     }
 

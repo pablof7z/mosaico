@@ -144,16 +144,20 @@ async fn drain(
     let view = state.nip29_view();
     let mut changes = view.subscribe_changes();
     let mut renamed: BTreeSet<String> = BTreeSet::new();
-    let current = view.current();
-    let mut advertised = managed_roots(&state, current.group_snapshots());
-    apply_snapshot(
-        &state,
-        current.group_snapshots(),
-        &coverage,
-        &mut known_ids,
-        &mut renamed,
-        &mut advertised,
-    );
+    // One level for the initial pass, released before waiting for changes.
+    let mut advertised = {
+        let current = view.current();
+        let mut advertised = managed_roots(&state, current.group_snapshots());
+        apply_snapshot(
+            &state,
+            current.group_snapshots(),
+            &coverage,
+            &mut known_ids,
+            &mut renamed,
+            &mut advertised,
+        );
+        advertised
+    };
     loop {
         if changes.changed().await.is_err() {
             return;

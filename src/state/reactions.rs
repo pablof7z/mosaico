@@ -1,8 +1,7 @@
 //! NIP-25 reaction reads derived from the current Nostr runtime subscription level.
 
-use crate::fabric::nip29::view::{MessageProjection, ReactionProjection};
 use super::*;
-use std::collections::BTreeMap;
+use crate::fabric::nip29::view::ReactionProjection;
 
 impl Store {
     pub fn reactions_on_authored_after(
@@ -12,12 +11,11 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
         let view = self.view();
-        let messages = messages_by_id(view.messages());
         let mut reactions = view
             .reactions()
             .iter()
             .filter_map(|reaction| {
-                let message = messages.get(reaction.target_message_id.as_str())?;
+                let message = &view.message(&reaction.target_message_id)?.message;
                 (message.author_pubkey == author_pubkey
                     && reaction.created_at > since
                     && reaction.reactor_pubkey != author_pubkey)
@@ -38,13 +36,16 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
         let view = self.view();
-        let messages = messages_by_id(view.messages());
         let mut reactions = view
             .reactions()
             .iter()
             .filter(|reaction| reaction.channel_h == channel_h && reaction.created_at > since)
             .filter_map(|reaction| {
-                let body = messages.get(reaction.target_message_id.as_str())?.body.clone();
+                let body = view
+                    .message(&reaction.target_message_id)?
+                    .message
+                    .body
+                    .clone();
                 Some(row(reaction, body))
             })
             .collect::<Vec<_>>();
@@ -65,13 +66,6 @@ impl Store {
                 && reaction.reactor_pubkey == reactor_pubkey
         }))
     }
-}
-
-fn messages_by_id(messages: &[MessageProjection]) -> BTreeMap<&str, &Message> {
-    messages
-        .iter()
-        .map(|row| (row.message.message_id.as_str(), &row.message))
-        .collect()
 }
 
 fn row(reaction: &ReactionProjection, target_body: String) -> ReactionRow {

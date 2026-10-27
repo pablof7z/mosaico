@@ -268,6 +268,7 @@ mod session_ty;
 pub use session_ty::{
     PresentationState, RecoveryState, RuntimeState, Session, StopReason, WorkState,
 };
+mod session_counts;
 mod sessions;
 mod status;
 #[cfg(test)]

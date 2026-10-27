@@ -31,14 +31,24 @@ impl Store {
             .optional()?)
     }
 
-    /// Every event first observed after `sequence`, in arrival order, from one
-    /// range read.
-    pub(crate) fn event_arrivals_after(&self, sequence: u64) -> Result<Vec<(String, u64)>> {
+    /// Visit events first observed after `sequence`, in arrival order, until
+    /// `visit` returns false. Rows are read lazily, so stopping early never
+    /// reads the rest of the ledger.
+    pub(crate) fn visit_event_arrivals_after(
+        &self,
+        sequence: u64,
+        mut visit: impl FnMut(&str, u64) -> bool,
+    ) -> Result<()> {
         let mut statement = self.conn.prepare_cached(
             "SELECT event_id, sequence FROM event_arrivals WHERE sequence > ?1 ORDER BY sequence",
         )?;
-        let rows = statement.query_map([sequence], |row| Ok((row.get(0)?, row.get(1)?)))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        let mut rows = statement.query([sequence])?;
+        while let Some(row) = rows.next()? {
+            if !visit(row.get_ref(0)?.as_str()?, row.get(1)?) {
+                break;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn latest_event_arrival_sequence(&self) -> Result<u64> {

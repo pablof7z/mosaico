@@ -81,7 +81,10 @@ mod tests {
         let status = store.get_status("pk", "chan").unwrap().unwrap();
         assert_eq!(status.slug, "reviewer");
         assert_eq!(
-            store.list_status_sessions(Some("reviewer"), None).unwrap().len(),
+            store
+                .list_status_sessions(Some("reviewer"), None)
+                .unwrap()
+                .len(),
             1
         );
     }

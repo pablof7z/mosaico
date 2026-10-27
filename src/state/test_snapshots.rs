@@ -64,7 +64,10 @@ impl TestRelayDelivery {
 
 impl Store {
     pub(crate) fn install_test_group_delivery(&self, delivery: TestGroupDelivery) {
-        let mut snapshots = self.test_snapshots.write().expect("test snapshots poisoned");
+        let mut snapshots = self
+            .test_snapshots
+            .write()
+            .expect("test snapshots poisoned");
         snapshots.groups = Some(delivery);
         snapshots.assemble();
     }
@@ -74,7 +77,10 @@ impl Store {
             self.record_event_arrival(event_id)
                 .expect("recording test event arrival");
         }
-        let mut snapshots = self.test_snapshots.write().expect("test snapshots poisoned");
+        let mut snapshots = self
+            .test_snapshots
+            .write()
+            .expect("test snapshots poisoned");
         snapshots.relay = Some(delivery);
         snapshots.assemble();
     }

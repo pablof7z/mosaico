@@ -51,7 +51,8 @@ impl GroupProjection {
     }
 
     pub(crate) fn channel_parent(&self, channel_h: &str) -> Option<String> {
-        self.channel(channel_h).map(|channel| channel.parent.clone())
+        self.channel(channel_h)
+            .map(|channel| channel.parent.clone())
     }
 
     pub(crate) fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
@@ -166,7 +167,9 @@ impl GroupProjection {
     }
 
     fn channels(&self) -> impl Iterator<Item = &Channel> {
-        self.groups.values().filter_map(|group| group.channel.as_ref())
+        self.groups
+            .values()
+            .filter_map(|group| group.channel.as_ref())
     }
 }
 

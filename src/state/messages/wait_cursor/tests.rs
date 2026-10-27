@@ -23,7 +23,10 @@ fn wait_cursor_follows_relay_arrival_order() {
         TestRelayDelivery::new().events([event("first", "[]"), event("second", "[]")]),
     );
 
-    let rows = store.messages_after_arrival_sequence(cursor, 10).unwrap();
+    let rows = store
+        .messages_after_arrival_sequence(cursor, 10)
+        .unwrap()
+        .messages;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].1.message_id, "second");
 }
@@ -61,6 +64,7 @@ fn wait_cursor_returns_chat_in_arrival_order_and_stops_at_the_limit() {
         store
             .messages_after_arrival_sequence(0, limit)
             .unwrap()
+            .messages
             .into_iter()
             .map(|(_, message)| message.message_id)
             .collect::<Vec<_>>()
@@ -68,5 +72,16 @@ fn wait_cursor_returns_chat_in_arrival_order_and_stops_at_the_limit() {
     // Arrival order (c first), not view order; the ghost id and the reaction
     // are arrivals but not chat messages in the view.
     assert_eq!(ids(10), ["c", "a", "b"]);
+    assert_eq!(
+        ids(2),
+        ["c", "a"],
+        "skipped arrivals do not count toward the limit"
+    );
     assert_eq!(ids(1), ["c"]);
+    assert!(ids(0).is_empty());
+    // With no limit hit, the batch reports the last arrival scanned (the
+    // reaction), so a reader that matched nothing can skip past it.
+    let latest = store.latest_message_arrival_sequence().unwrap();
+    let batch = store.messages_after_arrival_sequence(0, 10).unwrap();
+    assert_eq!(batch.scanned_through, latest);
 }

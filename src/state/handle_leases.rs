@@ -75,9 +75,14 @@ impl Store {
             return Ok(None);
         };
         let derived = self.is_derived_session_pubkey(pubkey)?;
-        identity(pubkey, session.agent_slug, derived, self.handle_for_pubkey(pubkey)?)
-            .map(Some)
-            .ok_or_else(|| anyhow::anyhow!("derived session {pubkey} has no handle lease"))
+        identity(
+            pubkey,
+            session.agent_slug,
+            derived,
+            self.handle_for_pubkey(pubkey)?,
+        )
+        .map(Some)
+        .ok_or_else(|| anyhow::anyhow!("derived session {pubkey} has no handle lease"))
     }
 
     /// Every session's identity from one query, keyed by pubkey. A derived
@@ -92,7 +97,12 @@ impl Store {
                LEFT JOIN handle_leases AS lease ON lease.pubkey=session.pubkey",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+            ))
         })?;
         let mut identities = BTreeMap::new();
         for row in rows {

@@ -101,8 +101,7 @@ impl Nip29Provider {
                         // the async workers. Awaiting keeps replacements ordered.
                         let view = Arc::clone(&provider.view);
                         if let Err(error) =
-                            tokio::task::spawn_blocking(move || view.replace(snapshot.events))
-                                .await
+                            tokio::task::spawn_blocking(move || view.replace(snapshot.events)).await
                         {
                             tracing::error!(%error, "decoding complete NIP-29 view");
                         }
