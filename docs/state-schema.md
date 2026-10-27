@@ -17,7 +17,13 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 27
+## Current schema: 28
+
+Schema 28 adds `attempts` and `retry_at` to `event_claims`: a durable count of
+failed attempts and the time a failed (`pending`) claim may be claimed again.
+Existing pending rows get one attempt and `retry_at = updated_at + 30`, so each
+stays due when it already was. Terminal failures use the `failed` state. See
+`docs/daemon-design.md` "Claim retries".
 
 Schema 27 adds `profile_retirements`. Each row is a reclaimed handle's
 previous owner whose retirement profile (its kind:0 without the handle) the
@@ -102,6 +108,7 @@ preset configuration to rediscover a live runtime's transport.
 These entries describe the source shape of older deployments. They are not
 current read contracts.
 
+- **Schema 28** added `event_claims.attempts` and `event_claims.retry_at`.
 - **Schema 27** added `profile_retirements`.
 - **Schema 26** renamed `session_coaching` to `session_notice`.
 - **Schema 21** added `session_coaching`, a generation-scoped ledger of

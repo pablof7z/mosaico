@@ -174,6 +174,11 @@ pub(super) struct DedupState {
     pub(super) peer_sessions: Mutex<HashMap<(String, String), PeerTracked>>,
     pub(super) profiles: Mutex<HashSet<String>>,
     pub(super) last_status: Mutex<HashMap<StatusTailKey, StatusTailSnapshot>>,
+    /// Wakes the demux loop to recompute its claim-retry timer after a
+    /// handler records a failed attempt.
+    pub(super) claim_retry_scheduled: tokio::sync::Notify,
+    /// The running demux task; replaced (and the old one aborted) on respawn.
+    pub(super) demux_task: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl DedupState {
@@ -182,6 +187,8 @@ impl DedupState {
             peer_sessions: Mutex::new(HashMap::new()),
             profiles: Mutex::new(HashSet::new()),
             last_status: Mutex::new(HashMap::new()),
+            claim_retry_scheduled: tokio::sync::Notify::new(),
+            demux_task: Mutex::new(None),
         }
     }
 }

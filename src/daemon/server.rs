@@ -50,8 +50,10 @@ mod state;
 use background::spawn_pruner;
 use demux::spawn_demux;
 use management_command::{handle_management_command, is_management_command_for_backend};
-use orchestration_handler::handle_orchestration;
-use session_dispatch_handler::handle_session_dispatch;
+use orchestration_handler::{claim_orchestration, orchestration_claim_keys, run_orchestration};
+use session_dispatch_handler::{
+    claim_session_dispatch, run_session_dispatch, session_dispatch_claim_key,
+};
 use session_records::{HostedAgent, PeerTracked, SessionHandle, StatusTailKey, StatusTailSnapshot};
 use state::{
     AgentConfigState, CatalogState, ConnectionState, DedupState, ProfileRefreshState,

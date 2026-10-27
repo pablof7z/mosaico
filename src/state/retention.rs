@@ -34,7 +34,7 @@ impl Store {
         )?;
         let completed_event_claims = self.conn.execute(
             "DELETE FROM event_claims
-             WHERE state='completed' AND updated_at>0 AND updated_at<?1",
+             WHERE state IN ('completed', 'failed') AND updated_at>0 AND updated_at<?1",
             params![completed_ledgers_before],
         )?;
         let native_turn_attempts = self.conn.execute(

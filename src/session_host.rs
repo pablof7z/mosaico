@@ -26,7 +26,7 @@ pub(crate) use launch::spawn_ephemeral_agent_for_pubkey;
 pub(crate) use launch::{
     adopt_native_session, resume_agent, resume_agent_in_channel, ResumeRequest,
 };
-pub(crate) use launch::{spawn_agent, LaunchIntent, SpawnRequest};
+pub(crate) use launch::{spawn_agent, LaunchIntent, SpawnRequest, UnknownAgent};
 pub use launch::{spawn_dispatched_ephemeral_agent, spawn_ephemeral_agent, DispatchedSpawn};
 pub(crate) use native_discovery::discover as discover_native_session;
 pub use registry::spawnable_agents;
