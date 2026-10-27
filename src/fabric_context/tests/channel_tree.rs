@@ -101,13 +101,17 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
 #[test]
 fn changed_descendant_metadata_renders_once_with_its_canonical_ref() {
     let store = seed_store();
-    // Presence is per channel: the reviewer's status covers both rooms.
+    // Presence is a per-channel heartbeat: both agents publish one in the task.
     store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
         [
             idle_status(OTHER_PK, "reviewer", "Reviewing"),
             Status {
                 channel_h: TASK_H.into(),
                 ..idle_status(OTHER_PK, "reviewer", "Reviewing")
+            },
+            Status {
+                channel_h: TASK_H.into(),
+                ..idle_status(SELF_PK, "coder", "Coding")
             },
         ],
     ));

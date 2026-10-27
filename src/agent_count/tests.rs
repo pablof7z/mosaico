@@ -160,7 +160,7 @@ fn normalized_store_matrix_is_shared_by_both_projection_surfaces() {
 }
 
 #[test]
-fn local_lifecycle_decides_liveness_for_sessions_this_daemon_owns() {
+fn presence_is_the_heartbeat_for_local_sessions_too() {
     let store = Store::open_memory().unwrap();
     let register = |pubkey: &str| crate::state::RegisterSession {
         pubkey: pubkey.into(),
@@ -180,8 +180,9 @@ fn local_lifecycle_decides_liveness_for_sessions_this_daemon_owns() {
     store
         .mark_runtime_stopped("stopped", crate::state::StopReason::Unknown, 1001)
         .unwrap();
-    // The stopped session's last live status is still in the view; local
-    // lifecycle overrides it for a session this daemon owns.
+    // Local lifecycle decides what the daemon publishes, never what it counts:
+    // a running session with no heartbeat is absent, and a stopped one is
+    // present until its last heartbeat expires.
     store.install_test_relay_delivery(TestRelayDelivery::new().statuses([live_status("stopped")]));
     let index = MemberFactIndex::capture(&store, "backend").unwrap();
     let count = |pubkey: &str| {
@@ -193,6 +194,24 @@ fn local_lifecycle_decides_liveness_for_sessions_this_daemon_owns() {
         count_agents(true, [index.normalize(&store, &member).unwrap()])
     };
 
-    assert_eq!(count("running"), Some(1));
-    assert_eq!(count("stopped"), Some(0));
+    assert_eq!(count("running"), Some(0));
+    assert_eq!(count("stopped"), Some(1));
+}
+
+#[test]
+fn a_heartbeat_places_an_agent_only_in_its_own_channel() {
+    let store = Store::open_memory().unwrap();
+    store.install_test_relay_delivery(TestRelayDelivery::new().statuses([live_status("peer")]));
+    let index = MemberFactIndex::capture(&store, "backend").unwrap();
+    let count = |channel: &str| {
+        let member = ChannelMember {
+            channel_h: channel.into(),
+            pubkey: "peer".into(),
+            role: "member".into(),
+        };
+        count_agents(true, [index.normalize(&store, &member).unwrap()])
+    };
+
+    assert_eq!(count("room"), Some(1));
+    assert_eq!(count("other-room"), Some(0));
 }

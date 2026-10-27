@@ -8,12 +8,11 @@ use crate::util::relative_time;
 /// Full-snapshot member rows from the frozen roster, profile, and status inputs.
 ///
 /// Every present, nameable roster member earns a row. A named agent is
-/// present in a channel while its own session runs (sessions this daemon
-/// owns) or while it has a live status there (everyone else) — the same fact
+/// present in a channel while it has an active heartbeat there (an unexpired
+/// live-state status), for local and remote sessions alike — the same fact
 /// agent counts use. A dormant agent keeps its membership but gets no row:
-/// bare roster existence is not presence. Only a live heartbeat carries a
-/// `state` label, and an unaddressable member is withheld until a current
-/// profile row names it.
+/// bare roster existence is not presence. The viewer's own row is always
+/// shown. An unaddressable member is withheld until a profile row names it.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
     inputs
         .members

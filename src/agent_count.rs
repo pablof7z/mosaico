@@ -14,10 +14,10 @@ pub(crate) struct MemberFacts {
     is_backend: bool,
     has_profile: bool,
     is_named_agent: bool,
-    /// Present in the member's channel: a running session this daemon owns, or
-    /// another agent's current live status in that channel. Relay membership
-    /// persists across ordinary stops, so a named agent that is not present is
-    /// a dormant member, not an active agent.
+    /// Present in the member's channel: an active heartbeat (a live-state,
+    /// unexpired status for that channel), for local and remote sessions
+    /// alike. Relay membership persists across ordinary stops, so a named
+    /// agent without one is a dormant member, not an active agent.
     #[serde(default)]
     is_live: bool,
 }
@@ -36,22 +36,19 @@ impl MemberFacts {
 #[derive(Default)]
 pub(crate) struct MemberFactIndex {
     named: BTreeSet<String>,
-    /// Sessions this daemon owns; their local lifecycle is authoritative.
-    local_owned: BTreeSet<String>,
-    running: BTreeSet<String>,
-    /// `(pubkey, channel)` pairs with a current live remote status.
-    live_remote: BTreeSet<(String, String)>,
+    /// `(pubkey, channel)` pairs with an active heartbeat: a live-state status
+    /// for that channel in the current view. The runtime drops NIP-40-expired
+    /// events before the view is built, so a present status is unexpired.
+    heartbeats: BTreeSet<(String, String)>,
     backend: BTreeSet<String>,
 }
 
 impl MemberFactIndex {
     pub(crate) fn capture(store: &Store, local_backend: &str) -> Result<Self> {
-        let sessions = store.list_session_count_facts()?;
         let statuses = store.list_status_sessions(None, None)?;
-        let mut named = sessions
-            .iter()
-            .filter(|session| session.named)
-            .map(|session| session.pubkey.clone())
+        let mut named = store
+            .list_named_session_pubkeys()?
+            .into_iter()
             .collect::<BTreeSet<_>>();
         named.extend(
             statuses
@@ -59,20 +56,9 @@ impl MemberFactIndex {
                 .filter(|status| !status.slug.trim().is_empty())
                 .map(|status| status.pubkey.clone()),
         );
-        let running = sessions
+        let heartbeats = statuses
             .iter()
-            .filter(|session| session.running)
-            .map(|session| session.pubkey.clone())
-            .collect::<BTreeSet<_>>();
-        let local_owned = sessions
-            .iter()
-            .map(|session| session.pubkey.clone())
-            .collect::<BTreeSet<_>>();
-        // The runtime drops NIP-40-expired events before the view is built,
-        // so a present live remote status is current.
-        let live_remote = statuses
-            .iter()
-            .filter(|status| status.state.is_live() && !local_owned.contains(&status.pubkey))
+            .filter(|status| status.state.is_live())
             .map(|status| (status.pubkey.clone(), status.channel_h.clone()))
             .collect();
         let mut backend = store
@@ -85,22 +71,9 @@ impl MemberFactIndex {
         }
         Ok(Self {
             named,
-            local_owned,
-            running,
-            live_remote,
+            heartbeats,
             backend,
         })
-    }
-
-    /// Whether `pubkey` is present in `channel`: a session this daemon owns is
-    /// present while its runtime runs; any other agent while it has a live
-    /// status in that channel.
-    fn present_in(&self, pubkey: &str, channel: &str) -> bool {
-        if self.local_owned.contains(pubkey) {
-            return self.running.contains(pubkey);
-        }
-        self.live_remote
-            .contains(&(pubkey.to_string(), channel.to_string()))
     }
 
     pub(crate) fn normalize(&self, store: &Store, member: &ChannelMember) -> Result<MemberFacts> {
@@ -114,7 +87,9 @@ impl MemberFactIndex {
                 || profile
                     .as_ref()
                     .is_some_and(|profile| !profile.agent_slug.trim().is_empty()),
-            is_live: self.present_in(&member.pubkey, &member.channel_h),
+            is_live: self
+                .heartbeats
+                .contains(&(member.pubkey.clone(), member.channel_h.clone())),
         })
     }
 }

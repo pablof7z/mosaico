@@ -148,7 +148,8 @@ fn an_unnameable_member_is_withheld_until_a_profile_row_arrives() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
-            .statuses([heartbeat(GHOST_PK, "ghost", 40)])
+            // A heartbeat with no slug: only the kind:0 handle can name it.
+            .statuses([heartbeat(GHOST_PK, "", 40)])
             .events([ghost_message]),
     );
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
@@ -228,11 +229,10 @@ fn the_full_session_briefing_withholds_an_unnameable_member() {
     );
 }
 
-/// A session this daemon owns and has stopped is dormant even while its last
-/// live status is still in the relay view: local lifecycle wins, as it does
-/// for agent counts.
+/// Presence is the heartbeat for local sessions too: a stopped session stays
+/// listed until its last live status expires, then drops out.
 #[test]
-fn a_stopped_local_session_with_a_stale_live_status_is_not_listed() {
+fn a_stopped_local_session_is_listed_until_its_heartbeat_expires() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -254,7 +254,16 @@ fn a_stopped_local_session_with_a_stale_live_status_is_not_listed() {
             .profiles(seed_profiles())
             .statuses([heartbeat(OTHER_PK, "reviewer", 50)]),
     );
+    let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
+    assert!(
+        member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("@reviewer")),
+        "{xml}"
+    );
 
+    // The runtime drops the expired status from the view.
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()));
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
         !member_rows(&xml)

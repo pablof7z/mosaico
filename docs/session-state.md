@@ -65,16 +65,20 @@ recovery authority, and per-channel fabric standing:
 
 Relay membership outlives the runtime, so a channel roster accumulates every
 session that ever joined. Public surfaces therefore report presence, not
-membership. A named agent is *present* in a channel while its session runs
-(for sessions this daemon owns, local lifecycle is authoritative even if an
-old relay status lingers) or, for any other agent, while it has a current
-unexpired live status in that channel. Agent counts (`channel list`, fabric
-context `agents=`) and fabric member lists (`<members>`, including the human
-render in `who`) use that one fact. The `who` snapshot rows are running local
-sessions plus current relay statuses; stopped sessions get no row. Dormant
-members keep membership and exact p-tag resume; they are simply not reported.
-`who --expired` lists stopped local sessions that have a native resume
-locator.
+membership, with one rule for local and remote sessions alike: a member is
+*present* in a channel while it has an active heartbeat there. The heartbeat
+is the session status event: it carries a NIP-40 expiration of now + TTL, is
+renewed every `PRESENCE_LEASE_RENEWAL_SECS`, is replaced by an expiring status
+on close, and drops out of the view when it expires. Local lifecycle decides
+only what this daemon publishes, never what it counts, so a new session
+appears once its first heartbeat lands and a crashed one disappears at TTL
+expiry. Agent counts (`channel list`, fabric context `agents=`) and fabric
+member lists (`<members>`, including the human render in `who`) use that fact;
+the viewer's own row is always shown. The `who` snapshot rows are this host's
+running sessions plus other current relay statuses; a stopped local session
+gets no row. Dormant members keep membership and exact p-tag resume; they are
+simply not reported. `who --expired` lists stopped local sessions that have a
+native resume locator.
 
 Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying

@@ -100,7 +100,10 @@ fn full_rosters_distinguish_humans_from_agents() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
-            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .statuses([
+                idle_status(OTHER_PK, "reviewer", "Reviewing"),
+                idle_status(SELF_PK, "coder", "Coding"),
+            ])
             .events([human_chat("human-msg", "root", 40)]),
     );
     let rec = session(&store);

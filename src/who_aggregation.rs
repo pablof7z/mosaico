@@ -114,6 +114,7 @@ impl WhoAggregation {
                 // profile. A running session must have one.
                 Err(_)
                     if !running.contains(pubkey.as_str())
+                        && store.is_derived_session_pubkey(&pubkey)?
                         && store.handle_for_pubkey(&pubkey)?.is_none() => {}
                 Err(error) => {
                     return Err(error).with_context(|| {

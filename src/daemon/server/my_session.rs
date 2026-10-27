@@ -68,19 +68,37 @@ mod tests {
                     .admins(Vec::new())
                     .members(vec!["pk".into()]),
             ]));
-            s.install_test_relay_delivery(crate::state::TestRelayDelivery::new().profiles([
-                crate::state::Profile {
-                    pubkey: "pk".into(),
-                    name: "codex".into(),
-                    slug: "codex".into(),
-                    agent_slug: String::new(),
-                    host: "test-host".into(),
-                    is_backend: false,
-                    agents: Vec::new(),
-                    workspaces: Vec::new(),
-                    updated_at: 1,
-                },
-            ]));
+            // The session's own heartbeat in each joined channel, as its
+            // presence publisher would have delivered it.
+            let heartbeat = |channel: &str| crate::state::Status {
+                pubkey: "pk".into(),
+                channel_h: channel.into(),
+                slug: "codex".into(),
+                title: String::new(),
+                activity: String::new(),
+                workspace: "alpha".into(),
+                branch: String::new(),
+                state: crate::session_state::SessionState::Idle,
+                state_since: 10,
+                last_seen: 10,
+                updated_at: 10,
+                expiration: 1_000,
+            };
+            s.install_test_relay_delivery(
+                crate::state::TestRelayDelivery::new()
+                    .profiles([crate::state::Profile {
+                        pubkey: "pk".into(),
+                        name: "codex".into(),
+                        slug: "codex".into(),
+                        agent_slug: String::new(),
+                        host: "test-host".into(),
+                        is_backend: false,
+                        agents: Vec::new(),
+                        workspaces: Vec::new(),
+                        updated_at: 1,
+                    }])
+                    .statuses([heartbeat("alpha"), heartbeat("beta")]),
+            );
             let generation = s
                 .reserve_session_with_facts(
                     &RegisterSession {
