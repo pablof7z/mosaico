@@ -109,14 +109,12 @@ impl WhoAggregation {
             .iter()
             .map(|session| session.pubkey.clone())
             .collect::<BTreeSet<_>>();
+        let mut all_profiles = store.profiles_by_pubkey();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
         let mut sessions_by_pubkey = BTreeMap::new();
         for pubkey in referenced_pubkeys {
-            if let Some(profile) = store
-                .get_profile(&pubkey)
-                .with_context(|| format!("who aggregation: failed to read profile {pubkey}"))?
-            {
+            if let Some(profile) = all_profiles.remove(&pubkey) {
                 profiles.insert(pubkey.clone(), profile);
             }
             match store.session_identity(&pubkey) {

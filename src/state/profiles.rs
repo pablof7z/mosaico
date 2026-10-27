@@ -33,6 +33,16 @@ impl Store {
             .find(|profile| profile.pubkey == pubkey))
     }
 
+    /// Every current profile keyed by pubkey (first wins, as `get_profile`),
+    /// for callers that look up many pubkeys.
+    pub fn profiles_by_pubkey(&self) -> std::collections::BTreeMap<String, Profile> {
+        let mut map = std::collections::BTreeMap::new();
+        for profile in self.current_profiles() {
+            map.entry(profile.pubkey.clone()).or_insert(profile);
+        }
+        map
+    }
+
     pub fn list_backend_profiles(&self) -> Result<Vec<Profile>> {
         let mut profiles = self
             .current_profiles()
