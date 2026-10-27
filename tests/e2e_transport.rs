@@ -102,7 +102,7 @@ async fn bounded_relay_read_accepts_an_active_empty_acquisition() {
 }
 
 #[tokio::test]
-#[ignore = "requires the exact external MDB_NOLOCK Croissant binary"]
+#[ignore = "requires an external Croissant binary at $NIP29_RELAY_BIN"]
 async fn croissant_admits_chat_by_sender_membership_not_p_tag_target_route() {
     let relay = TestRelay::start_nip29_relay();
     let admin_keys = Keys::generate();

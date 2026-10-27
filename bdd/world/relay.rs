@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 
+#[path = "../../tests/common/graceful_stop.rs"]
+mod graceful_stop;
+
 pub struct RelayFixture {
     child: Child,
     url: String,
@@ -91,8 +94,7 @@ impl RelayFixture {
 
 impl Drop for RelayFixture {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        graceful_stop::stop_gracefully(&mut self.child);
     }
 }
 
@@ -113,7 +115,7 @@ fn wait_ready(mut child: Child, port: u16, data_dir: PathBuf) -> Result<RelayFix
             );
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
+            graceful_stop::stop_gracefully(&mut child);
             let status = child
                 .wait()
                 .map(|status| status.to_string())
