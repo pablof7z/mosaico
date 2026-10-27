@@ -14,6 +14,21 @@ fn job(outcome: StatusOutcome) -> PublishJob {
     }
 }
 
+/// A newer status that publishes through the normal queue retires an older
+/// parked one, so the next group change cannot requeue stale presence over it.
+#[test]
+fn a_status_published_after_a_parked_one_retires_it() {
+    let mut deferred = DeferredJobs::default();
+    deferred.settle(job(renewal("pk-a", 1)), true);
+    assert_eq!(deferred.len(), 1);
+
+    deferred.settle(job(renewal("pk-a", 2)), false);
+
+    let mut pending = PendingPublishJobs::default();
+    assert_eq!(deferred.requeue_into(&mut pending), 0);
+    assert_eq!(pending.len(), 0);
+}
+
 #[test]
 fn a_deferred_status_is_requeued_unless_a_newer_state_is_queued() {
     let mut deferred = DeferredJobs::default();

@@ -36,6 +36,17 @@ impl DeferredJobs {
         }
     }
 
+    /// Record how a job's publication ended: park it if the publish gate
+    /// refused it, otherwise retire any older parked state for its pubkey so a
+    /// later group change cannot requeue a status this one replaced.
+    pub(super) fn settle(&mut self, job: PublishJob, deferred: bool) {
+        if deferred {
+            self.park(job);
+        } else if let Some(pubkey) = job.outcome.pubkey.as_deref() {
+            self.discard_superseded(pubkey, job.outcome.revision);
+        }
+    }
+
     pub(super) fn discard_superseded(&mut self, pubkey: &str, revision: u64) {
         if self
             .0

@@ -137,12 +137,10 @@ impl PresencePublisher {
                     )
                     .await;
                     publication::record_status_receipt(&store, &job.outcome, &report.ids);
-                    if report.deferred {
-                        deferred
-                            .lock()
-                            .expect("deferred presence queue poisoned")
-                            .park(job);
-                    }
+                    deferred
+                        .lock()
+                        .expect("deferred presence queue poisoned")
+                        .settle(job, report.deferred);
                 })
             }),
         );

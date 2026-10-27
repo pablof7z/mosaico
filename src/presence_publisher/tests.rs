@@ -216,17 +216,11 @@ async fn an_awaited_publication_waits_for_the_running_job_and_replaces_queued_st
         }
     });
     // The running job holds the publication lane until its gate opens, so the
-    // awaited publication cannot have started, however long we look.
-    for _ in 0..20 {
-        tokio::task::yield_now().await;
-    }
-    assert!(
-        timeout(Duration::from_millis(200), observed_rx.recv())
-            .await
-            .is_err(),
-        "an awaited publication must not overtake the running job"
-    );
+    // awaited publication cannot start: structurally, not by timing.
+    tokio::task::yield_now().await;
+    assert!(publisher.lane.try_lock().is_err());
     assert!(!awaited.is_finished());
+    assert!(observed_rx.try_recv().is_err());
     gate.add_permits(1);
 
     // Then it runs after the in-flight job, and the queued older state never does.
