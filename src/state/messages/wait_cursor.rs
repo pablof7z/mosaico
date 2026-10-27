@@ -28,9 +28,11 @@ impl Store {
         let mut rows = Vec::new();
         if limit > 0 {
             self.visit_event_arrivals_after(after_sequence, |event_id, sequence| {
-                // Arrivals that are not chat messages in this level are skipped,
-                // never consumed: a chat event can be briefly absent while a
-                // demand is replaced, and must still be read once it returns.
+                // Arrivals that are not chat messages in this level are skipped
+                // here; readers advance only over returned rows. Chat is carried
+                // by the single broad `#h` demand, so while it is replaced all
+                // chat is absent together, and no later chat can carry a
+                // cursor past one that is briefly missing.
                 if let Some(row) = view.message(event_id) {
                     rows.push((sequence, row));
                 }
