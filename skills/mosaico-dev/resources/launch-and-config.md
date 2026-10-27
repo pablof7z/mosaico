@@ -44,6 +44,11 @@ old names and fields; do not add aliases, fallback reads, or conversions.
   management/session-derivation identity. They must be distinct.
 - `perSessionKey: true` agents are keyless on disk.
 - `perSessionKey: false` requires persisted agent `secret_key` and `public_key`.
+- Hook session naming: `MOSAICO_SESSION_NAME` is strict (exact handle or
+  registration fails). `AGENT_SESSION_NAME`, set by a non-Mosaico launcher, is
+  a soft `session_name_hint` used only when no strict name is given and no
+  pubkey is located; a live lease, or a stopped one inside
+  `HANDLE_LEASE_GRACE_SECS`, falls back to a codename.
 
 ## Harness notes
 

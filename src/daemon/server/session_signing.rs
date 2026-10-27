@@ -85,10 +85,17 @@ pub(in crate::daemon::server) fn validate_agent_identity_admission(
 }
 
 /// Select signing keys and the single public handle before process spawn.
+///
+/// `session_name` is strict: an explicit launch/hook name that must become the
+/// exact handle or fail. `session_name_hint` is soft: a launcher-supplied
+/// preferred name (e.g. an external orchestrator's own id for this child) that
+/// is only consulted when `session_name` is absent, and silently falls back to
+/// an auto-derived codename if it is unusable or already live.
 pub(crate) fn prepare_session_identity(
     state: &Arc<DaemonState>,
     agent: &crate::identity::AgentIdentity,
     session_name: Option<&str>,
+    session_name_hint: Option<&str>,
 ) -> Result<PreparedIdentity> {
     validate_agent_identity_admission(state, agent)?;
     let now = now_secs();
@@ -118,11 +125,17 @@ pub(crate) fn prepare_session_identity(
 
     let mgmt = state.backend_keys();
     let (keys, pubkey, allocation) = state.with_store(|store| {
-        store.reserve_derived_identity(&agent.slug, session_name, now, |signer_salt| {
-            let keys = crate::identity::derive_session_keys(mgmt.secret_key(), signer_salt)?;
-            let pubkey = keys.public_key().to_hex();
-            Ok((keys, pubkey))
-        })
+        store.reserve_derived_identity(
+            &agent.slug,
+            session_name,
+            session_name_hint,
+            now,
+            |signer_salt| {
+                let keys = crate::identity::derive_session_keys(mgmt.secret_key(), signer_salt)?;
+                let pubkey = keys.public_key().to_hex();
+                Ok((keys, pubkey))
+            },
+        )
     })?;
     Ok(PreparedIdentity {
         keys,

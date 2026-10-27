@@ -95,6 +95,10 @@ async function register(ctx: ExtensionContext): Promise<boolean> {
       admitted_transport: transport,
       endpoint_provenance: "hook",
       pubkey: hosted ? process.env.MOSAICO_PUBKEY || undefined : undefined,
+      // Soft preferred name for a brand-new session, from a non-Mosaico
+      // launcher (e.g. an external subagent orchestrator). Meaningless once
+      // Mosaico itself is the launcher, so only sent for unhosted Pi.
+      session_name_hint: hosted ? undefined : process.env.AGENT_SESSION_NAME || undefined,
     }, AbortSignal.timeout(REGISTER_TIMEOUT_MS))
     return true
   } catch {

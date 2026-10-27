@@ -78,7 +78,12 @@ pub(super) async fn rpc_session_start_inner(
     };
     let prepared = match located_pubkey.as_deref() {
         Some(pubkey) => load_session_identity(state, pubkey, &agent)?,
-        None => prepare_session_identity(state, &agent, p.session_name.as_deref())?,
+        None => prepare_session_identity(
+            state,
+            &agent,
+            p.session_name.as_deref(),
+            p.session_name_hint.as_deref(),
+        )?,
     };
     let pubkey = prepared.identity.pubkey.clone();
     let reclaimed_pubkey = p

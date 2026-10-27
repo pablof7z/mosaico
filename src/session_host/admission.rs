@@ -22,7 +22,8 @@ pub(super) fn reserve_fresh(
     group: Option<&str>,
     session_name: Option<&str>,
 ) -> Result<Reservation> {
-    let prepared = crate::daemon::server::prepare_session_identity(state, agent, session_name)?;
+    let prepared =
+        crate::daemon::server::prepare_session_identity(state, agent, session_name, None)?;
     reserve_prepared(
         state,
         prepared,
@@ -95,7 +96,7 @@ pub(super) fn reserve_fresh_for_pubkey(
             "configured durable pubkey {configured_pubkey} does not match addressed pubkey {expected_pubkey}"
         );
     }
-    let prepared = crate::daemon::server::prepare_session_identity(state, agent, None)?;
+    let prepared = crate::daemon::server::prepare_session_identity(state, agent, None, None)?;
     reserve_prepared(
         state,
         prepared,

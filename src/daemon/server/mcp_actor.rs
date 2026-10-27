@@ -39,7 +39,7 @@ pub(super) async fn rpc_resolve(
         } else {
             let agent_slug = format!("mcp-{}", p.actor_kind);
             let agent = crate::identity::AgentIdentity::per_session(&agent_slug, "mcp");
-            let prepared = prepare_session_identity(state, &agent, None)?;
+            let prepared = prepare_session_identity(state, &agent, None, None)?;
             let pubkey = prepared.identity.pubkey.clone();
             state.with_store(|s| {
                 s.reserve_mcp_actor_session(&pubkey, &agent_slug, &p.channel, now)?;
@@ -101,7 +101,7 @@ mod tests {
     async fn repeated_actor_resolution_reuses_the_exact_session() {
         let state = DaemonState::new_for_test().await;
         let agent = crate::identity::AgentIdentity::per_session("mcp-openai", "mcp");
-        let prepared = prepare_session_identity(&state, &agent, None).unwrap();
+        let prepared = prepare_session_identity(&state, &agent, None, None).unwrap();
         let pubkey = prepared.identity.pubkey.clone();
         let actor_key = "mcp1_redacted_actor_key_1234567890";
         state.with_store(|store| {

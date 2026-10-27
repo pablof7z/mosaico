@@ -9,7 +9,7 @@ const context = {
   sessionManager: { getSessionId: () => "pi-native-session" },
 }
 
-async function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubkey } = {}) {
+async function install({ transport = "pty", observedHarness = "pi", agent = "pi", pubkey, agentSessionName } = {}) {
   const handlers = new Map()
   const commands = new Map()
   const tools = new Map()
@@ -26,7 +26,8 @@ async function install({ transport = "pty", observedHarness = "pi", agent = "pi"
     },
   }
   const inherited = Object.fromEntries([
-    "MOSAICO_AGENT", "MOSAICO_OBSERVED_HARNESS", "MOSAICO_PTY_SESSION", "MOSAICO_TRANSPORT", "MOSAICO_PUBKEY", "PI_CODING_AGENT_DIR",
+    "MOSAICO_AGENT", "MOSAICO_OBSERVED_HARNESS", "MOSAICO_PTY_SESSION", "MOSAICO_TRANSPORT", "MOSAICO_PUBKEY",
+    "PI_CODING_AGENT_DIR", "AGENT_SESSION_NAME",
   ].map(key => [key, process.env[key]]))
   process.env.MOSAICO_AGENT = agent
   process.env.MOSAICO_OBSERVED_HARNESS = observedHarness
@@ -35,6 +36,8 @@ async function install({ transport = "pty", observedHarness = "pi", agent = "pi"
   process.env.PI_CODING_AGENT_DIR = "/tmp/pi-mosaico-test/.pi/agent"
   if (pubkey === undefined) delete process.env.MOSAICO_PUBKEY
   else process.env.MOSAICO_PUBKEY = pubkey
+  if (agentSessionName === undefined) delete process.env.AGENT_SESSION_NAME
+  else process.env.AGENT_SESSION_NAME = agentSessionName
   await mosaico(pi)
   return { commands, handlers, inherited, sent, tools }
 }
@@ -107,6 +110,34 @@ test("a manually launched Pi ignores inherited parent-host identity but remains 
     assert.ok(daemon.requests.some(request => request.method === "session_delivery_open"))
     await pi.handlers.get("agent_settled")({}, context)
     assert.ok(daemon.requests.some(request => request.method === "turn_end"))
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("an unhosted Pi forwards AGENT_SESSION_NAME as a soft session_name_hint", async () => {
+  const daemon = await daemonFixture(frame => holdDeliveryWait(frame) || { ok: { pubkey: "manual-pubkey" } })
+  const pi = await install({
+    transport: "", observedHarness: "codex", agent: "codex", agentSessionName: "orchestrator-child-7",
+  })
+  try {
+    await pi.handlers.get("session_start")({}, context)
+    const start = daemon.requests.find(request => request.method === "session_start")
+    assert.equal(start.params.session_name_hint, "orchestrator-child-7")
+  } finally {
+    await shutdown(pi)
+    await daemon.close()
+  }
+})
+
+test("a Mosaico-hosted Pi never forwards AGENT_SESSION_NAME as a hint", async () => {
+  const daemon = await daemonFixture(frame => holdDeliveryWait(frame) || { ok: { pubkey: "agent-pubkey" } })
+  const pi = await install({ agentSessionName: "should-be-ignored" })
+  try {
+    await pi.handlers.get("session_start")({}, context)
+    const start = daemon.requests.find(request => request.method === "session_start")
+    assert.equal("session_name_hint" in start.params, false)
   } finally {
     await shutdown(pi)
     await daemon.close()

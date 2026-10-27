@@ -5,7 +5,7 @@ use super::reg;
 fn identity_projection_uses_exact_handle_lease() {
     let store = Store::open_memory().unwrap();
     store
-        .reserve_derived_identity("agent", Some("willow"), 1, |_| {
+        .reserve_derived_identity("agent", Some("willow"), None, 1, |_| {
             Ok(((), "derived".to_string()))
         })
         .unwrap();

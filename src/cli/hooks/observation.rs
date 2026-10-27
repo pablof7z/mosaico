@@ -19,6 +19,11 @@ use std::path::Path;
 /// `pty_session` is read from the hook's environment so the daemon can register
 /// a local attach/injection endpoint and reattach a resumed session. Its PTY
 /// metadata owns the socket path.
+///
+/// `AGENT_SESSION_NAME` is a neutral, harness-agnostic env var an external
+/// launcher may set on a child it spawned; it carries only as a soft
+/// `session_name_hint` for a brand-new session and never overrides Mosaico's
+/// own strict `MOSAICO_SESSION_NAME`.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn report_observation(
     host: &HostDef,
@@ -39,6 +44,10 @@ pub(super) async fn report_observation(
     let session_name = std::env::var("MOSAICO_SESSION_NAME")
         .ok()
         .filter(|s| !s.is_empty());
+    // Sent unconditionally: the server ignores the hint once a pubkey is located.
+    let session_name_hint = std::env::var("AGENT_SESSION_NAME")
+        .ok()
+        .filter(|s| !s.is_empty());
     let params = serde_json::json!({
         "agent": agent_slug,
         "claimed_harness": host.name,
@@ -53,6 +62,7 @@ pub(super) async fn report_observation(
         "pubkey": pubkey,
         "endpoint_kind": pty_session.as_ref().map(|_| "pty"),
         "session_name": session_name,
+        "session_name_hint": session_name_hint,
         // A direct `claude --agent <profile>` observation seeds only the
         // agent-owned profile selection. Launch argv remains driver/preset-owned.
         "profile": profile,
