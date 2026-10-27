@@ -121,27 +121,57 @@ impl Drop for DaemonProcess {
 
 pub(super) fn sample(pid: u32) -> ProcessSample {
     let output = Command::new("/bin/ps")
-        .args(["-p", &pid.to_string(), "-o", "rss=,time="])
+        .args(["-p", &pid.to_string(), "-o", "rss="])
         .output()
         .expect("sample daemon process");
     assert!(
         output.status.success(),
         "daemon process disappeared during sample"
     );
-    let line = String::from_utf8_lossy(&output.stdout);
-    let mut fields = line.split_whitespace();
-    let rss_kib = fields
-        .next()
-        .expect("ps rss")
-        .parse()
-        .expect("numeric ps rss");
-    let cpu_seconds = parse_cpu_time(fields.next().expect("ps cpu time"));
     ProcessSample {
-        cpu_seconds,
-        rss_kib,
+        cpu_seconds: cpu_seconds(pid),
+        rss_kib: String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .expect("numeric ps rss"),
         threads: thread_count(pid),
         file_descriptors: file_descriptor_count(pid),
     }
+}
+
+/// Linux `ps` reports CPU time in whole seconds, too coarse for the steady
+/// window's bound; `/proc/<pid>/stat` counts clock ticks.
+#[cfg(target_os = "linux")]
+fn cpu_seconds(pid: u32) -> f64 {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .unwrap_or_else(|error| panic!("read /proc/{pid}/stat: {error}"));
+    // SAFETY: sysconf has no preconditions and only reads a constant.
+    let ticks_per_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    assert!(ticks_per_second > 0, "sysconf(_SC_CLK_TCK) failed");
+    proc_stat_cpu_ticks(&stat) as f64 / ticks_per_second as f64
+}
+
+#[cfg(not(target_os = "linux"))]
+fn cpu_seconds(pid: u32) -> f64 {
+    let output = Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "time="])
+        .output()
+        .expect("sample daemon cpu time");
+    assert!(
+        output.status.success(),
+        "daemon process disappeared during sample"
+    );
+    parse_cpu_time(String::from_utf8_lossy(&output.stdout).trim())
+}
+
+/// User plus system clock ticks from a `/proc/<pid>/stat` line. The command
+/// name may contain spaces and parentheses, so fields are counted after the
+/// last `)`: utime and stime are fields 14 and 15 of the line.
+fn proc_stat_cpu_ticks(stat: &str) -> u64 {
+    let after_comm = &stat[stat.rfind(')').expect("stat command name") + 1..];
+    let fields = after_comm.split_whitespace().collect::<Vec<_>>();
+    let tick = |index: usize| -> u64 { fields[index].parse().expect("numeric stat ticks") };
+    tick(11) + tick(12)
 }
 
 #[cfg(target_os = "linux")]
@@ -249,7 +279,14 @@ fn rpc(socket: &Path, method: &str) -> Result<serde_json::Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_cpu_time;
+    use super::{parse_cpu_time, proc_stat_cpu_ticks};
+
+    #[test]
+    fn reads_user_and_system_ticks_from_proc_stat() {
+        let stat = "4242 (mosaico (d) x) S 1 4242 4242 0 -1 4194560 100 0 0 0 \
+                    37 5 0 0 20 0 9 0 12345 1000000 500";
+        assert_eq!(proc_stat_cpu_ticks(stat), 42);
+    }
 
     #[test]
     fn parses_macos_process_cpu_time() {

@@ -32,7 +32,9 @@ impl Store {
                 // here; readers advance only over returned rows. Chat is carried
                 // by the single broad `#h` demand, so while it is replaced all
                 // chat is absent together, and no later chat can carry a
-                // cursor past one that is briefly missing.
+                // cursor past one that is briefly missing. This does not cover
+                // the demand's shared event limit: an older chat evicted from
+                // a full window can be passed over by a reader.
                 if let Some(row) = view.message(event_id) {
                     rows.push((sequence, row));
                 }
