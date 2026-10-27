@@ -216,6 +216,26 @@ pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStat
         .max_by_key(|status| status.created_at)
 }
 
+/// Wait (15 s) for a status event other than `previous_id`, created no
+/// earlier than `since`, whose `h` tags cover exactly `channels`. Status
+/// timestamps have one-second resolution, so the new event may share
+/// `since`'s second; the distinct event id is what proves it is new.
+pub(crate) fn new_relay_status_covers(
+    relay: &str,
+    pubkey: &str,
+    previous_id: Option<&str>,
+    since: u64,
+    channels: &BTreeSet<String>,
+) -> bool {
+    super::wait_until(Duration::from_secs(15), || {
+        latest_relay_status(relay, pubkey).is_some_and(|status| {
+            Some(status.id.as_str()) != previous_id
+                && status.created_at >= since
+                && &status.channels == channels
+        })
+    })
+}
+
 fn run_nak_req_bounded(relay: &str, filters: &[&str]) -> Result<String> {
     let scratch = tempfile::tempdir().context("create nak query scratch")?;
     let stdout_path = scratch.path().join("stdout.log");

@@ -182,17 +182,14 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     );
     // The re-adopted session's heartbeat must not wait for the 30 s lease
     // renewal while the restarted daemon's group view is still empty.
-    // A new status (not the pre-restart one, which the stopped daemon
-    // cannot replace) covering every route. Status timestamps have one-second
-    // resolution, so the new event may share the restart's second.
     assert!(
-        wait_until(Duration::from_secs(15), || {
-            latest_relay_status(&relay, &session.pubkey).is_some_and(|status| {
-                Some(&status.id) != before_restart.as_ref()
-                    && status.created_at >= restarted_at
-                    && status.channels == expected_routes
-            })
-        }),
+        new_relay_status_covers(
+            &relay,
+            &session.pubkey,
+            before_restart.as_deref(),
+            restarted_at,
+            &expected_routes,
+        ),
         "the restarted daemon did not republish the session's presence; daemon_log={}",
         std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
     );
