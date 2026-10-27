@@ -72,6 +72,11 @@ pub struct DaemonState {
     /// are asynchronous, so an expired removal finishes before a concurrent
     /// exact-session re-admission decides whether it must add again.
     standing_sync: tokio::sync::Mutex<()>,
+    /// (pubkey, channel) explicit leaves in flight. Their removed route plus
+    /// member standing looks like durable cleanup work, which standing repair
+    /// must leave to the leave itself until it finishes. In memory only: after
+    /// a crash the set is empty and cleanup completes the interrupted leave.
+    leaving: std::sync::Mutex<std::collections::BTreeSet<(String, String)>>,
     /// Makes remote caller correlation and first-session creation atomic across
     /// concurrent MCP requests for the same conversation.
     mcp_actor_sync: tokio::sync::Mutex<()>,
@@ -163,6 +168,7 @@ mod cross_project_boundary;
 mod cursor;
 mod diagnostics;
 mod engine_lifecycle;
+mod leaving;
 mod lifecycle;
 mod mcp_actor;
 mod profile_retirement;

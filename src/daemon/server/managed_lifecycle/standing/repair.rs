@@ -54,21 +54,15 @@ pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
         });
     for standing in due {
         let _lane = state.standing_sync.lock().await;
-        let still_due = state
-            .with_store(|store| {
-                let current = store.get_session_standing(&standing.pubkey, &standing.channel_h)?;
-                let routed = store.has_session_route(&standing.pubkey, &standing.channel_h)?;
-                Ok::<_, anyhow::Error>(current.as_ref() == Some(&standing) && !routed)
-            })
-            .unwrap_or_else(|error| {
-                tracing::error!(
-                    pubkey = %pubkey_short(&standing.pubkey),
-                    channel = %standing.channel_h,
-                    %error,
-                    "standing cleanup revalidation failed"
-                );
-                false
-            });
+        let still_due = cleanup_still_due(state, &standing).unwrap_or_else(|error| {
+            tracing::error!(
+                pubkey = %pubkey_short(&standing.pubkey),
+                channel = %standing.channel_h,
+                %error,
+                "standing cleanup revalidation failed"
+            );
+            false
+        });
         if still_due {
             compensate_due_admission(state, &standing).await;
         }
@@ -90,6 +84,23 @@ pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
             }
         }
     }
+}
+
+/// Revalidate one cleanup-due standing under `standing_sync`. An explicit
+/// leave in flight owns its removed-route/member pair: its presence
+/// withdrawal must land before the relay removal, so repair waits for it.
+pub(in crate::daemon::server::managed_lifecycle) fn cleanup_still_due(
+    state: &Arc<DaemonState>,
+    standing: &crate::state::SessionStanding,
+) -> Result<bool> {
+    if state.is_leaving(&standing.pubkey, &standing.channel_h) {
+        return Ok(false);
+    }
+    state.with_store(|store| {
+        let current = store.get_session_standing(&standing.pubkey, &standing.channel_h)?;
+        let routed = store.has_session_route(&standing.pubkey, &standing.channel_h)?;
+        Ok(current.as_ref() == Some(standing) && !routed)
+    })
 }
 
 async fn repair_one(state: &Arc<DaemonState>, session: &Session, channel: &str) {

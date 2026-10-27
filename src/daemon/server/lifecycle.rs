@@ -70,6 +70,7 @@ pub async fn run() -> Result<()> {
         connections: ConnectionState::new(),
         dedup: DedupState::new(),
         standing_sync: tokio::sync::Mutex::new(()),
+        leaving: std::sync::Mutex::new(std::collections::BTreeSet::new()),
         mcp_actor_sync: tokio::sync::Mutex::new(()),
     });
     state.nostr().start().await?;

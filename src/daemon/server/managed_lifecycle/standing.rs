@@ -3,6 +3,8 @@ use crate::fabric::provider::ConfirmedGroupScope;
 use crate::state::ConfirmedAdmissionCommit;
 
 mod repair;
+#[cfg(test)]
+pub(super) use repair::cleanup_still_due;
 
 pub(super) async fn reconcile_running(state: &Arc<DaemonState>) {
     repair::reconcile_running(state).await;
