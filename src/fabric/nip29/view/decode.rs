@@ -1,11 +1,9 @@
-//! Decode retained [`RelayEvent`]s into the chat/reaction projections the
-//! state read layer serves.
+//! Decode the level's [`RelayEvent`]s into the chat and reaction projections
+//! the view serves. Runs once per view replacement.
 //!
 //! These decoders read only the relay-event fields Nostr runtime surfaces
 //! (`tags_json`, `content`, `pubkey`, `kind`, `channel_h`, `created_at`, and
-//! `id`). Profiles come from the complete decoded NIP-29 view.
-//! Statuses decode directly from the signed events in the current content
-//! subscription level.
+//! `id`).
 
 use crate::domain::Reaction;
 use crate::fabric::nip29::wire::{KIND_CHAT, KIND_REACTION};
@@ -30,7 +28,7 @@ pub(crate) struct ReactionProjection {
 
 /// Project one kind:9 chat row. Rows with no channel or the wrong kind are
 /// skipped, matching the old mirror's `messages()` filter.
-pub(crate) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
+pub(super) fn decode_message(event: &RelayEvent) -> Option<MessageProjection> {
     if event.kind != KIND_CHAT as u32 || event.channel_h.is_empty() {
         return None;
     }
@@ -48,10 +46,10 @@ pub(crate) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
             .collect(),
         reply_target: reply_target(&tags),
         message: Message {
-            message_id: event.id,
-            channel_h: event.channel_h,
-            author_pubkey: event.pubkey,
-            body: event.content,
+            message_id: event.id.clone(),
+            channel_h: event.channel_h.clone(),
+            author_pubkey: event.pubkey.clone(),
+            body: event.content.clone(),
             created_at: event.created_at,
             attachment_dir: String::new(),
         },
@@ -60,28 +58,28 @@ pub(crate) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
 
 /// Project one kind:7 reaction row. Malformed emoji or a missing `e` target
 /// drops the row, matching the old mirror's `reactions()` filter.
-pub(crate) fn decode_reaction(event: RelayEvent) -> Option<ReactionProjection> {
+pub(super) fn decode_reaction(event: &RelayEvent) -> Option<ReactionProjection> {
     if event.kind != KIND_REACTION as u32 {
         return None;
     }
     let target_message_id = tag_values(&tags(&event.tags_json), "e")
         .into_iter()
         .next()?;
-    Reaction::emoji_is_valid(&event.content).then_some(ReactionProjection {
-        reaction_id: event.id,
+    Reaction::emoji_is_valid(&event.content).then(|| ReactionProjection {
+        reaction_id: event.id.clone(),
         target_message_id,
-        channel_h: event.channel_h,
-        reactor_pubkey: event.pubkey,
-        emoji: event.content,
+        channel_h: event.channel_h.clone(),
+        reactor_pubkey: event.pubkey.clone(),
+        emoji: event.content.clone(),
         created_at: event.created_at,
     })
 }
 
-pub(crate) fn tags(tags_json: &str) -> Vec<Vec<String>> {
+fn tags(tags_json: &str) -> Vec<Vec<String>> {
     serde_json::from_str(tags_json).unwrap_or_default()
 }
 
-pub(crate) fn tag_values(tags: &[Vec<String>], name: &str) -> Vec<String> {
+fn tag_values(tags: &[Vec<String>], name: &str) -> Vec<String> {
     tags.iter()
         .filter(|tag| tag.first().map(String::as_str) == Some(name))
         .filter_map(|tag| tag.get(1).filter(|value| !value.is_empty()).cloned())
@@ -140,7 +138,7 @@ mod tests {
             "hello",
             r#"[["p","alice"],["p","bob"],["p","alice"],["e","parent","","reply"]]"#,
         );
-        let projected = decode_message(event).expect("chat decodes");
+        let projected = decode_message(&event).expect("chat decodes");
         assert_eq!(projected.message.message_id, "m1");
         assert_eq!(projected.message.channel_h, "room");
         assert_eq!(projected.message.author_pubkey, "author");
@@ -165,16 +163,16 @@ mod tests {
             "top-level",
             r#"[["e","root"]]"#,
         );
-        let projected = decode_message(event).expect("chat decodes");
+        let projected = decode_message(&event).expect("chat decodes");
         assert_eq!(projected.reply_target.as_deref(), Some("root"));
     }
 
     #[test]
     fn decode_message_drops_rows_with_no_channel_or_wrong_kind() {
         let no_channel = relay("m3", KIND_CHAT as u32, "", "author", "x", "[]");
-        assert!(decode_message(no_channel).is_none());
+        assert!(decode_message(&no_channel).is_none());
         let wrong_kind = relay("m4", KIND_REACTION as u32, "room", "author", "x", "[]");
-        assert!(decode_message(wrong_kind).is_none());
+        assert!(decode_message(&wrong_kind).is_none());
     }
 
     #[test]
@@ -187,7 +185,7 @@ mod tests {
             "👍",
             r#"[["e","target-msg"]]"#,
         );
-        let reaction = decode_reaction(event).expect("reaction decodes");
+        let reaction = decode_reaction(&event).expect("reaction decodes");
         assert_eq!(reaction.reaction_id, "r1");
         assert_eq!(reaction.target_message_id, "target-msg");
         assert_eq!(reaction.channel_h, "room");
@@ -205,9 +203,9 @@ mod tests {
             "not an emoji",
             r#"[["e","t"]]"#,
         );
-        assert!(decode_reaction(bad_emoji).is_none());
+        assert!(decode_reaction(&bad_emoji).is_none());
         let no_target = relay("r3", KIND_REACTION as u32, "room", "reactor", "👍", "[]");
-        assert!(decode_reaction(no_target).is_none());
+        assert!(decode_reaction(&no_target).is_none());
         let wrong_kind = relay(
             "r4",
             KIND_CHAT as u32,
@@ -216,6 +214,6 @@ mod tests {
             "👍",
             r#"[["e","t"]]"#,
         );
-        assert!(decode_reaction(wrong_kind).is_none());
+        assert!(decode_reaction(&wrong_kind).is_none());
     }
 }

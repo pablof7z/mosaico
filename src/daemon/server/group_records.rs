@@ -144,10 +144,11 @@ async fn drain(
     let view = state.nip29_view();
     let mut changes = view.subscribe_changes();
     let mut renamed: BTreeSet<String> = BTreeSet::new();
-    let mut advertised = managed_roots(&state, view.current().group_snapshots());
+    let current = view.current();
+    let mut advertised = managed_roots(&state, current.group_snapshots());
     apply_snapshot(
         &state,
-        view.current().group_snapshots(),
+        current.group_snapshots(),
         &coverage,
         &mut known_ids,
         &mut renamed,

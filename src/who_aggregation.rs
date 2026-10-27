@@ -7,6 +7,8 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod projection;
+#[cfg(test)]
+mod tests;
 
 pub(crate) struct WhoAggregation {
     pub(crate) channels: Vec<Channel>,

@@ -3,7 +3,7 @@
 //! Message identity, content, ordering, and `p`-tag recipients belong to Nostr runtime.
 //! SQLite retains only the independently keyed local attachment directory.
 
-use super::relay_decode::MessageProjection;
+use crate::fabric::nip29::view::MessageProjection;
 use super::*;
 use std::collections::BTreeMap;
 
@@ -14,11 +14,7 @@ impl Store {
     /// One chat projection by id, or `None` if the id is absent or not a chat
     /// row in the retained window.
     pub(super) fn message_projection_by_id(&self, message_id: &str) -> Option<MessageProjection> {
-        self.view()
-            .messages()
-            .iter()
-            .find(|row| row.message.message_id == message_id)
-            .cloned()
+        self.view().message(message_id).cloned()
     }
 
     fn with_local_attachment(&self, mut message: Message) -> Result<Message> {

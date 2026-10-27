@@ -126,3 +126,80 @@ fn reads_share_one_level_until_the_next_replacement() {
     assert!(!Arc::ptr_eq(&first, &view.current()));
     assert!(view.current().groups().list_channels().is_empty());
 }
+
+#[test]
+fn decode_derives_every_read_model_from_signed_events() {
+    use crate::domain::{AgentRef, DomainEvent, Profile, Status};
+    use crate::fabric::nip29::wire::Nip29WireCodec;
+
+    let view = Nip29ViewStore::default();
+    let agent = Keys::generate();
+    let pubkey = agent.public_key().to_hex();
+    let signed = |event: &DomainEvent| {
+        Nip29WireCodec
+            .encode_event(event)
+            .unwrap()
+            .finalize(&agent)
+            .unwrap()
+    };
+    let profile = signed(&DomainEvent::Profile(Profile {
+        agent: AgentRef::new(pubkey.clone(), "reviewer"),
+        agent_slug: "reviewer".into(),
+        host: "laptop".into(),
+        workspace: "alpha".into(),
+        owners: Vec::new(),
+        is_backend: false,
+        agents: Vec::new(),
+        workspaces: Vec::new(),
+    }));
+    // A status is a several-group write: the provider adds one `h` per channel.
+    let status_builder = Nip29WireCodec
+        .encode_event(&DomainEvent::Status(Status {
+        agent: AgentRef::new(pubkey.clone(), ""),
+        channels: vec!["alpha".into()],
+        host: "laptop".into(),
+        workspace: "alpha".into(),
+        branch: String::new(),
+        title: "reviewing".into(),
+        activity: String::new(),
+        state: crate::session_state::SessionState::Working,
+        state_since: 1,
+        rel_cwd: String::new(),
+        expires_at: None,
+        dispatch_event: None,
+    }))
+        .unwrap();
+    let status =
+        crate::fabric::nip29::signed_into_groups(&["alpha"], status_builder, &agent).unwrap();
+    let chat = EventBuilder::new(Kind::Custom(9), "hello")
+        .tags([
+            Tag::custom("h", ["alpha"]),
+            Tag::custom("p", [pubkey.as_str()]),
+            Tag::custom("e", ["parent-id", "", "reply"]),
+        ])
+        .finalize(&agent)
+        .unwrap();
+    let reaction = EventBuilder::new(Kind::Custom(7), "👍")
+        .tags([
+            Tag::custom("h", ["alpha"]),
+            Tag::custom("e", [chat.id.to_hex()]),
+        ])
+        .finalize(&agent)
+        .unwrap();
+    view.replace(vec![profile, status, chat.clone(), reaction]);
+
+    let current = view.current();
+    assert_eq!(current.profile(&pubkey).unwrap().slug, "reviewer");
+    let statuses = current.statuses();
+    assert_eq!(statuses.len(), 1);
+    assert_eq!(statuses[0].channel_h, "alpha");
+    assert_eq!(statuses[0].slug, "reviewer", "slug enriched from the profile");
+    let chat_id = chat.id.to_hex();
+    assert_eq!(current.event(&chat_id).unwrap().channel_h, "alpha");
+    let message = current.message(&chat_id).unwrap();
+    assert_eq!(message.message.body, "hello");
+    assert_eq!(message.reply_target.as_deref(), Some("parent-id"));
+    assert_eq!(message.recipients[0].recipient_pubkey, pubkey);
+    assert_eq!(current.reactions().len(), 1);
+    assert_eq!(current.reactions()[0].target_message_id, chat_id);
+}

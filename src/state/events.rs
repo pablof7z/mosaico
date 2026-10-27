@@ -4,7 +4,7 @@ use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.view().events().iter().find(|event| event.id == id).cloned())
+        Ok(self.view().event(id).cloned())
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
@@ -21,7 +21,7 @@ impl Store {
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.view().events().iter().any(|event| event.id == id))
+        Ok(self.view().event(id).is_some())
     }
 
     pub fn chat_for_channel(

@@ -12,6 +12,8 @@ pub(crate) struct TestRelayDelivery {
     events: Vec<RelayEvent>,
 }
 
+/// Installed deliveries replace the whole real view: once either is
+/// installed, every read comes from the level assembled from both.
 #[derive(Default)]
 pub(super) struct TestSnapshots {
     groups: Option<TestGroupDelivery>,

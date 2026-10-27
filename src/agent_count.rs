@@ -44,9 +44,9 @@ impl MemberFactIndex {
                 .filter(|status| !status.slug.trim().is_empty())
                 .map(|status| status.pubkey.clone()),
         );
-        // Fava has already applied NIP-40 expiry to remote statuses, so a
-        // present live row is current; local lifecycle is authoritative for
-        // sessions this daemon owns.
+        // The runtime drops NIP-40-expired events before the view is built,
+        // so a present live remote status is current; local lifecycle is
+        // authoritative for sessions this daemon owns.
         let mut live = sessions
             .iter()
             .filter(|session| session.running)
@@ -282,5 +282,41 @@ mod tests {
             assert_eq!(count_agents(true, [normalized]), expected, "{name}");
             assert_eq!(count_agents(false, [normalized]), None, "{name} cold");
         }
+    }
+
+    #[test]
+    fn local_lifecycle_decides_liveness_for_sessions_this_daemon_owns() {
+        let store = Store::open_memory().unwrap();
+        let register = |pubkey: &str| crate::state::RegisterSession {
+            pubkey: pubkey.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "codex".into(),
+            launch_channel_h: "room".into(),
+            work_root: "room".into(),
+            child_pid: Some(42),
+            now: 1000,
+        };
+        store.reserve_hook_session_for_test(&register("running")).unwrap();
+        store.reserve_hook_session_for_test(&register("stopped")).unwrap();
+        store
+            .mark_runtime_stopped("stopped", crate::state::StopReason::Unknown, 1001)
+            .unwrap();
+        // The stopped session's last live status is still in the view; local
+        // lifecycle overrides it for a session this daemon owns.
+        store.install_test_relay_delivery(
+            TestRelayDelivery::new().statuses([live_status("stopped")]),
+        );
+        let index = MemberFactIndex::capture(&store, "backend").unwrap();
+        let count = |pubkey: &str| {
+            let member = ChannelMember {
+                channel_h: "room".into(),
+                pubkey: pubkey.into(),
+                role: "member".into(),
+            };
+            count_agents(true, [index.normalize(&store, &member).unwrap()])
+        };
+
+        assert_eq!(count("running"), Some(1));
+        assert_eq!(count("stopped"), Some(0));
     }
 }

@@ -89,7 +89,7 @@ impl Store {
         Ok(self.view().groups().get_channel(channel_h))
     }
 
-    /// All known channels, newest metadata first.
+    /// All known channels, ordered by channel id.
     pub fn list_channels(&self) -> Result<Vec<Channel>> {
         Ok(self.view().groups().list_channels())
     }

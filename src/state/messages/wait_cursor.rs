@@ -14,14 +14,14 @@ impl Store {
         after_sequence: u64,
         limit: u32,
     ) -> Result<Vec<(u64, Message)>> {
-        let mut rows = Vec::new();
-        for row in self.view().messages() {
-            let Some(sequence) = self.event_arrival_sequence(&row.message.message_id)? else {
-                continue;
-            };
-            rows.push((sequence, row.message.clone()));
-        }
-        rows.retain(|(sequence, _)| *sequence > after_sequence);
+        let view = self.view();
+        let mut rows = self
+            .event_arrivals_after(after_sequence)?
+            .into_iter()
+            .filter_map(|(event_id, sequence)| {
+                Some((sequence, view.message(&event_id)?.message.clone()))
+            })
+            .collect::<Vec<_>>();
         rows.sort_by_key(|(cursor, _)| *cursor);
         rows.truncate(limit as usize);
         rows.into_iter()
@@ -31,8 +31,9 @@ impl Store {
 
     pub(crate) fn message_reply_target(&self, message: &Message) -> Result<Option<String>> {
         Ok(self
-            .message_projection_by_id(&message.message_id)
-            .and_then(|row| row.reply_target))
+            .view()
+            .message(&message.message_id)
+            .and_then(|row| row.reply_target.clone()))
     }
 }
 

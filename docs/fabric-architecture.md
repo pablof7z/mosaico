@@ -57,12 +57,13 @@ change, or NIP-40 expiration deadline, the rebuild task:
 3. excludes expired events and relies on the SDK database's Nostr
    replacement/deletion rules;
 4. decodes content, group records, and profiles, and derives every read
-   model from them: the group projection indexed by channel id, profiles by
-   pubkey, statuses, messages, and reactions; and
+   model from them: the group projection keyed by channel id, profiles,
+   events, and messages indexed by id, statuses, and reactions; and
 5. atomically swaps the complete `Nip29View` and wakes consumers.
 
-Derivation happens only there. A read clones the current `Arc<Nip29View>` and
-borrows from it, so a lookup costs a map access and never decodes or rebuilds,
+Derivation happens only there, off the async workers. A read clones the
+current `Arc<Nip29View>` and borrows from it: lookups by id are map accesses,
+filters iterate the decoded rows in place, and no read decodes or rebuilds,
 however many rows a command touches.
 
 Replacing or closing a demand therefore retracts excluded values even if their

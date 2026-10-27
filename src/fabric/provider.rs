@@ -97,7 +97,15 @@ impl Nip29Provider {
                 let expiration = match provider.runtime.snapshot().await {
                     Ok(snapshot) => {
                         let expiration = snapshot.earliest_expiration;
-                        provider.view.replace(snapshot.events);
+                        // Decoding the whole level is CPU work; keep it off
+                        // the async workers. Awaiting keeps replacements ordered.
+                        let view = Arc::clone(&provider.view);
+                        if let Err(error) =
+                            tokio::task::spawn_blocking(move || view.replace(snapshot.events))
+                                .await
+                        {
+                            tracing::error!(%error, "decoding complete NIP-29 view");
+                        }
                         expiration
                     }
                     Err(error) => {

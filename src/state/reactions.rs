@@ -1,6 +1,6 @@
 //! NIP-25 reaction reads derived from the current Nostr runtime subscription level.
 
-use super::relay_decode::{MessageProjection, ReactionProjection};
+use crate::fabric::nip29::view::{MessageProjection, ReactionProjection};
 use super::*;
 use std::collections::BTreeMap;
 

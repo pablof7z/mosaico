@@ -12,10 +12,13 @@ use tokio::sync::watch;
 use crate::domain::DomainEvent;
 use crate::group_projection::GroupProjection;
 use crate::group_snapshot::{decode_snapshots, GroupAvailability, GroupSnapshot};
-use crate::state::relay_decode::{
-    decode_message, decode_reaction, MessageProjection, ReactionProjection,
-};
 use crate::state::{Profile, RelayEvent, Status};
+
+#[path = "view/decode.rs"]
+mod decode;
+
+use decode::{decode_message, decode_reaction};
+pub(crate) use decode::{MessageProjection, ReactionProjection};
 
 #[derive(Clone, Default)]
 struct GroupScope {
@@ -33,7 +36,9 @@ pub(crate) struct Nip29View {
     profile_index: HashMap<String, usize>,
     statuses: Vec<Status>,
     events: Vec<RelayEvent>,
+    event_index: HashMap<String, usize>,
     messages: Vec<MessageProjection>,
+    message_index: HashMap<String, usize>,
     reactions: Vec<ReactionProjection>,
 }
 
@@ -89,10 +94,7 @@ impl Nip29View {
         mut statuses: Vec<Status>,
         events: Vec<RelayEvent>,
     ) -> Self {
-        let mut profile_index = HashMap::new();
-        for (index, profile) in profiles.iter().enumerate() {
-            profile_index.entry(profile.pubkey.clone()).or_insert(index);
-        }
+        let profile_index = first_index(profiles.iter().map(|profile| &profile.pubkey));
         // A status that omitted its `slug` tag takes the slug from its kind:0
         // profile in this same level.
         for status in statuses.iter_mut().filter(|status| status.slug.is_empty()) {
@@ -100,8 +102,10 @@ impl Nip29View {
                 status.slug = profiles[index].slug.clone();
             }
         }
-        let messages = events.iter().cloned().filter_map(decode_message).collect();
-        let reactions = events.iter().cloned().filter_map(decode_reaction).collect();
+        let event_index = first_index(events.iter().map(|event| &event.id));
+        let messages = events.iter().filter_map(decode_message).collect::<Vec<_>>();
+        let message_index = first_index(messages.iter().map(|row| &row.message.message_id));
+        let reactions = events.iter().filter_map(decode_reaction).collect();
         Self {
             content,
             group_snapshots,
@@ -110,7 +114,9 @@ impl Nip29View {
             profile_index,
             statuses,
             events,
+            event_index,
             messages,
+            message_index,
             reactions,
         }
     }
@@ -146,8 +152,16 @@ impl Nip29View {
         &self.events
     }
 
+    pub(crate) fn event(&self, id: &str) -> Option<&RelayEvent> {
+        self.event_index.get(id).map(|&index| &self.events[index])
+    }
+
     pub(crate) fn messages(&self) -> &[MessageProjection] {
         &self.messages
+    }
+
+    pub(crate) fn message(&self, id: &str) -> Option<&MessageProjection> {
+        self.message_index.get(id).map(|&index| &self.messages[index])
     }
 
     pub(crate) fn reactions(&self) -> &[ReactionProjection] {
@@ -227,6 +241,15 @@ impl Nip29ViewStore {
                 .map_err(|_| anyhow::anyhow!("NIP-29 view closed before {group} was delivered"))?;
         }
     }
+}
+
+/// Position of the first row for each key, matching a front-to-back `find`.
+fn first_index<'a>(keys: impl Iterator<Item = &'a String>) -> HashMap<String, usize> {
+    let mut index = HashMap::new();
+    for (position, key) in keys.enumerate() {
+        index.entry(key.clone()).or_insert(position);
+    }
+    index
 }
 
 fn group_matches(snapshot: &GroupSnapshot, scope: &GroupScope) -> bool {

@@ -34,33 +34,28 @@ impl GroupProjection {
     }
 
     pub(crate) fn get_channel(&self, channel_h: &str) -> Option<Channel> {
-        self.group(channel_h)
-            .and_then(|group| group.channel.clone())
+        self.channel(channel_h).cloned()
     }
 
     pub(crate) fn list_channels(&self) -> Vec<Channel> {
-        self.groups
-            .values()
-            .filter_map(|group| group.channel.clone())
-            .collect()
+        self.channels().cloned().collect()
     }
 
     pub(crate) fn channel_id_for_name(&self, parent: &str, name: &str) -> Option<String> {
         if parent.is_empty() || name.is_empty() {
             return None;
         }
-        self.list_channels()
-            .into_iter()
+        self.channels()
             .find(|channel| channel.parent == parent && channel.name == name)
-            .map(|channel| channel.channel_h)
+            .map(|channel| channel.channel_h.clone())
     }
 
     pub(crate) fn channel_parent(&self, channel_h: &str) -> Option<String> {
-        self.get_channel(channel_h).map(|channel| channel.parent)
+        self.channel(channel_h).map(|channel| channel.parent.clone())
     }
 
     pub(crate) fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
-        if self.get_channel(channel_h).is_none() {
+        if self.channel(channel_h).is_none() {
             return Ok(None);
         }
         let mut current = channel_h.to_string();
@@ -95,16 +90,16 @@ impl GroupProjection {
     }
 
     pub(crate) fn list_root_channels(&self) -> Vec<Channel> {
-        self.list_channels()
-            .into_iter()
+        self.channels()
             .filter(|channel| channel.parent.is_empty())
+            .cloned()
             .collect()
     }
 
     pub(crate) fn list_child_channels(&self, parent: &str) -> Vec<Channel> {
-        self.list_channels()
-            .into_iter()
+        self.channels()
             .filter(|channel| channel.parent == parent)
+            .cloned()
             .collect()
     }
 
@@ -143,14 +138,6 @@ impl GroupProjection {
             .collect()
     }
 
-    pub(crate) fn list_channels_where_member(&self, pubkey: &str) -> Vec<String> {
-        self.groups
-            .values()
-            .filter(|group| group.admins.contains(pubkey) || group.members.contains(pubkey))
-            .map(|group| group.id.clone())
-            .collect()
-    }
-
     /// Every group any of `pubkeys` is an admin or member of, in one scan.
     pub(crate) fn channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
         self.groups
@@ -172,6 +159,14 @@ impl GroupProjection {
 
     fn group(&self, id: &str) -> Option<&ProjectedGroup> {
         self.groups.get(id)
+    }
+
+    fn channel(&self, id: &str) -> Option<&Channel> {
+        self.group(id).and_then(|group| group.channel.as_ref())
+    }
+
+    fn channels(&self) -> impl Iterator<Item = &Channel> {
+        self.groups.values().filter_map(|group| group.channel.as_ref())
     }
 }
 

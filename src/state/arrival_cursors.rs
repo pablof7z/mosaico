@@ -26,12 +26,18 @@ impl Store {
     pub(crate) fn event_arrival_sequence(&self, event_id: &str) -> Result<Option<u64>> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT sequence FROM event_arrivals WHERE event_id=?1",
-                [event_id],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT sequence FROM event_arrivals WHERE event_id=?1")?
+            .query_row([event_id], |row| row.get(0))
             .optional()?)
+    }
+
+    /// Every event first observed after `sequence`, from one range read.
+    pub(crate) fn event_arrivals_after(&self, sequence: u64) -> Result<Vec<(String, u64)>> {
+        let mut statement = self.conn.prepare_cached(
+            "SELECT event_id, sequence FROM event_arrivals WHERE sequence > ?1",
+        )?;
+        let rows = statement.query_map([sequence], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub(crate) fn latest_event_arrival_sequence(&self) -> Result<u64> {

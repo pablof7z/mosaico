@@ -48,7 +48,7 @@ async fn apply_current(state: &Arc<DaemonState>) {
     for event in view.content() {
         apply_current_status(state, event, &hosted, &mut current_statuses);
         let first_arrival = arrival::record_before_dispatch(state, &event.id.to_hex()).await;
-        inbound_dispatch::dispatch(state, &event, first_arrival);
+        inbound_dispatch::dispatch(state, event, first_arrival);
     }
 
     apply_status_departures(state, &current_statuses);

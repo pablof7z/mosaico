@@ -27,12 +27,6 @@ impl Store {
         Ok(self.view().groups().list_channel_members(channel_h))
     }
 
-    /// Channels this pubkey belongs to in ANY role (admin or member). Used by the
-    /// subscription planner to cover every channel a local/ordinal pubkey is in.
-    pub fn list_channels_where_member(&self, pubkey: &str) -> Result<Vec<String>> {
-        Ok(self.view().groups().list_channels_where_member(pubkey))
-    }
-
     /// Channels any of `pubkeys` belongs to in any role, in one pass over the
     /// groups. Used by the subscription planner for every local identity.
     pub fn list_channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
@@ -104,9 +98,14 @@ mod tests {
     fn channel_membership_queries_cover_both_roles() {
         let store = two_channel_store();
         // B is an admin of root/task and a plain member of root.
-        let mut where_member = store.list_channels_where_member("B").unwrap();
-        where_member.sort();
-        assert_eq!(where_member, vec!["root", "root/task"]);
+        assert_eq!(
+            store.list_channels_involving(&BTreeSet::from(["B".to_string()])),
+            BTreeSet::from(["root".to_string(), "root/task".to_string()])
+        );
+        assert_eq!(
+            store.list_channels_involving(&BTreeSet::from(["C".to_string(), "X".to_string()])),
+            BTreeSet::from(["root/task".to_string()])
+        );
         let mut where_admin = store.list_channels_where_admin("B").unwrap();
         where_admin.sort();
         assert_eq!(where_admin, vec!["root/task"]);
