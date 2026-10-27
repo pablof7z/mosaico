@@ -144,6 +144,12 @@ pub(super) fn sample(pid: u32) -> ProcessSample {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn thread_count(pid: u32) -> usize {
+    proc_entry_count(pid, "task")
+}
+
+#[cfg(not(target_os = "linux"))]
 fn thread_count(pid: u32) -> usize {
     let output = Command::new("/bin/ps")
         .args(["-M", "-p", &pid.to_string()])
@@ -155,6 +161,12 @@ fn thread_count(pid: u32) -> usize {
         .count()
 }
 
+#[cfg(target_os = "linux")]
+fn file_descriptor_count(pid: u32) -> usize {
+    proc_entry_count(pid, "fd")
+}
+
+#[cfg(not(target_os = "linux"))]
 fn file_descriptor_count(pid: u32) -> usize {
     let output = Command::new("/usr/sbin/lsof")
         .args(["-p", &pid.to_string(), "-Fn"])
@@ -163,6 +175,15 @@ fn file_descriptor_count(pid: u32) -> usize {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|line| line.starts_with('f'))
+        .count()
+}
+
+/// Entries under `/proc/<pid>/<dir>`: one per thread (`task`) or open
+/// descriptor (`fd`).
+#[cfg(target_os = "linux")]
+fn proc_entry_count(pid: u32, dir: &str) -> usize {
+    std::fs::read_dir(format!("/proc/{pid}/{dir}"))
+        .unwrap_or_else(|error| panic!("read /proc/{pid}/{dir}: {error}"))
         .count()
 }
 
