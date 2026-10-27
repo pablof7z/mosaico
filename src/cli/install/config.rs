@@ -257,12 +257,7 @@ pub fn hook_entries(h: &Harness) -> Vec<(&'static str, serde_json::Value)> {
 }
 
 pub fn host_for_harness(h: &Harness) -> &'static str {
-    match h.id {
-        "claude-code" => "claude-code",
-        "codex" => "codex",
-        "grok" => "grok",
-        _ => h.id,
-    }
+    h.id
 }
 
 #[cfg(test)]
