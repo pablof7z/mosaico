@@ -49,16 +49,15 @@ fn session_start_runs_engine_and_records_alive_session() {
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
-            .call(
-                "who",
-                serde_json::json!({"all": true, "all_workspaces": true}),
-            )
+            .call("who", serde_json::json!({"all_workspaces": true}))
             .await
             .unwrap();
+        // who rows carry no pubkeys; the started session is this host's one
+        // local row.
         let rows = v["rows"].as_array().unwrap();
-        assert!(
-            rows.iter()
-                .any(|r| r["pubkey"] == pubkey.as_str() && r["source"] == "Local"),
+        assert_eq!(
+            rows.iter().filter(|r| r["source"] == "Local").count(),
+            1,
             "who rows: {rows:?}"
         );
     });
@@ -144,24 +143,27 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
     rt().block_on(async {
         let mut c = Client::connect_or_spawn().await.unwrap();
         let v = c
-            .call(
-                "who",
-                serde_json::json!({"all": true, "all_workspaces": true}),
-            )
+            .call("who", serde_json::json!({"all_workspaces": true}))
             .await
             .unwrap();
+        // who reports presence: the stopped predecessor keeps its membership
+        // but gets no row; the replacement is this host's one local row.
         let rows = v["rows"].as_array().unwrap();
-        let old = rows
+        let local = rows
             .iter()
-            .find(|row| row["pubkey"] == old_pubkey.as_str())
-            .expect("--all should retain the stopped predecessor as history");
-        assert!(
-            old["dormant"] == true && old["state"] == "offline",
-            "stopped predecessor must be explicitly dormant/offline: {old:?}"
-        );
-        assert!(
-            rows.iter().any(|r| r["pubkey"] == new_pubkey.as_str()),
-            "new session missing from who rows: {rows:?}"
+            .filter(|row| row["source"] == "Local")
+            .collect::<Vec<_>>();
+        assert_eq!(local.len(), 1, "only the replacement is present: {rows:?}");
+        assert_ne!(local[0]["state"], "offline", "{rows:?}");
+        let replacement = Store::open(&home.store_path())
+            .unwrap()
+            .session_identity(&new_pubkey)
+            .unwrap()
+            .expect("replacement identity");
+        assert_eq!(
+            local[0]["slug"],
+            replacement.display_slug(),
+            "the one row is the replacement: {rows:?}"
         );
     });
 

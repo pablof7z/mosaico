@@ -2,8 +2,9 @@
 //!
 //! Three rules under test. A `state` label is a lifecycle claim, so only a live
 //! heartbeat earns one. A member we cannot name is withheld rather than rendered
-//! as a truncated pubkey. A member with neither a heartbeat nor a word spoken is
-//! withheld too — its bare existence on the roster is not awareness.
+//! as a truncated pubkey. A named agent that is not present (no running local
+//! session, no live status in the channel) is withheld too — roster membership
+//! outlives the runtime, and speaking in the past is not presence.
 
 use crate::fabric_context::{
     capture_inputs, render_fabric_context, render_full_session_state, ViewInputs,
@@ -60,11 +61,10 @@ fn member_rows(xml: &str) -> Vec<&str> {
         .collect()
 }
 
-/// A peer with no presence lease is not necessarily gone — it may simply never
-/// publish one. What it said in the channel is enough to place it, so it renders
-/// with a real `since` and, deliberately, no `state`.
+/// Speaking is not presence: an agent with no live status that only left a
+/// message is not listed as a member.
 #[test]
-fn message_activity_surfaces_a_member_the_heartbeat_never_reported() {
+fn message_activity_alone_does_not_list_an_agent() {
     let store = seed_store();
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
@@ -75,12 +75,10 @@ fn message_activity_surfaces_a_member_the_heartbeat_never_reported() {
 
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
-        xml.contains("<agent name=\"@reviewer\" since=\"1 min ago\" />"),
+        !member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("@reviewer")),
         "{xml}"
-    );
-    assert!(
-        !xml.contains("name=\"@reviewer\" state="),
-        "activity is not a lifecycle claim, so it must not invent a state: {xml}"
     );
 }
 
@@ -150,11 +148,15 @@ fn an_unnameable_member_is_withheld_until_a_profile_row_arrives() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
+            // A heartbeat with no slug: only the kind:0 handle can name it.
+            .statuses([heartbeat(GHOST_PK, "", 40)])
             .events([ghost_message]),
     );
     let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
     assert!(
-        xml.contains("<agent name=\"@ghost\" since=\"1 min ago\" />"),
+        member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("name=\"@ghost\"")),
         "{xml}"
     );
 }
@@ -224,5 +226,49 @@ fn the_full_session_briefing_withholds_an_unnameable_member() {
     assert!(
         !member_rows(&fabric).iter().any(|row| row.contains("ghost")),
         "{fabric}"
+    );
+}
+
+/// Presence is the heartbeat for local sessions too: a stopped session stays
+/// listed until its last live status expires, then drops out.
+#[test]
+fn a_stopped_local_session_is_listed_until_its_heartbeat_expires() {
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .reserve_hook_session_for_test(&crate::state::RegisterSession {
+            pubkey: OTHER_PK.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "reviewer".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
+            child_pid: Some(42),
+            now: 10,
+        })
+        .unwrap();
+    store
+        .mark_runtime_stopped(OTHER_PK, crate::state::StopReason::Unknown, 20)
+        .unwrap();
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([heartbeat(OTHER_PK, "reviewer", 50)]),
+    );
+    let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
+    assert!(
+        member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("@reviewer")),
+        "{xml}"
+    );
+
+    // The runtime drops the expired status from the view.
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()));
+    let xml = render_fabric_context(&store, input(Some(&rec), "root", 0, 100, true)).unwrap();
+    assert!(
+        !member_rows(&xml)
+            .iter()
+            .any(|row| row.contains("@reviewer")),
+        "{xml}"
     );
 }

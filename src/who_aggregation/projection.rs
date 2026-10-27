@@ -1,18 +1,21 @@
 use super::WhoAggregation;
 use crate::identity::SessionIdentity;
-use crate::state::{Channel, Profile, Session};
+use crate::state::{Channel, Profile};
 
 impl WhoAggregation {
     pub(crate) fn profile(&self, pubkey: &str) -> Option<&Profile> {
         self.profiles.get(pubkey)
     }
 
-    pub(crate) fn session_identity(&self, pubkey: &str) -> Option<&SessionIdentity> {
-        self.identities.get(pubkey)
+    /// Whether `pubkey` has an active heartbeat in `channel_h`.
+    pub(crate) fn has_heartbeat(&self, pubkey: &str, channel_h: &str) -> bool {
+        self.statuses_for(channel_h)
+            .iter()
+            .any(|status| status.pubkey == pubkey && status.is_heartbeat())
     }
 
-    pub(crate) fn session(&self, pubkey: &str) -> Option<&Session> {
-        self.sessions_by_pubkey.get(pubkey)
+    pub(crate) fn session_identity(&self, pubkey: &str) -> Option<&SessionIdentity> {
+        self.identities.get(pubkey)
     }
 
     pub(crate) fn workspace_path(&self, channel_h: &str) -> Option<&str> {

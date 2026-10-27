@@ -1,7 +1,9 @@
 use super::*;
 
+/// Presence is the published heartbeat. A running local session whose
+/// heartbeat says offline is not present, whatever its local lifecycle.
 #[test]
-fn local_lifecycle_overrides_an_offline_relay_row() {
+fn an_offline_heartbeat_is_not_presence_even_for_a_running_local_session() {
     let store = seed_store();
     let rec = session(&store);
     store
@@ -34,12 +36,7 @@ fn local_lifecycle_overrides_an_offline_relay_row() {
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 0, 101, true))
         .expect("context should render");
-    assert!(
-        text.contains(
-            "<agent name=\"@reviewer\" state=\"suspended\" status=\"Recovered session\" since=\"just now\""
-        ),
-        "got: {text}"
-    );
+    assert!(!text.contains("@reviewer"), "got: {text}");
 }
 
 #[test]
@@ -99,4 +96,46 @@ fn suspended_and_working_deltas_follow_the_current_row() {
         render_view_text(&assemble::assemble_view(&captured, 100, 130)),
         working
     );
+}
+
+/// Local lifecycle relabels a present member, but never manufactures presence:
+/// a running local session whose published heartbeat says offline emits no
+/// live presence row, even in a cursor delta where local lifecycle would
+/// otherwise relabel it.
+#[test]
+fn a_running_local_session_with_an_offline_heartbeat_emits_no_live_presence_row() {
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .reserve_hook_session_for_test(&RegisterSession {
+            pubkey: OTHER_PK.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "reviewer".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
+            child_pid: None,
+            now: 95,
+        })
+        .unwrap();
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Recovered session".into(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Offline,
+            state_since: 100,
+            last_seen: 100,
+            updated_at: 100,
+            expiration: 100,
+        }],
+    ));
+
+    let text =
+        render_fabric_context(&store, input(Some(&rec), "root", 90, 101, true)).unwrap_or_default();
+    assert!(!text.contains("state=\"suspended\""), "got: {text}");
+    assert!(!text.contains("Recovered session"), "got: {text}");
 }

@@ -3,7 +3,8 @@
 use crate::fabric_context::render_fabric_context_human;
 
 use super::{
-    chat, idle_status, input, seed_profiles, seed_store, session, TestRelayDelivery, SELF_PK,
+    chat, idle_status, input, profile, seed_profiles, seed_store, session, TestRelayDelivery,
+    OTHER_PK, SELF_PK,
 };
 
 #[test]
@@ -49,14 +50,19 @@ fn human_who_renderer_colorizes_when_requested() {
     assert!(human.contains("@coder"), "got: {human}");
 }
 
-/// A member surfaced from message activity alone has no lifecycle state, so the
-/// terminal row simply omits the state word rather than printing a placeholder.
+/// A human member has no lifecycle state, so the terminal row simply omits
+/// the state word rather than printing a placeholder.
 #[test]
 fn a_member_without_a_heartbeat_renders_with_no_state_word() {
     let store = seed_store();
+    let mut profiles = seed_profiles();
+    profiles.retain(|candidate| candidate.pubkey != OTHER_PK);
+    profiles.push(profile(
+        OTHER_PK, "reviewer", "reviewer", "", "laptop", false,
+    ));
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
-            .profiles(seed_profiles())
+            .profiles(profiles)
             .statuses([idle_status(SELF_PK, "coder", "Reviewing fabric context")])
             .events([chat("msg-1", "root", 400, "on it", "[]")]),
     );

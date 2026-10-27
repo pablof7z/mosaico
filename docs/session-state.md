@@ -64,11 +64,27 @@ recovery authority, and per-channel fabric standing:
   work. Ordinary exit and eviction do not revoke recovery or membership.
 
 Relay membership outlives the runtime, so a channel roster accumulates every
-session that ever joined. Public agent counts (`channel list`, fabric context
-`agents=`) therefore count only *live* named agents: a local session whose
-runtime is running, or a remote agent with a current unexpired live status.
-Dormant members keep membership and exact p-tag resume; they are simply not
-reported as active.
+session that ever joined. Public surfaces therefore report presence, not
+membership, with one rule for local and remote sessions alike: a member is
+*present* in a channel while it has an active heartbeat there. The heartbeat
+is the session status event: it carries a NIP-40 expiration of now + TTL, is
+renewed every `PRESENCE_LEASE_RENEWAL_SECS`, is replaced by an expiring status
+on close, and drops out of the view when it expires. Local lifecycle decides
+only what this daemon publishes, never what it counts, so a new session
+appears once its first heartbeat lands and a crashed one disappears at TTL
+expiry. A status without an expiration is not a heartbeat. Agent counts
+(`channel list`, fabric context `agents=`), fabric member lists (`<members>`,
+including the human render in `who`), presence rows, and `who`'s
+other-workspaces summary all use that fact; the viewer's own row is always
+shown. The rule governs agents; a member with no agent identity (a human)
+is listed whenever it is on the roster. Local lifecycle may relabel a present member's state but never makes
+it present. In turn deltas, a heartbeat that lapses without a closing status
+is announced as going offline, like a graceful close; membership is
+unchanged, so it is not a departure. The `who` snapshot rows are this host's
+running sessions plus other current relay statuses; a stopped local session
+gets no row. Dormant members keep membership and exact p-tag resume; they are
+simply not reported. `who --expired` lists stopped local sessions that have a
+native resume locator.
 
 Every deadline and runtime endpoint is fenced by the runtime/lifecycle
 generation that created it. Supervisors persist exit reports before notifying

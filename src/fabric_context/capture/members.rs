@@ -45,6 +45,13 @@ pub(crate) struct MembersInput {
     /// human, while no profile leaves the agent count unknown.
     #[serde(default)]
     pub(in crate::fabric_context) known_profiles: BTreeSet<String>,
+    /// Roster members that are named agents, and per channel those present
+    /// there (the same fact agent counts use). Relay membership outlives a
+    /// runtime, so awareness lists an agent only where it is present.
+    #[serde(default)]
+    pub(in crate::fabric_context) agents: BTreeSet<String>,
+    #[serde(default)]
+    pub(in crate::fabric_context) present: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl MembersInput {
@@ -53,6 +60,17 @@ impl MembersInput {
     /// it rather than printing an npub nobody can act on.
     pub(in crate::fabric_context) fn has_handle(&self, pubkey: &str) -> bool {
         self.has_handle.contains(pubkey)
+    }
+
+    /// Whether the member is listed in `channel`. A named agent must be
+    /// present there; dormant members keep membership and mention resume but
+    /// are not reported. Non-agents are always listed.
+    pub(in crate::fabric_context) fn listed(&self, channel: &str, pubkey: &str) -> bool {
+        !self.agents.contains(pubkey)
+            || self
+                .present
+                .get(channel)
+                .is_some_and(|present| present.contains(pubkey))
     }
 
     /// Latest observed kind:9 message time for `pubkey` in `channel`, if any.

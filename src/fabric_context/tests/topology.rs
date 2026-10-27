@@ -3,6 +3,7 @@ use crate::reconcile::HookContextState;
 
 mod hook_cache;
 mod member_deltas;
+mod presence_deltas;
 
 #[test]
 fn every_channel_shows_only_last_accepted_activity() {
@@ -18,7 +19,13 @@ fn every_channel_shows_only_last_accepted_activity() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
-            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .statuses([
+                idle_status(OTHER_PK, "reviewer", "Reviewing"),
+                Status {
+                    channel_h: "lounge-h".into(),
+                    ..idle_status(OTHER_PK, "reviewer", "Reviewing")
+                },
+            ])
             .events([
                 chat("lounge-old", "lounge-h", 20, "hello", "[]"),
                 chat("task-accepted", TASK_H, 30, "hello", "[]"),
@@ -94,7 +101,10 @@ fn full_rosters_distinguish_humans_from_agents() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(profiles)
-            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .statuses([
+                idle_status(OTHER_PK, "reviewer", "Reviewing"),
+                idle_status(SELF_PK, "coder", "Coding"),
+            ])
             .events([human_chat("human-msg", "root", 40)]),
     );
     let rec = session(&store);

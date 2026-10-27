@@ -73,17 +73,11 @@ fn outside_workspace_is_a_compact_root_and_does_not_leak_presence_or_chatter() {
     assert!(assemble::assemble_view(&captured, 200, 300).is_empty());
     let mut state = HookContextState::default();
     let outcome = state.render_context("sess", "turn_start", 200, 300, captured);
-    let baseline = outcome
-        .text
-        .expect("a fresh hook cache re-baselines the joined root roster");
-    assert!(baseline.contains("<channel name=\"#root\""), "{baseline}");
     assert!(
-        !baseline.contains("<channel name=\"#remote\""),
-        "{baseline}"
+        outcome.text.is_none(),
+        "presence outside the workspace must not place the peer in the root roster: {:?}",
+        outcome.text
     );
-    assert!(!baseline.contains("coordinating release"), "{baseline}");
-    assert!(!baseline.contains("reviewing patch"), "{baseline}");
-    assert!(!baseline.contains("private unjoined chatter"), "{baseline}");
 
     let full = render_fabric_context(&store, input(Some(&rec), "root", 0, 300, false))
         .expect("current workspace full snapshot");

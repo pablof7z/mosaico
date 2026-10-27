@@ -101,11 +101,20 @@ fn presence_delta_does_not_repeat_unchanged_descendants() {
 #[test]
 fn changed_descendant_metadata_renders_once_with_its_canonical_ref() {
     let store = seed_store();
-    store.install_test_relay_delivery(
-        TestRelayDelivery::new()
-            .profiles(seed_profiles())
-            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
-    );
+    // Presence is a per-channel heartbeat: both agents publish one in the task.
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [
+            idle_status(OTHER_PK, "reviewer", "Reviewing"),
+            Status {
+                channel_h: TASK_H.into(),
+                ..idle_status(OTHER_PK, "reviewer", "Reviewing")
+            },
+            Status {
+                channel_h: TASK_H.into(),
+                ..idle_status(SELF_PK, "coder", "Coding")
+            },
+        ],
+    ));
     let rec = session(&store);
     store.install_test_group_delivery(TestGroupDelivery::new([
         root_group(),

@@ -23,8 +23,21 @@ pub(in crate::fabric_context) fn presence_rows(
                 .get(channel)
                 .is_some_and(|roster| roster.contains_key(&status.pubkey))
         })
+        .filter(|status| reportable(inputs, channel, status))
         .filter_map(|status| presence_row(inputs, status, cursor, now))
         .collect()
+}
+
+/// A presence row reports a present member, or announces one going offline.
+/// Local lifecycle may relabel a listed member's state, but it never makes a
+/// member without an active heartbeat present.
+pub(in crate::fabric_context) fn reportable(
+    inputs: &ViewInputs,
+    channel: &str,
+    status: &StatusCap,
+) -> bool {
+    status.state == crate::session_state::SessionState::Offline
+        || inputs.members.listed(channel, &status.pubkey)
 }
 
 fn presence_row(
@@ -85,7 +98,11 @@ fn presence_snapshot_row_with_failure(
     }
     let presence = projected_presence(status);
     let text = presence.text();
-    if text.is_empty() && native_failure.is_none() {
+    // An offline row announces the state itself, so it needs no text.
+    if text.is_empty()
+        && native_failure.is_none()
+        && presence.state != crate::session_state::SessionState::Offline
+    {
         return None;
     }
     let (name, host, workspace) = member_origin(

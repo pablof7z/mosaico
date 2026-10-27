@@ -100,6 +100,16 @@ pub struct Status {
     pub expiration: u64,
 }
 
+impl Status {
+    /// Whether this status is an active heartbeat: a live state carrying a
+    /// NIP-40 expiration. The view only holds unexpired events, and a status
+    /// without an expiration never lapses, so it is not a heartbeat. This is
+    /// the one presence fact for every session, local or remote.
+    pub(crate) fn is_heartbeat(&self) -> bool {
+        self.state.is_live() && self.expiration != 0
+    }
+}
+
 /// A verbatim relay event projected from Nostr runtime's current subscription level.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RelayEvent {

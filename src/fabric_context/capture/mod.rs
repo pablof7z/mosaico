@@ -57,6 +57,8 @@ pub(crate) fn capture_inputs(
     let mut identities = read::IdentityCaps::default();
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let mut count_facts = BTreeMap::new();
+    let mut agents: BTreeSet<String> = BTreeSet::new();
+    let mut present: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut hydrated: BTreeSet<String> = BTreeSet::new();
     let mut hosts_by_pubkey: BTreeMap<String, String> = BTreeMap::new();
     let mut activity: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
@@ -82,12 +84,22 @@ pub(crate) fn capture_inputs(
                         tracing::debug!(channel = %h, %error, "membership hydration unavailable");
                     }
                 }
-                count_facts.insert(
-                    h.clone(),
-                    rows.iter()
-                        .map(|member| member_index.normalize(store, member))
-                        .collect::<anyhow::Result<Vec<_>>>()?,
-                );
+                let facts = rows
+                    .iter()
+                    .map(|member| member_index.normalize(store, member))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                for (member, facts) in rows.iter().zip(&facts) {
+                    if facts.is_named_agent() {
+                        agents.insert(member.pubkey.clone());
+                        if facts.is_live() {
+                            present
+                                .entry(h.clone())
+                                .or_default()
+                                .insert(member.pubkey.clone());
+                        }
+                    }
+                }
+                count_facts.insert(h.clone(), facts);
                 rows.into_iter()
                     .map(|member| (member.pubkey, member.role))
                     .collect()
@@ -176,6 +188,8 @@ pub(crate) fn capture_inputs(
             activity,
             has_handle: identities.has_handle,
             known_profiles: identities.known_profiles,
+            agents,
+            present,
         },
         presence: PresenceInput { statuses },
         messages: MessagesInput { channels: messages },

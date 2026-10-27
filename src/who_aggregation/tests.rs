@@ -52,7 +52,7 @@ fn a_running_session_without_a_lease_is_an_error() {
 
     let error = WhoAggregation::load(&store).err().unwrap();
     assert!(
-        error.to_string().contains("has no handle lease"),
+        format!("{error:#}").contains("has no handle lease"),
         "{error:#}"
     );
 }

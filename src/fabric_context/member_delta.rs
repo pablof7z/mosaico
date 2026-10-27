@@ -100,7 +100,7 @@ fn inject_presence_changes(
     let before = statuses_by_pubkey(previous, channel);
     let after = statuses_by_pubkey(current, channel);
     let previous_visible = member_channel(previous, channel);
-    for (pubkey, status) in after {
+    for (&pubkey, &status) in &after {
         if pubkey == current.meta.self_pubkey {
             continue;
         }
@@ -114,6 +114,38 @@ fn inject_presence_changes(
         };
         if presence_semantics(previous_row.as_ref()) != presence_semantics(Some(&current_row)) {
             add_presence(view, reference, current_row);
+        }
+    }
+    if !previous_visible {
+        return;
+    }
+    // A heartbeat that lapsed without a closing status (a crash or a lost
+    // daemon) leaves the view entirely; announce it as going offline, the same
+    // row a graceful close produces. Membership is unchanged, so it is not a
+    // departure.
+    let roster = current.members.roster.get(channel);
+    for (pubkey, status) in before {
+        if after.contains_key(pubkey)
+            || pubkey == current.meta.self_pubkey
+            || !roster.is_some_and(|roster| roster.contains_key(pubkey))
+            || !previous.members.listed(channel, pubkey)
+            || current.members.listed(channel, pubkey)
+        {
+            continue;
+        }
+        // A remote heartbeat lapsed at its expiration; a local status cap
+        // carries none, so its lapse is dated when it is observed.
+        let lapsed_at = status.expiration.unwrap_or(now).min(now);
+        let lapsed = StatusCap {
+            state: crate::session_state::SessionState::Offline,
+            activity: String::new(),
+            changed_at: lapsed_at,
+            state_since: lapsed_at,
+            native_failure: None,
+            ..status.clone()
+        };
+        if let Some(row) = super::assemble::presence_snapshot_row(current, &lapsed, now) {
+            add_presence(view, reference, row);
         }
     }
 }
@@ -246,6 +278,7 @@ fn statuses_by_pubkey<'a>(
         .into_iter()
         .flatten()
         .filter(|status| roster.is_some_and(|members| members.contains_key(status.pubkey.as_str())))
+        .filter(|status| super::assemble::reportable(inputs, channel, status))
         .map(|status| (status.pubkey.as_str(), status))
         .collect()
 }
