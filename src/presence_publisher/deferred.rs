@@ -13,8 +13,8 @@ use std::time::Duration;
 use super::{PendingPublishJobs, PresencePublisher, PublishJob};
 use crate::fabric::provider::Nip29Provider;
 
-/// Re-subscribe at least this often, so a provider replaced by configuration
-/// reload is followed even when the old view never changes again.
+/// Retry parked statuses at least this often even without a group change,
+/// and follow a provider replaced by configuration reload.
 const RESUBSCRIBE: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
@@ -83,20 +83,24 @@ pub(super) fn spawn_requeue_on_group_change(
     provider: Arc<RwLock<Arc<Nip29Provider>>>,
     publisher: PresencePublisher,
 ) {
+    let subscribe = move || {
+        provider
+            .read()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .subscribe_group_changes()
+    };
     tokio::spawn(async move {
+        // One long-lived receiver: a group change that lands while a requeue
+        // is running stays pending for the next wait instead of being lost to
+        // a fresh subscription.
+        let mut changes = subscribe();
         loop {
-            let mut changes = provider
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .subscribe_group_changes();
             match tokio::time::timeout(RESUBSCRIBE, changes.changed()).await {
                 Ok(Ok(())) => {}
-                Ok(Err(_)) => {
-                    // The view was replaced; follow the current provider.
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
-                Err(_) => continue,
+                // The view was replaced (configuration reload), or nothing
+                // changed for a while: follow the current provider and retry
+                // anyway, so a parked status never waits on a missed wake.
+                Ok(Err(_)) | Err(_) => changes = subscribe(),
             }
             if publisher.requeue_deferred().await && publisher.signal_tx.is_closed() {
                 return;

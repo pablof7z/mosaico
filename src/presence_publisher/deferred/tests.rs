@@ -168,3 +168,34 @@ async fn a_group_change_requeues_a_parked_status() {
     );
     assert_eq!(publisher.deferred.lock().unwrap().len(), 0);
 }
+
+/// A parked status is retried even if its group-change wake is missed (for
+/// example one that landed while a previous requeue was running).
+#[tokio::test(start_paused = true)]
+async fn a_parked_status_is_retried_without_a_group_change() {
+    use crate::fabric::provider::Nip29Provider;
+
+    let provider = Arc::new(Nip29Provider::new(
+        Arc::new(crate::nostr_runtime::NostrRuntime::new("wss://relay.invalid").unwrap()),
+        Arc::new(crate::fabric::nip29::view::Nip29ViewStore::default()),
+        Arc::new(Mutex::new(Store::open_memory().unwrap())),
+        Keys::generate().public_key(),
+        None,
+        Vec::new(),
+    ));
+    let (publisher, gate, mut observed) = recording_publisher();
+    gate.add_permits(1);
+    publisher
+        .deferred
+        .lock()
+        .unwrap()
+        .park(job(renewal("pk-a", 4)));
+    spawn_requeue_on_group_change(Arc::new(RwLock::new(provider)), publisher.clone());
+
+    assert_eq!(
+        timeout(RESUBSCRIBE * 2, observed.recv())
+            .await
+            .expect("a parked status must be retried without a group change"),
+        Some(4)
+    );
+}
