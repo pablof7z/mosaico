@@ -4,6 +4,8 @@ use super::*;
 mod active_registry;
 #[path = "tests/ambient.rs"]
 mod ambient;
+#[path = "tests/withdrawn.rs"]
+mod withdrawn;
 use crate::state::{
     Message, Profile, RegisterSession, RelayEvent, TestGroup, TestGroupDelivery, TestRelayDelivery,
 };

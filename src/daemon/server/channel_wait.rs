@@ -241,11 +241,15 @@ fn drain_matching(
     backend_pubkey: &str,
 ) -> Result<Option<Message>> {
     loop {
-        let batch = state
+        let rows = state
             .with_store(|store| store.messages_after_arrival_sequence(*cursor, MESSAGE_BATCH))?;
-        let full_batch = batch.messages.len() == MESSAGE_BATCH as usize;
-        for (arrival_sequence, message) in batch.messages {
-            *cursor = arrival_sequence;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let full_batch = rows.len() == MESSAGE_BATCH as usize;
+        for row in rows {
+            *cursor = row.sequence;
+            let message = row.message;
             if !scopes.contains(&message.channel_h) || own_pubkeys.contains(&message.author_pubkey)
             {
                 continue;
@@ -256,17 +260,11 @@ fn drain_matching(
             if hidden || !author_filter.matches(state, &message) {
                 continue;
             }
-            if let Some(expected) = reply_to {
-                let actual = state.with_store(|store| store.message_reply_target(&message))?;
-                if actual.as_deref() != Some(expected) {
-                    continue;
-                }
+            if reply_to.is_some_and(|expected| row.reply_target.as_deref() != Some(expected)) {
+                continue;
             }
             return Ok(Some(message));
         }
-        // Nothing matched: skip every arrival this batch scanned, chat or not,
-        // so later wakes do not re-read status and reaction arrivals.
-        *cursor = (*cursor).max(batch.scanned_through);
         if !full_batch {
             return Ok(None);
         }
