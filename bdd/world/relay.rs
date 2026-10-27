@@ -3,13 +3,19 @@
 use std::fs::File;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 
+#[path = "../../tests/common/graceful_stop.rs"]
+mod graceful_stop;
+
 pub struct RelayFixture {
     child: Child,
+    /// Lifetime pipe of a watched relay (Croissant): closing it SIGTERMs the
+    /// relay, and it closes on its own if the test process dies.
+    lifetime: Option<ChildStdin>,
     url: String,
     data_dir: PathBuf,
 }
@@ -42,7 +48,7 @@ impl RelayFixture {
                 .stderr(Stdio::from(stderr))
                 .spawn()
                 .context("spawn external nak relay")?;
-            match wait_ready(child, port, data_dir) {
+            match wait_ready(child, None, port, data_dir) {
                 Ok(relay) => return Ok(relay),
                 Err(error)
                     if attempt < MAX_BIND_ATTEMPTS
@@ -68,7 +74,7 @@ impl RelayFixture {
         std::fs::create_dir_all(&data_dir)?;
         let stdout = File::create(data_dir.join("stdout.log"))?;
         let stderr = File::create(data_dir.join("stderr.log"))?;
-        let child = Command::new(binary)
+        let mut child = graceful_stop::watched_command(&binary)
             .env("PORT", port.to_string())
             .env("HOST", "127.0.0.1")
             .env("DOMAIN", "")
@@ -81,7 +87,8 @@ impl RelayFixture {
             .stderr(Stdio::from(stderr))
             .spawn()
             .context("spawn external Croissant relay")?;
-        wait_ready(child, port, data_dir)
+        let lifetime = child.stdin.take();
+        wait_ready(child, lifetime, port, data_dir)
     }
 
     pub fn url(&self) -> &str {
@@ -91,17 +98,27 @@ impl RelayFixture {
 
 impl Drop for RelayFixture {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let lifetime = self.lifetime.take();
+        let croissant = lifetime.is_some();
+        let status = graceful_stop::stop_gracefully(&mut self.child, lifetime);
+        if croissant {
+            graceful_stop::warn_unclean_croissant_stop(status, true);
+        }
     }
 }
 
-fn wait_ready(mut child: Child, port: u16, data_dir: PathBuf) -> Result<RelayFixture> {
+fn wait_ready(
+    mut child: Child,
+    mut lifetime: Option<ChildStdin>,
+    port: u16,
+    data_dir: PathBuf,
+) -> Result<RelayFixture> {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return Ok(RelayFixture {
                 child,
+                lifetime,
                 url: format!("ws://127.0.0.1:{port}"),
                 data_dir,
             });
@@ -113,11 +130,9 @@ fn wait_ready(mut child: Child, port: u16, data_dir: PathBuf) -> Result<RelayFix
             );
         }
         if Instant::now() >= deadline {
-            let _ = child.kill();
-            let status = child
-                .wait()
+            let status = graceful_stop::stop_gracefully(&mut child, lifetime.take())
                 .map(|status| status.to_string())
-                .unwrap_or_else(|error| format!("wait failed: {error}"));
+                .unwrap_or_else(|| "killed after stop grace period".to_string());
             anyhow::bail!(
                 "relay did not listen on port {port} before deadline; status={status}\n{}",
                 relay_logs(&data_dir)

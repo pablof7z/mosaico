@@ -41,7 +41,8 @@ NIP29_RELAY_BIN=/absolute/path/to/croissant just test-behavior-contracts
 ```
 
 CI checks out Croissant commit
-`9c4c93e84852bd9aa6824060b74c56ab2ce812c2`, builds it with Go 1.25.12, pins
+`d7cea0dc5cda1fd7da751c18f023e7fd5604b585` (Croissant master after #12-#14),
+builds it with Go 1.25.12, pins
 `nak` 0.20.0, and runs the same recipe.
 
 ## Runner

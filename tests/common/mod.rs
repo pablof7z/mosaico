@@ -3,9 +3,11 @@
 
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "graceful_stop.rs"]
+mod graceful_stop;
 #[path = "nak_relay.rs"]
 mod nak_relay;
 #[allow(unused_imports)]
@@ -19,6 +21,8 @@ pub struct TestRelay {
     pub url: String,
     /// Relay data or diagnostic scratch directory removed on drop.
     cleanup_dir: Option<PathBuf>,
+    /// Croissant: warn on macOS if it does not stop cleanly.
+    croissant: bool,
 }
 
 fn free_port() -> u16 {
@@ -70,8 +74,10 @@ fn relay_failure_message(
 /// that owns groups or mints subgroups must run against a real NIP-29 relay.
 /// Supply the externally installed executable with `$NIP29_RELAY_BIN`. Linux
 /// can also resolve `croissant` from PATH. macOS requires the explicit variable
-/// because relay builds without `MDB_NOLOCK` leak POSIX named semaphores when
-/// the test harness terminates them.
+/// because on macOS LMDB keeps its locks in POSIX named semaphores that only a
+/// clean store close unlinks: the build must shut down gracefully on SIGTERM
+/// (pablof7z/croissant#12, #13), or every stopped relay leaks semaphores until
+/// Croissant fails with `mdb_env_open: no space left on device` (#856).
 #[allow(dead_code)]
 fn nip29_relay_bin() -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("NIP29_RELAY_BIN") {
@@ -80,10 +86,10 @@ fn nip29_relay_bin() -> Result<PathBuf, String> {
     #[cfg(target_os = "macos")]
     {
         Err(
-            "set $NIP29_RELAY_BIN to an external MDB_NOLOCK Croissant build; \
-             implicit relay discovery is disabled on macOS because ordinary \
-             LMDB builds leak POSIX named semaphores under test shutdown. \
-             See mosaico #329."
+            "set $NIP29_RELAY_BIN to a Croissant build that closes its store on \
+             SIGTERM; implicit relay discovery is disabled on macOS because older \
+             builds leak LMDB POSIX named semaphores on every test shutdown. \
+             See mosaico #856."
                 .to_string(),
         )
     }
@@ -125,15 +131,17 @@ impl TestRelay {
         let stderr_path = data.join("relay.stderr.log");
         let stdout = std::fs::File::create(&stdout_path).expect("create NIP-29 relay stdout log");
         let stderr = std::fs::File::create(&stderr_path).expect("create NIP-29 relay stderr log");
-        let mut child = Command::new(&bin)
+        // Under the lifetime watcher, Croissant gets SIGTERM and closes LMDB
+        // even if the test process dies without running `Drop`.
+        let mut child = graceful_stop::watched_command(&bin)
             .env("PORT", port.to_string())
             .env("HOST", "127.0.0.1")
             .env("DATAPATH", &data)
-            .stdin(Stdio::null())
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))
             .spawn()
             .expect("spawn NIP-29 relay");
+        let mut lifetime = child.stdin.take();
 
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -166,8 +174,8 @@ impl TestRelay {
                     &stdout_path,
                     &stderr_path,
                 );
-                let _ = child.kill();
-                let _ = child.wait();
+                let status = graceful_stop::stop_gracefully(&mut child, lifetime.take());
+                graceful_stop::warn_unclean_croissant_stop(status, true);
                 let _ = std::fs::remove_dir_all(&data);
                 panic!("{msg}");
             }
@@ -176,21 +184,23 @@ impl TestRelay {
 
         TestRelay {
             child,
-            lifetime: None,
+            lifetime,
             url: format!("ws://127.0.0.1:{port}"),
             cleanup_dir: Some(data),
+            croissant: true,
         }
     }
 }
 
 impl Drop for TestRelay {
     fn drop(&mut self) {
-        // A watched relay stops when its lifetime pipe closes; killing the
-        // watcher shell instead would orphan the relay.
-        if self.lifetime.take().is_none() {
-            let _ = self.child.kill();
+        // Closing a watched relay's lifetime pipe SIGTERMs it, so Croissant
+        // closes LMDB; killing the watcher shell instead would orphan it.
+        let watched = self.lifetime.is_some();
+        let status = graceful_stop::stop_gracefully(&mut self.child, self.lifetime.take());
+        if self.croissant {
+            graceful_stop::warn_unclean_croissant_stop(status, watched);
         }
-        let _ = self.child.wait();
         if let Some(dir) = &self.cleanup_dir {
             let _ = std::fs::remove_dir_all(dir);
         }

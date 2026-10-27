@@ -116,7 +116,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pablof7z/croissant
-          ref: 9c4c93e84852bd9aa6824060b74c56ab2ce812c2
+          # Croissant master after #12-#14 (graceful shutdown + store guard, #856).
+          ref: d7cea0dc5cda1fd7da751c18f023e7fd5604b585
           path: croissant-fixture
 
       - name: Install Rust toolchain (stable)
@@ -140,7 +141,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-9c4c93e8
+          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-d7cea0dc
 
       - name: Pin nak
         run: go install github.com/fiatjaf/nak@v0.20.0
@@ -168,7 +169,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pablof7z/croissant
-          ref: 9c4c93e84852bd9aa6824060b74c56ab2ce812c2
+          # Croissant master after #12-#14 (graceful shutdown + store guard, #856).
+          ref: d7cea0dc5cda1fd7da751c18f023e7fd5604b585
           path: croissant-fixture
 
       - name: Install Rust toolchain (stable)
@@ -192,7 +194,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-9c4c93e8
+          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-d7cea0dc
 
       - name: Pin nak
         run: go install github.com/fiatjaf/nak@v0.20.0
