@@ -55,7 +55,10 @@ Local NIP-29 daemon integration:
 NIP29_RELAY_BIN=/absolute/path/to/croissant just test-local-nip29
 ```
 
-This runs `daemon_integration` with one Rust test thread.
+This runs `daemon_integration` with one Rust test thread. Tests that need the
+interactive PTY transport run the CLI on a pseudo-terminal
+(`run_cli_in_terminal`); a CLI launched from a pipe selects the managed
+transport.
 
 Executable product contracts:
 
@@ -92,11 +95,10 @@ prove product behavior.
 - `quality-gate`: formatting, LOC/helper checks, development scripts, site,
   Clippy, library unit tests, and hermetic real-binary integration;
 - `local-relay-integration`: pinned `nak` and the plain local relay suite;
+- `daemon-integration`: pinned Croissant/Go/`nak` and the full
+  `daemon_integration` suite through `just test-local-nip29`;
 - `behavior-contracts`: pinned Croissant/Go/`nak` and the narrow deterministic
   Cucumber contract suite.
-
-The local NIP-29 `daemon_integration` recipe is not currently a separate CI
-job. Do not report it as CI-covered unless it was explicitly run.
 
 ## Live checks
 
