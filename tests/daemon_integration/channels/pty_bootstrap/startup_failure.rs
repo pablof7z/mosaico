@@ -82,6 +82,9 @@ fn interactive_launch(home: &Home, cwd: &std::path::Path, slug: &str, answer: &[
     command.env("MOSAICO_BIN", bin());
     command.env("MOSAICO_DAEMON_GRACE_S", "30");
     let mut child = pair.slave.spawn_command(command).unwrap();
+    // Only the CLI may hold the terminal's slave side: on Linux the master
+    // reports end of output only once every slave descriptor is closed.
+    drop(pair.slave);
     let mut reader = pair.master.try_clone_reader().unwrap();
     let output = std::thread::spawn(move || {
         let mut output = String::new();
