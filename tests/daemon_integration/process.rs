@@ -101,10 +101,15 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
 
     // Session-start with no native id: the daemon allocates the pubkey identity,
     // while the hook remains silent because identities are not runtime output.
-    let out = run_cli_stdin(
+    // The opencode plugin names its own process; the observed harness is given
+    // explicitly so the result never depends on which harness (if any) is an
+    // ancestor of the test runner.
+    let payload = format!(r#"{{"cwd":"/tmp","pid":{}}}"#, std::process::id());
+    let out = run_cli_stdin_with_env(
         &home,
         &["harness", "hook", "opencode", "--type", "session-start"],
-        r#"{"cwd":"/tmp"}"#,
+        &payload,
+        &[("MOSAICO_OBSERVED_HARNESS", "opencode")],
     );
     assert!(
         out.status.success(),
@@ -146,7 +151,7 @@ fn cli_subprocess_blocking_path_session_start_and_who() {
             .expect("hook log json");
     assert_eq!(first_hook["hook"]["host"], "opencode");
     assert_eq!(first_hook["hook"]["type"], "session-start");
-    assert_eq!(first_hook["stdin"]["raw"], r#"{"cwd":"/tmp"}"#);
+    assert_eq!(first_hook["stdin"]["raw"], payload);
     assert_eq!(
         first_hook["process"]["argv"][0],
         bin().display().to_string()
