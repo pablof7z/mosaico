@@ -91,20 +91,10 @@ impl WhoAggregation {
                 .iter()
                 .map(|profile| profile.pubkey.clone()),
         );
-        let mut all_identities = store
-            .session_identities()
-            .context("who aggregation: failed to read session identities")?;
-        // A stopped session whose handle was reclaimed for reuse has no lease
-        // by design and is shown from its profile; a running one must have it.
-        if let Some(session) = local_sessions
+        let running = local_sessions
             .iter()
-            .find(|session| !all_identities.contains_key(&session.pubkey))
-        {
-            anyhow::bail!(
-                "who aggregation: running derived session {} has no handle lease",
-                session.pubkey
-            );
-        }
+            .map(|session| session.pubkey.as_str())
+            .collect::<BTreeSet<_>>();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
         for pubkey in referenced_pubkeys {
@@ -114,8 +104,22 @@ impl WhoAggregation {
             {
                 profiles.insert(pubkey.clone(), profile);
             }
-            if let Some(identity) = all_identities.remove(&pubkey) {
-                identities.insert(pubkey, identity);
+            match store.session_identity(&pubkey) {
+                Ok(Some(identity)) => {
+                    identities.insert(pubkey, identity);
+                }
+                Ok(None) => {}
+                // A status author whose stopped session's handle lease was
+                // reclaimed has no identity by design; it renders from its
+                // profile. A running session must have one.
+                Err(_)
+                    if !running.contains(pubkey.as_str())
+                        && store.handle_for_pubkey(&pubkey)?.is_none() => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("who aggregation: failed to read session identity {pubkey}")
+                    });
+                }
             }
         }
         let local_presence = local_sessions

@@ -200,3 +200,51 @@ fn a_status_without_confirmed_roster_membership_cannot_manufacture_a_member() {
         "status alone is not channel membership"
     );
 }
+
+/// A dormant member that becomes present again (a live status appears) is
+/// announced through the ordinary member delta.
+#[test]
+fn a_dormant_agent_that_becomes_present_emits_a_member_delta() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut hook = HookContextState::default();
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
+
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [crate::state::Status {
+            state_since: 250,
+            last_seen: 250,
+            updated_at: 250,
+            ..idle_status(OTHER_PK, "reviewer", "Back on review")
+        }],
+    ));
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    let delta = hook
+        .render_context(&rec.pubkey, "turn_start", 200, 300, after)
+        .text
+        .expect("a member becoming present is a delta");
+    assert!(delta.contains("<agent name=\"@reviewer\""), "{delta}");
+}
+
+/// A dormant member was never listed, so its removal from the roster is not
+/// announced as a departure either.
+#[test]
+fn a_dormant_member_leaving_the_roster_is_not_announced() {
+    let store = seed_store();
+    let rec = session(&store);
+    let mut hook = HookContextState::default();
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
+
+    store.install_test_group_delivery(TestGroupDelivery::new([
+        root_group_with_roster(&[SELF_PK], &[]),
+        task_group(),
+    ]));
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    let text = hook
+        .render_context(&rec.pubkey, "turn_start", 200, 300, after)
+        .text
+        .unwrap_or_default();
+    assert!(!text.contains("reviewer"), "{text}");
+}

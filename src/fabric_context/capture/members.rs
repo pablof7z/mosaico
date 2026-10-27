@@ -45,13 +45,13 @@ pub(crate) struct MembersInput {
     /// human, while no profile leaves the agent count unknown.
     #[serde(default)]
     pub(in crate::fabric_context) known_profiles: BTreeSet<String>,
-    /// Roster members that are named agents, and the subset that is live (a
-    /// running local session or a current live remote status). Relay membership
-    /// outlives a runtime, so awareness lists an agent only where it is present.
+    /// Roster members that are named agents, and per channel those present
+    /// there (the same fact agent counts use). Relay membership outlives a
+    /// runtime, so awareness lists an agent only where it is present.
     #[serde(default)]
     pub(in crate::fabric_context) agents: BTreeSet<String>,
     #[serde(default)]
-    pub(in crate::fabric_context) live_agents: BTreeSet<String>,
+    pub(in crate::fabric_context) present: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl MembersInput {
@@ -62,18 +62,15 @@ impl MembersInput {
         self.has_handle.contains(pubkey)
     }
 
-    /// Whether a named agent is present in `channel`: live with a live status
-    /// there, or seen speaking there. Dormant members keep membership and
-    /// mention resume but are not listed. Non-agents are always present.
-    pub(in crate::fabric_context) fn agent_present(
-        &self,
-        channel: &str,
-        pubkey: &str,
-        live_status_here: bool,
-    ) -> bool {
+    /// Whether the member is listed in `channel`. A named agent must be
+    /// present there; dormant members keep membership and mention resume but
+    /// are not reported. Non-agents are always listed.
+    pub(in crate::fabric_context) fn listed(&self, channel: &str, pubkey: &str) -> bool {
         !self.agents.contains(pubkey)
-            || (live_status_here && self.live_agents.contains(pubkey))
-            || self.activity_at(channel, pubkey).is_some()
+            || self
+                .present
+                .get(channel)
+                .is_some_and(|present| present.contains(pubkey))
     }
 
     /// Latest observed kind:9 message time for `pubkey` in `channel`, if any.

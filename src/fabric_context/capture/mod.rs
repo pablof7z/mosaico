@@ -58,7 +58,7 @@ pub(crate) fn capture_inputs(
     let mut roster: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
     let mut count_facts = BTreeMap::new();
     let mut agents: BTreeSet<String> = BTreeSet::new();
-    let mut live_agents: BTreeSet<String> = BTreeSet::new();
+    let mut present: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut hydrated: BTreeSet<String> = BTreeSet::new();
     let mut hosts_by_pubkey: BTreeMap<String, String> = BTreeMap::new();
     let mut activity: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
@@ -92,7 +92,10 @@ pub(crate) fn capture_inputs(
                     if facts.is_named_agent() {
                         agents.insert(member.pubkey.clone());
                         if facts.is_live() {
-                            live_agents.insert(member.pubkey.clone());
+                            present
+                                .entry(h.clone())
+                                .or_default()
+                                .insert(member.pubkey.clone());
                         }
                     }
                 }
@@ -186,7 +189,7 @@ pub(crate) fn capture_inputs(
             has_handle: identities.has_handle,
             known_profiles: identities.known_profiles,
             agents,
-            live_agents,
+            present,
         },
         presence: PresenceInput { statuses },
         messages: MessagesInput { channels: messages },

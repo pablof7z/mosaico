@@ -18,7 +18,13 @@ fn every_channel_shows_only_last_accepted_activity() {
     store.install_test_relay_delivery(
         TestRelayDelivery::new()
             .profiles(seed_profiles())
-            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")])
+            .statuses([
+                idle_status(OTHER_PK, "reviewer", "Reviewing"),
+                Status {
+                    channel_h: "lounge-h".into(),
+                    ..idle_status(OTHER_PK, "reviewer", "Reviewing")
+                },
+            ])
             .events([
                 chat("lounge-old", "lounge-h", 20, "hello", "[]"),
                 chat("task-accepted", TASK_H, 30, "hello", "[]"),

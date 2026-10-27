@@ -14,9 +14,10 @@ pub(crate) struct MemberFacts {
     is_backend: bool,
     has_profile: bool,
     is_named_agent: bool,
-    /// A running local session or a current (unexpired) live remote status.
-    /// Relay membership persists across ordinary stops, so a named agent that
-    /// is not live is a dormant member, not an active agent.
+    /// Present in the member's channel: a running session this daemon owns, or
+    /// another agent's current live status in that channel. Relay membership
+    /// persists across ordinary stops, so a named agent that is not present is
+    /// a dormant member, not an active agent.
     #[serde(default)]
     is_live: bool,
 }
@@ -35,7 +36,11 @@ impl MemberFacts {
 #[derive(Default)]
 pub(crate) struct MemberFactIndex {
     named: BTreeSet<String>,
-    live: BTreeSet<String>,
+    /// Sessions this daemon owns; their local lifecycle is authoritative.
+    local_owned: BTreeSet<String>,
+    running: BTreeSet<String>,
+    /// `(pubkey, channel)` pairs with a current live remote status.
+    live_remote: BTreeSet<(String, String)>,
     backend: BTreeSet<String>,
 }
 
@@ -54,26 +59,22 @@ impl MemberFactIndex {
                 .filter(|status| !status.slug.trim().is_empty())
                 .map(|status| status.pubkey.clone()),
         );
-        // The runtime drops NIP-40-expired events before the view is built,
-        // so a present live remote status is current; local lifecycle is
-        // authoritative for sessions this daemon owns.
-        let mut live = sessions
+        let running = sessions
             .iter()
             .filter(|session| session.running)
             .map(|session| session.pubkey.clone())
             .collect::<BTreeSet<_>>();
         let local_owned = sessions
             .iter()
-            .map(|session| session.pubkey.as_str())
+            .map(|session| session.pubkey.clone())
             .collect::<BTreeSet<_>>();
-        live.extend(
-            statuses
-                .iter()
-                .filter(|status| {
-                    status.state.is_live() && !local_owned.contains(status.pubkey.as_str())
-                })
-                .map(|status| status.pubkey.clone()),
-        );
+        // The runtime drops NIP-40-expired events before the view is built,
+        // so a present live remote status is current.
+        let live_remote = statuses
+            .iter()
+            .filter(|status| status.state.is_live() && !local_owned.contains(&status.pubkey))
+            .map(|status| (status.pubkey.clone(), status.channel_h.clone()))
+            .collect();
         let mut backend = store
             .list_backend_profiles()?
             .into_iter()
@@ -84,9 +85,22 @@ impl MemberFactIndex {
         }
         Ok(Self {
             named,
-            live,
+            local_owned,
+            running,
+            live_remote,
             backend,
         })
+    }
+
+    /// Whether `pubkey` is present in `channel`: a session this daemon owns is
+    /// present while its runtime runs; any other agent while it has a live
+    /// status in that channel.
+    fn present_in(&self, pubkey: &str, channel: &str) -> bool {
+        if self.local_owned.contains(pubkey) {
+            return self.running.contains(pubkey);
+        }
+        self.live_remote
+            .contains(&(pubkey.to_string(), channel.to_string()))
     }
 
     pub(crate) fn normalize(&self, store: &Store, member: &ChannelMember) -> Result<MemberFacts> {
@@ -100,7 +114,7 @@ impl MemberFactIndex {
                 || profile
                     .as_ref()
                     .is_some_and(|profile| !profile.agent_slug.trim().is_empty()),
-            is_live: self.live.contains(&member.pubkey),
+            is_live: self.present_in(&member.pubkey, &member.channel_h),
         })
     }
 }

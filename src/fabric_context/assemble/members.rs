@@ -7,13 +7,13 @@ use crate::util::relative_time;
 
 /// Full-snapshot member rows from the frozen roster, profile, and status inputs.
 ///
-/// Every present, nameable roster member earns a row. Only a live heartbeat
-/// carries a `state` label — presence is a lifecycle fact, and a peer we have
-/// merely seen talking has no lifecycle we can vouch for, so its row omits
-/// state. A dormant agent (stopped, or remote without a live status) that has
-/// not spoken in the channel keeps its membership but gets no row: bare roster
-/// existence is not presence. An unaddressable member is withheld until a
-/// current profile row names it.
+/// Every present, nameable roster member earns a row. A named agent is
+/// present in a channel while its own session runs (sessions this daemon
+/// owns) or while it has a live status there (everyone else) — the same fact
+/// agent counts use. A dormant agent keeps its membership but gets no row:
+/// bare roster existence is not presence. Only a live heartbeat carries a
+/// `state` label, and an unaddressable member is withheld until a current
+/// profile row names it.
 pub(super) fn member_rows(inputs: &ViewInputs, channel: &str, now: u64) -> Vec<MemberRow> {
     inputs
         .members
@@ -50,8 +50,7 @@ pub(in crate::fabric_context) fn member_row(
         .unwrap_or_default();
     let status_map = status_map(statuses);
     let status = status_map.get(pubkey);
-    let live_status_here = status.is_some_and(|status| status.state.is_live());
-    if !is_self && !members.agent_present(channel, pubkey, live_status_here) {
+    if !is_self && !members.listed(channel, pubkey) {
         return None;
     }
     let presence = status.map(|status| projected_presence(status));

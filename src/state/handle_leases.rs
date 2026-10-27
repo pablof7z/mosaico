@@ -1,5 +1,4 @@
 use super::*;
-use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
 mod allocation;
@@ -83,35 +82,6 @@ impl Store {
         )
         .map(Some)
         .ok_or_else(|| anyhow::anyhow!("derived session {pubkey} has no handle lease"))
-    }
-
-    /// Every session's identity from one query, keyed by pubkey. A derived
-    /// session whose handle lease was reclaimed has no identity and is absent.
-    pub(crate) fn session_identities(
-        &self,
-    ) -> Result<BTreeMap<String, crate::identity::SessionIdentity>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT session.pubkey, session.agent_slug, signer.pubkey IS NOT NULL, lease.handle
-               FROM sessions AS session
-               LEFT JOIN session_signers AS signer ON signer.pubkey=session.pubkey
-               LEFT JOIN handle_leases AS lease ON lease.pubkey=session.pubkey",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-            ))
-        })?;
-        let mut identities = BTreeMap::new();
-        for row in rows {
-            let (pubkey, agent_slug, derived, handle) = row?;
-            if let Some(identity) = identity(&pubkey, agent_slug, derived, handle) {
-                identities.insert(pubkey, identity);
-            }
-        }
-        Ok(identities)
     }
 }
 
