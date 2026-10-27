@@ -26,13 +26,19 @@ pub(in crate::daemon::server::demux) fn drive_retries(state: &Arc<DaemonState>) 
             mentioned_pubkeys: vec![claim.mentioned_pubkey.clone()],
             attachments: Vec::new(),
         };
-        if begin(state, &claim.event_id, &claim.mentioned_pubkey, &chat) {
+        if let Some(generation) = begin(state, &claim.event_id, &claim.mentioned_pubkey, &chat) {
             tracing::info!(
                 event_id = %claim.event_id,
                 mentioned_pk = %crate::util::pubkey_short(&claim.mentioned_pubkey),
                 "retrying durable offline mention recovery"
             );
-            dispatch(state, &claim.event_id, &chat, &claim.mentioned_pubkey);
+            dispatch(
+                state,
+                &claim.event_id,
+                &chat,
+                &claim.mentioned_pubkey,
+                generation,
+            );
         }
     }
 }
@@ -49,8 +55,8 @@ pub(in crate::daemon::server::demux) fn dispatch_all(
         .iter()
         .filter(|pubkey| owned_targets.contains(pubkey))
     {
-        if begin(state, event_id, mentioned_pk, chat) {
-            dispatch(state, event_id, chat, mentioned_pk);
+        if let Some(generation) = begin(state, event_id, mentioned_pk, chat) {
+            dispatch(state, event_id, chat, mentioned_pk, generation);
             dispatched = true;
         }
     }
@@ -62,9 +68,9 @@ fn begin(
     event_id: &str,
     mentioned_pubkey: &str,
     chat: &crate::domain::ChatMessage,
-) -> bool {
+) -> Option<u32> {
     match state.with_store(|s| {
-        s.claim_offline_mention(
+        s.claim_offline_mention_run(
             event_id,
             mentioned_pubkey,
             &chat.from.pubkey,
@@ -73,7 +79,7 @@ fn begin(
             now_secs(),
         )
     }) {
-        Ok(claimed) => claimed,
+        Ok(generation) => generation,
         Err(e) => {
             tracing::error!(
                 event_id,
@@ -81,7 +87,7 @@ fn begin(
                 error = %e,
                 "offline mention claim failed; refusing duplicate-prone dispatch"
             );
-            false
+            None
         }
     }
 }
@@ -91,6 +97,7 @@ fn dispatch(
     event_id: &str,
     chat: &crate::domain::ChatMessage,
     mentioned_pubkey: &str,
+    generation: u32,
 ) {
     let st = state.clone();
     let event_id = event_id.to_string();
@@ -105,30 +112,67 @@ fn dispatch(
     tokio::spawn(async move {
         let outcome =
             super::handle(&st, &mentioned_pubkey, &channel, Some(&requester_pubkey)).await;
-        finish(&st, &event_id, &mentioned_pubkey, outcome);
+        finish(&st, &event_id, &mentioned_pubkey, generation, outcome);
     });
 }
 
+/// Record a recovery run's outcome. A run superseded by a lease takeover
+/// changes nothing, except that its success still wins over a charge.
 fn finish(
     state: &Arc<DaemonState>,
     event_id: &str,
     mentioned_pubkey: &str,
+    generation: u32,
     outcome: RecoveryOutcome,
 ) {
-    let result =
-        match outcome {
-            RecoveryOutcome::Complete => state
-                .with_store(|s| s.complete_offline_mention(event_id, mentioned_pubkey, now_secs())),
-            RecoveryOutcome::Retry => state
-                .with_store(|s| s.retry_offline_mention(event_id, mentioned_pubkey, now_secs())),
-        };
-    if let Err(e) = result {
-        tracing::error!(
+    let now = now_secs();
+    let result = state.with_store(|s| match outcome {
+        RecoveryOutcome::Complete => s
+            .complete_offline_mention_run(event_id, mentioned_pubkey, generation, now)
+            .map(|completed| (completed, None)),
+        RecoveryOutcome::Retry => {
+            if !s.owns_offline_mention(event_id, mentioned_pubkey, generation)? {
+                return Ok((false, None));
+            }
+            s.retry_offline_mention(event_id, mentioned_pubkey, now)
+                .map(|retry| (true, retry))
+        }
+    });
+    match result {
+        Ok((false, _)) => tracing::warn!(
+            event_id,
+            mentioned_pk = %crate::util::pubkey_short(mentioned_pubkey),
+            generation,
+            ?outcome,
+            "superseded offline mention recovery finished; outcome ignored"
+        ),
+        // Exhaustion is logged by the store.
+        Ok((true, Some(crate::state::ClaimRetry::Scheduled { .. }))) => {
+            super::super::retry_scheduled(state);
+        }
+        Ok(_) => {}
+        Err(e) => tracing::error!(
             event_id,
             mentioned_pk = %crate::util::pubkey_short(mentioned_pubkey),
             outcome = ?outcome,
             error = %e,
             "offline mention claim state update failed"
-        );
+        ),
     }
+}
+
+#[cfg(test)]
+pub(in crate::daemon::server::demux) fn finish_for_test(
+    state: &Arc<DaemonState>,
+    event_id: &str,
+    mentioned_pubkey: &str,
+    generation: u32,
+    completed: bool,
+) {
+    let outcome = if completed {
+        RecoveryOutcome::Complete
+    } else {
+        RecoveryOutcome::Retry
+    };
+    finish(state, event_id, mentioned_pubkey, generation, outcome);
 }

@@ -233,6 +233,9 @@ mod schema;
 pub use channels::{archived_channel_about, is_archived_channel_about, CHANNEL_ABOUT_MAX_CHARS};
 mod core;
 mod event_claims;
+pub(crate) use event_claims::{
+    ClaimRetry, ORCHESTRATION_CLAIM_PREFIX, SESSION_DISPATCH_CLAIM_PREFIX,
+};
 mod events;
 mod handle_leases;
 mod inbox;

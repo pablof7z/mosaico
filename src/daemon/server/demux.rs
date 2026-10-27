@@ -10,14 +10,12 @@ use std::collections::BTreeSet;
 mod arrival;
 mod attachments;
 mod chat_ops;
+mod claim_outcome;
+mod claim_retries;
 mod inbound_dispatch;
 mod offline_mention;
 mod route_reaction;
 mod tail_projection;
-
-pub(in crate::daemon::server) fn drive_offline_mention_retries(state: &Arc<DaemonState>) {
-    offline_mention::drive_retries(state);
-}
 
 pub(in crate::daemon::server) fn dispatch_offline_mentions(
     state: &Arc<DaemonState>,
@@ -28,16 +26,45 @@ pub(in crate::daemon::server) fn dispatch_offline_mentions(
     offline_mention::dispatch_all(state, event_id, chat, owned_targets)
 }
 
+pub(in crate::daemon::server) use claim_outcome::{
+    finish_claim, retry_scheduled, run_owned, ClaimOutcome,
+};
+
+/// The one serial demux: view wakes replay the current level, and the durable
+/// claim-retry timer re-runs only due claims. Both run on this task, never
+/// concurrently. Spawning a demux (startup, config reload) aborts the previous
+/// one, whose view the reload replaced, so exactly one retry driver runs.
 pub(super) fn spawn_demux(state: Arc<DaemonState>) {
     let mut changes = state.nip29_view().subscribe_changes();
-    tokio::spawn(async move {
+    let task_state = state.clone();
+    let task = tokio::spawn(async move {
+        let state = task_state;
+        let mut retries = claim_retries::Driver::new();
+        apply_current(&state).await;
         loop {
-            apply_current(&state).await;
-            if changes.changed().await.is_err() {
-                return;
+            let due = retries.wait(&state);
+            tokio::select! {
+                changed = changes.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    apply_current(&state).await;
+                    retries.view_changed();
+                }
+                () = state.dedup.claim_retry_scheduled.notified() => {}
+                () = claim_retries::sleep_until(due) => retries.redispatch_due(&state),
             }
         }
     });
+    let previous = state
+        .dedup
+        .demux_task
+        .lock()
+        .unwrap()
+        .replace(task.abort_handle());
+    if let Some(previous) = previous {
+        previous.abort();
+    }
 }
 
 async fn apply_current(state: &Arc<DaemonState>) {

@@ -15,6 +15,29 @@ pub(super) struct ResolvedSource {
     pub(super) prepared_launch: crate::session_host::transport::PreparedLaunch,
 }
 
+/// The launch selector names no agent or harness this backend can run.
+/// Permanent until local agent configuration changes, so callers that retry
+/// on failure can treat it as terminal.
+#[derive(Debug)]
+pub(crate) struct UnknownAgent {
+    selector: String,
+}
+
+impl std::fmt::Display for UnknownAgent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "no available agent or harness named {:?}", self.selector)
+    }
+}
+
+impl std::error::Error for UnknownAgent {}
+
+impl UnknownAgent {
+    /// Whether `error`, or anything it wraps, is an unknown-agent selector.
+    pub(crate) fn is_cause_of(error: &anyhow::Error) -> bool {
+        error.chain().any(|cause| cause.is::<UnknownAgent>())
+    }
+}
+
 pub(super) fn resolve_agent_source(
     state: &Arc<DaemonState>,
     selector: &str,
@@ -27,21 +50,23 @@ pub(super) fn resolve_agent_source(
     let installed = state.installed_harnesses();
     let inventory =
         crate::agent_inventory::AgentInventory::build(&home, &installed, &catalog, Some(workspace));
-    let selected = inventory.find(selector).cloned().with_context(|| {
+    let Some(selected) = inventory.find(selector).cloned() else {
         let choices = inventory.profile_choices(selector);
         if choices.is_empty() {
-            format!("no available agent or harness named {selector:?}")
-        } else {
-            format!(
-                "agent {selector:?} is available from multiple harnesses; choose {}",
-                choices
-                    .iter()
-                    .map(|choice| choice.slug.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" or ")
-            )
+            return Err(UnknownAgent {
+                selector: selector.to_string(),
+            }
+            .into());
         }
-    })?;
+        anyhow::bail!(
+            "agent {selector:?} is available from multiple harnesses; choose {}",
+            choices
+                .iter()
+                .map(|choice| choice.slug.as_str())
+                .collect::<Vec<_>>()
+                .join(" or ")
+        );
+    };
 
     let (identity, profile, preset, native_profile) = match selected.source {
         AgentSource::Durable {

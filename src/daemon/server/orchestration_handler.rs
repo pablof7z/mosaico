@@ -1,157 +1,120 @@
+use super::demux::ClaimOutcome;
 use super::resolution::work_root_for;
 use super::*;
 
+mod admission;
 mod running;
+use admission::admission;
 use channel_membership_rpc::durable_agent;
 use running::admit_running_target;
 
-/// React to a subgroup add-agents orchestration event: authorize the signer,
-/// provision the agents addressed to THIS backend, and either spawn fresh sessions
-/// or resume exact prior sessions into the target channel.
-pub(super) async fn handle_orchestration(
-    state: &Arc<DaemonState>,
-    event: &Event,
-    op: crate::fabric::nip29::orchestration::AddAgentsOp,
-) {
-    let event_id = event.id.to_hex();
-    let backend_pk = state.backend_pubkey();
-    let mine: Vec<_> = op
-        .adds
+type AddAgentsOp = crate::fabric::nip29::orchestration::AddAgentsOp;
+
+/// One target of an add-agents event that this call durably claimed.
+pub(super) struct ClaimedTarget {
+    index: usize,
+    key: String,
+    generation: u32,
+}
+
+/// The claim keys this backend's dispatch uses for `op`'s targets addressed
+/// to it, with each target's index.
+pub(super) fn orchestration_claim_keys(backend_pk: &str, op: &AddAgentsOp) -> Vec<(usize, String)> {
+    op.adds
         .iter()
         .enumerate()
-        .filter(|(_, add)| add.backend_pubkey == backend_pk)
-        .collect();
-    if mine.is_empty() {
-        return;
-    }
+        .filter(|(_, target)| target.backend_pubkey == backend_pk)
+        .map(|(index, target)| {
+            let key = orchestration_target_key(backend_pk, index, target, op.running_only);
+            (index, key)
+        })
+        .collect()
+}
 
+/// Durably claim every target of an add-agents orchestration event addressed
+/// to THIS backend, before any await. Every returned target must be finished
+/// through `run_orchestration`.
+pub(super) fn claim_orchestration(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    op: &AddAgentsOp,
+) -> Vec<ClaimedTarget> {
+    let event_id = event.id.to_hex();
     let signer = event.pubkey.to_hex();
-    // Admin authority is read from the cache the retained group-records
-    // observation keeps current: named by the channel's relay-signed kind:39001.
-    let parent_admin = match state.with_store(|s| s.is_channel_admin(&op.parent, &signer)) {
-        Ok(is_admin) => is_admin,
-        Err(error) => {
-            tracing::warn!(
+    let mut claimed = Vec::new();
+    for (index, key) in orchestration_claim_keys(&state.backend_pubkey(), op) {
+        let body = orchestration_target_body(&op.adds[index], op.running_only);
+        match state.with_store(|s| {
+            s.claim_driven_target(&event_id, &key, &signer, &op.child_h, &body, now_secs())
+        }) {
+            Ok(Some(generation)) => claimed.push(ClaimedTarget {
+                index,
+                key,
+                generation,
+            }),
+            Ok(None) => tracing::debug!(
                 event_id = %&event_id[..event_id.len().min(8)],
-                parent = %op.parent,
-                error = %format!("{error:#}"),
-                "orchestration rejected: parent admin state could not be verified"
-            );
-            return;
+                target = %key,
+                "orchestration target already complete, failed, waiting, or in-flight — skipping"
+            ),
+            Err(e) => tracing::error!(
+                event_id = %&event_id[..event_id.len().min(8)],
+                target = %key,
+                error = %e,
+                "orchestration target claim failed"
+            ),
         }
-    };
-    let authorized = if parent_admin {
-        true
-    } else {
-        match state.with_store(|s| s.is_channel_admin(&op.child_h, &signer)) {
-            Ok(is_admin) => is_admin,
-            Err(error) => {
-                tracing::warn!(
-                    event_id = %&event_id[..event_id.len().min(8)],
-                    child = %op.child_h,
-                    error = %format!("{error:#}"),
-                    "orchestration rejected: child admin state could not be verified"
-                );
-                return;
-            }
-        }
-    };
-    if !authorized {
-        tracing::warn!(
-            event_id = %&event_id[..event_id.len().min(8)],
-            signer = %crate::util::pubkey_short(&signer),
-            parent = %op.parent,
-            child = %op.child_h,
-            "orchestration rejected: signer is not an admin"
-        );
-        return;
     }
+    claimed
+}
 
-    match state.provider().try_fetch_group_parent(&op.child_h).await {
-        Ok(Some(declared)) if declared != op.parent && op.parent != op.child_h => {
-            tracing::warn!(
-                event_id = %&event_id[..event_id.len().min(8)],
-                child = %op.child_h,
-                declared_parent = %declared,
-                expected_parent = %op.parent,
-                "orchestration refused: child declares a different parent"
-            );
-            return;
+/// Run claimed targets of a subgroup add-agents orchestration event: authorize
+/// the signer, confirm the child's declared parent, then either spawn fresh
+/// sessions or resume exact prior sessions into the target channel. Every
+/// outcome, including a rejection, finishes every claimed target.
+pub(super) async fn run_orchestration(
+    state: &Arc<DaemonState>,
+    event: &Event,
+    op: AddAgentsOp,
+    claimed: Vec<ClaimedTarget>,
+) {
+    let event_id = event.id.to_hex();
+    if let Some(rejected) = admission(state, event, &op).await {
+        for target in &claimed {
+            super::demux::finish_claim(state, &event_id, &target.key, target.generation, rejected);
         }
-        Ok(_) => {}
-        Err(error) => {
-            tracing::warn!(
-                event_id = %&event_id[..event_id.len().min(8)],
-                child = %op.child_h,
-                error = %format!("{error:#}"),
-                "orchestration rejected: relay parent state could not be verified"
-            );
-            return;
-        }
+        return;
     }
 
     let _ = ensure_subscription(state, &op.child_h).await;
-    for (target_index, target) in mine {
-        let target_key =
-            orchestration_target_key(&backend_pk, target_index, target, op.running_only);
-        let body = orchestration_target_body(target, op.running_only);
-        let claimed = match state.with_store(|s| {
-            s.claim_orchestration_target(
-                &event_id,
-                &target_key,
-                &signer,
-                &op.child_h,
-                &body,
-                now_secs(),
-            )
-        }) {
-            Ok(claimed) => claimed,
-            Err(e) => {
-                tracing::error!(
-                    event_id = %&event_id[..event_id.len().min(8)],
-                    target = %target_key,
-                    error = %e,
-                    "orchestration target claim failed"
-                );
-                continue;
+    for (position, target) in claimed.iter().enumerate() {
+        let queued: Vec<(&str, u32)> = claimed[position + 1..]
+            .iter()
+            .map(|queued| (queued.key.as_str(), queued.generation))
+            .collect();
+        let add = &op.adds[target.index];
+        let work = async {
+            if op.running_only {
+                admit_running_target(state, &op, add).await.into()
+            } else if add.session_pubkey.as_deref().is_some_and(|s| !s.is_empty()) {
+                resume_target(state, &op, add).await.into()
+            } else if let Some(rec) = durable_agent::running_durable_session(state, &add.slug) {
+                durable_agent::admit_for_orchestration(state, &rec, &op.child_h)
+                    .await
+                    .into()
+            } else {
+                spawn_target(state, &op, add).await
             }
         };
-        if !claimed {
-            tracing::debug!(
-                event_id = %&event_id[..event_id.len().min(8)],
-                target = %target_key,
-                "orchestration target already complete or in-flight — skipping"
-            );
-            continue;
-        }
-
-        let completed = if op.running_only {
-            admit_running_target(state, &op, target).await
-        } else if target
-            .session_pubkey
-            .as_deref()
-            .is_some_and(|s| !s.is_empty())
-        {
-            resume_target(state, &op, target).await
-        } else if let Some(rec) = durable_agent::running_durable_session(state, &target.slug) {
-            durable_agent::admit_for_orchestration(state, &rec, &op.child_h).await
-        } else {
-            spawn_target(state, &op, target).await
-        };
-        let finish_result = if completed {
-            state
-                .with_store(|s| s.complete_orchestration_target(&event_id, &target_key, now_secs()))
-        } else {
-            state.with_store(|s| s.retry_orchestration_target(&event_id, &target_key))
-        };
-        if let Err(e) = finish_result {
-            tracing::error!(
-                event_id = %&event_id[..event_id.len().min(8)],
-                target = %target_key,
-                error = %e,
-                "orchestration target state update failed"
-            );
-        }
+        super::demux::run_owned(
+            state,
+            &event_id,
+            &target.key,
+            target.generation,
+            &queued,
+            work,
+        )
+        .await;
     }
 }
 
@@ -163,7 +126,8 @@ fn orchestration_target_key(
 ) -> String {
     let session = target.session_pubkey.as_deref().unwrap_or("");
     let base = format!(
-        "orchestration:{backend_pk}:{target_index}:{}:{session}",
+        "{}{backend_pk}:{target_index}:{}:{session}",
+        crate::state::ORCHESTRATION_CLAIM_PREFIX,
         target.slug
     );
     if running_only {
@@ -265,13 +229,13 @@ async fn spawn_target(
     state: &Arc<DaemonState>,
     op: &crate::fabric::nip29::orchestration::AddAgentsOp,
     target: &crate::fabric::nip29::orchestration::AddTarget,
-) -> bool {
+) -> ClaimOutcome {
     let slug = &target.slug;
     let work_root = match state.with_store(|s| work_root_for(s, &op.child_h)) {
         Ok(root) => root,
         Err(error) => {
             tracing::error!(child = %op.child_h, %error, "orchestration spawn workspace lookup failed");
-            return false;
+            return ClaimOutcome::Retry("orchestration workspace lookup failed");
         }
     };
     match crate::session_host::spawn_ephemeral_agent(
@@ -285,11 +249,15 @@ async fn spawn_target(
     {
         Ok(endpoint) => {
             tracing::info!(slug = %slug, child = %op.child_h, endpoint = %endpoint.endpoint_id, "orchestration: agent spawned");
-            true
+            ClaimOutcome::Completed
         }
         Err(e) => {
             tracing::error!(slug = %slug, child = %op.child_h, error = %e, "orchestration: agent spawn failed");
-            false
+            if crate::session_host::UnknownAgent::is_cause_of(&e) {
+                ClaimOutcome::Failed("unknown agent slug")
+            } else {
+                ClaimOutcome::Retry("agent spawn failed")
+            }
         }
     }
 }

@@ -2,15 +2,14 @@
 
 use super::super::*;
 
-/// Every 30s, prune completed local ledgers and drive offline-mention retries.
+/// Every 30s, prune completed local ledgers. Claim retries, including offline
+/// mentions, are driven by the demux retry timer.
 pub fn spawn_pruner(state: Arc<DaemonState>) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(30));
         loop {
             tick.tick().await;
             let now = now_secs();
-
-            super::super::demux::drive_offline_mention_retries(&state);
 
             match state.with_store(|s| s.prune_retained_state(now)) {
                 Ok(report) if report.total() > 0 => tracing::debug!(

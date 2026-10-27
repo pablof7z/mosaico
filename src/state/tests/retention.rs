@@ -107,3 +107,32 @@ fn retention_prunes_finished_native_outcomes_but_keeps_open_attempts() {
     assert_eq!(report.native_turn_attempts, 1);
     assert_eq!(count_rows(&s, "native_turn_attempts"), 1);
 }
+
+#[test]
+fn terminally_failed_claims_are_pruned_after_the_retention_window() {
+    let s = Store::open_memory().unwrap();
+    for (event_id, failed_at) in [("old", 10), ("recent", 1_000)] {
+        let key = "session-dispatch:backend:ghost";
+        assert!(s
+            .claim_orchestration_target(event_id, key, "admin", "route", "x", failed_at)
+            .unwrap());
+        s.fail_orchestration_target(event_id, key, failed_at, "test")
+            .unwrap();
+    }
+
+    let report = s
+        .prune_retained_state(500 + crate::state::COMPLETED_LEDGER_RETENTION_SECS)
+        .unwrap();
+
+    assert_eq!(report.completed_event_claims, 1);
+    let remaining = |event_id: &str| {
+        s.conn
+            .query_row(
+                "SELECT COUNT(*) FROM event_claims WHERE event_id=?1",
+                [event_id],
+                |row| row.get::<_, u32>(0),
+            )
+            .unwrap()
+    };
+    assert_eq!((remaining("old"), remaining("recent")), (0, 1));
+}

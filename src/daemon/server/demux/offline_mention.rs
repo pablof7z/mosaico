@@ -8,6 +8,8 @@ mod notice;
 mod standing;
 mod target;
 
+#[cfg(test)]
+pub(super) use claim::finish_for_test;
 use claim::RecoveryOutcome;
 pub(super) use claim::{dispatch_all, drive_retries};
 use liveness::has_alive_session_for;

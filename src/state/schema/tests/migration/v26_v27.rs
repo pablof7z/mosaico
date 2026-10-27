@@ -16,7 +16,7 @@ fn schema_twenty_six_gains_durable_profile_retirements() {
 
     drop(Store::open(&path).expect("schema twenty-six upgrades to current"));
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 27);
+    assert_eq!(version(&conn), 28);
     assert!(crate::state::schema::tests::table_exists(
         &conn,
         "profile_retirements"

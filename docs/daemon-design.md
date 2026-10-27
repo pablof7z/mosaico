@@ -108,6 +108,81 @@ The arrival ledger stores ids and sequence only. Public reads continue to come
 from the current NIP-29 view, so a relay removal retracts a message even when a
 local idempotency or inbox record remains.
 
+### Claim retries
+
+Orchestration and session-dispatch targets, and offline-mention recovery, are
+claimed durably in `event_claims`. Dispatch claims each target synchronously,
+before any relay or subscription work, and only the claimed run is spawned.
+Every outcome after the claim, including an admission rejection, finishes the
+claim as completed, retry, or terminal, so the claim row alone records whether
+a handler ran.
+
+A failure records one attempt: the claim returns to `pending` with a stored
+`retry_at` of 30s doubling per attempt, capped at 1h. The 10th attempt is
+terminal `failed`, as is a failure the handler knows is permanent: an unknown
+agent slug or a child that declares a different parent. A signer the roster
+does not (yet) authorize retries, because one group record can arrive before
+the member and admin lists; the attempt cap bounds a signer who never
+qualifies. Every terminal transition is logged.
+
+A `processing` claim is a 10-minute lease. Taking over an expired lease counts
+the crashed run as an attempt (the last allowed takeover is terminal): a
+crashed attempt waits out the ~601s lease instead of its backoff. A give-up
+therefore takes from about 6,010s (every attempt crashes: takeovers at
+601·k for k = 1..9, terminal at the 10th) to 11,010s (every attempt fails,
+about 3h), plus handler run time. Offline-mention recovery then
+gives up, while the mention's inbox row stays pending for the agent's next
+session.
+
+Orchestration and session-dispatch claims record their generation (the
+attempt count the claim left). An orchestration claims every target up front
+and runs them in turn. Immediately before each target's side effect the run
+renews the lease of that target and of every target still queued behind it,
+and skips the target when it no longer owns that generation, so a long serial
+run keeps its later targets instead of losing them to takeovers. A superseded
+run's late finish is ignored, except that a `Completed` still wins when no
+newer run holds the claim. A side effect that had already started before a
+takeover still happens: the renew fence bounds duplicate work to a side
+effect that itself outlives the 10-minute lease. Offline-mention recovery
+records the same generation and fences its finish the same way, so a
+superseded recovery cannot reopen the new owner's claim.
+
+Retention prunes `failed` claims, like completed ones, 7 days after their last
+update. A relay that still serves the event after that may start a fresh claim
+cycle; completed claims behave the same way. The view's limit windows make that
+rare, and an age gate would need the event's original arrival time, which
+claims do not keep.
+
+Retries run inside the one serial demux task, which a config reload replaces
+(the previous task is aborted). Besides view wakes, it sleeps until the
+earliest stored due time (a `pending` claim's `retry_at`, or an expired
+`processing` lease), recomputed from the store after every pass and whenever a
+failure is recorded, so a restart inside a backoff still retries once due. A
+due timer re-runs offline mentions from their stored payload and re-dispatches
+up to 64 due orchestration and session-dispatch events from the current view
+per pass. A stored claim key that this backend's dispatch of the event never
+produces (for example one naming a previous backend identity) can never be
+claimed and is terminal.
+
+A pass that hits a store error, or after which its earliest due claim is still
+due (writes failing on a full disk, say), backs the whole timer off for
+`min(30s * 2^k, 5min)`, with one warning per escalation; a pass that makes
+progress clears it. A failing scan backs off the same way instead of stalling.
+One row whose writes keep failing keeps that backoff raised (other retries
+then run at most every 5 minutes) until the store recovers. Charging such a
+row toward terminal is not attempted: charging is itself a write to the same
+failing row, so it would fail the same way.
+
+Absence from the view is not evidence of deletion: the view also drops events
+outside a demand's limit window, events of a replaced or closed demand, and
+events that have not arrived yet. For 5 minutes after the demux starts or
+reloads, a due event the view does not hold is parked: it is not charged and
+does not re-arm the timer until the next view change. After that grace, each
+due pass that still finds the event absent charges every due claim of it, a
+`pending` retry or an expired `processing` lease alike, one attempt, so an
+event that stays gone backs off and ends terminal. An event that returns is
+dispatched by the ordinary replay.
+
 ## Outbound flow
 
 Every write begins with an already-selected `Keys` value. Product code finishes

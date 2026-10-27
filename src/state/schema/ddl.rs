@@ -175,6 +175,8 @@ CREATE TABLE IF NOT EXISTS event_claims (
     body           TEXT NOT NULL DEFAULT '',
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL DEFAULT 0,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    retry_at       INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (event_id, claim_key)
 );
 CREATE INDEX IF NOT EXISTS idx_event_claims_state

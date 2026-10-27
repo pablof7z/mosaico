@@ -104,7 +104,14 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     ensure_columns(
         conn,
         "event_claims",
-        &["event_id", "claim_key", "state", "updated_at"],
+        &[
+            "event_id",
+            "claim_key",
+            "state",
+            "updated_at",
+            "attempts",
+            "retry_at",
+        ],
         &[],
         path,
     )?;
