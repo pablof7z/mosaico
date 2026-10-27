@@ -34,7 +34,25 @@ impl OutOfScopeBackoff {
     }
 }
 
+/// What wakes the next parent re-read during relationship readback.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParentWake {
+    /// The parent is in the view's group scope: a group change announces it.
+    GroupChange,
+    /// The view drops the parent, so only a timed re-read can see it.
+    Backoff,
+}
+
 impl Nip29Provider {
+    /// An in-view parent is re-read on group changes; any other on backoff.
+    fn parent_wake(&self, parent_h: &str) -> ParentWake {
+        if self.current_group_snapshot(parent_h).is_some() {
+            ParentWake::GroupChange
+        } else {
+            ParentWake::Backoff
+        }
+    }
+
     async fn fetch_parent_children(&self, parent_h: &str) -> Result<BTreeSet<String>> {
         let snapshot = self.group_snapshot(parent_h).await?;
         Ok(snapshot
@@ -68,7 +86,7 @@ impl Nip29Provider {
         let changes = self.view.subscribe_group_changes();
         let readback = await_parent_listing(
             || self.fetch_parent_children(parent_h),
-            || self.current_group_snapshot(parent_h).is_some(),
+            || self.parent_wake(parent_h),
             changes,
             parent_h,
             child_h,
@@ -85,7 +103,7 @@ impl Nip29Provider {
 /// on each group change; an out-of-scope one also on `OutOfScopeBackoff`.
 async fn await_parent_listing<R, F>(
     mut read: R,
-    in_scope: impl Fn() -> bool,
+    wake: impl Fn() -> ParentWake,
     mut changes: watch::Receiver<u64>,
     parent_h: &str,
     child_h: &str,
@@ -106,7 +124,7 @@ where
                 "parent relationship read awaits a newer complete view"
             ),
         }
-        if in_scope() {
+        if wake() == ParentWake::GroupChange {
             changes
                 .changed()
                 .await
@@ -142,29 +160,82 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    fn read_listing_after(
+        reads: &Cell<u32>,
+        listed_from: u32,
+    ) -> impl FnMut() -> std::future::Ready<Result<BTreeSet<String>>> + '_ {
+        move || {
+            reads.set(reads.get() + 1);
+            std::future::ready(Ok(if reads.get() >= listed_from {
+                BTreeSet::from(["child".to_string()])
+            } else {
+                BTreeSet::new()
+            }))
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn out_of_scope_parent_is_re_read_without_a_group_change() {
         let (_sender, changes) = watch::channel(0_u64);
         let reads = Cell::new(0);
-        let read = || {
-            reads.set(reads.get() + 1);
-            let listed = reads.get() > 1;
-            async move {
-                Ok(if listed {
-                    BTreeSet::from(["child".to_string()])
-                } else {
-                    BTreeSet::new()
-                })
-            }
-        };
 
         tokio::time::timeout(
-            OutOfScopeBackoff::INITIAL * 4,
-            await_parent_listing(read, || false, changes, "parent", "child"),
+            OutOfScopeBackoff::INITIAL * 2,
+            await_parent_listing(
+                read_listing_after(&reads, 2),
+                || ParentWake::Backoff,
+                changes,
+                "parent",
+                "child",
+            ),
         )
         .await
         .expect("an out-of-scope parent must be re-read on backoff, not wait for a group change")
         .unwrap();
         assert_eq!(reads.get(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn in_scope_parent_waits_for_a_group_change_without_polling() {
+        let (sender, changes) = watch::channel(0_u64);
+        let reads = Cell::new(0);
+        let readback = await_parent_listing(
+            read_listing_after(&reads, 2),
+            || ParentWake::GroupChange,
+            changes,
+            "parent",
+            "child",
+        );
+        tokio::pin!(readback);
+
+        let idle = tokio::time::timeout(RELATIONSHIP_READBACK_TIMEOUT, &mut readback).await;
+        assert!(
+            idle.is_err(),
+            "an in-scope parent must not be re-read by timer"
+        );
+        assert_eq!(reads.get(), 1);
+
+        sender.send_modify(|revision| *revision += 1);
+        readback.await.unwrap();
+        assert_eq!(reads.get(), 2);
+    }
+
+    #[tokio::test]
+    async fn parent_wake_polls_only_a_parent_missing_from_the_view() {
+        let state = crate::daemon::server::DaemonState::new_for_test().await;
+        let provider = state.provider();
+        assert_eq!(provider.parent_wake("parent"), ParentWake::Backoff);
+
+        use nostr::prelude::{EventBuilder, FinalizeEvent, Keys, Kind, Tag};
+        let relay = Keys::generate();
+        let metadata = EventBuilder::new(Kind::Custom(39_000), "")
+            .tags([Tag::custom("d", ["parent"])])
+            .finalize(&relay)
+            .unwrap();
+        let view = state.nip29_view();
+        view.replace_group_scope(BTreeSet::from(["parent".to_string()]), BTreeSet::new());
+        view.replace(vec![metadata]);
+
+        assert_eq!(provider.parent_wake("parent"), ParentWake::GroupChange);
     }
 }

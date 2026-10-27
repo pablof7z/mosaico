@@ -64,7 +64,9 @@ change, or NIP-40 expiration deadline, the rebuild task:
    `subscribe_group_changes`, fires only when the decoded group snapshots
    differ from the previous level, so group-record consumers (group-records
    drain, `wait_for_group_metadata`, parent-relationship readback) skip
-   content-only rebuilds.
+   content-only rebuilds. A parent outside the view's group scope never
+   produces a group change, so parent-relationship readback re-reads it from
+   the relay on a backoff (500ms doubling to 2s) within its 15s timeout.
 
 Derivation happens only there, off the async workers. A read clones the
 current `Arc<Nip29View>` and borrows from it: lookups by id are map accesses,
