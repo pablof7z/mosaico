@@ -51,14 +51,16 @@ fn stale_daemon_cwd_is_actionable_and_does_not_break_explicit_launch_cwd() {
     );
 
     let session = wait_for_alive(&home, agent, &channel);
-    let pty_id = Store::open(&home.store_path())
-        .unwrap()
-        .locators_for_pubkey(&session.pubkey)
-        .unwrap()
-        .into_iter()
-        .find(|locator| locator.locator_kind == "pty")
-        .map(|locator| locator.locator_value)
-        .expect("launched session PTY locator");
-    mosaico::pty::kill(&pty_id).unwrap();
+    // A CLI caller without a terminal takes the harness's daemon-managed
+    // transport (ACP for opencode), which launch registers before returning.
+    assert_eq!(session.admitted_transport, "acp");
+    assert!(
+        Store::open(&home.store_path())
+            .unwrap()
+            .runtime_locator_for_session(&session.pubkey, session.runtime_generation, "acp")
+            .unwrap()
+            .is_some(),
+        "launched session has no managed runtime endpoint"
+    );
     stop_daemon(&home);
 }

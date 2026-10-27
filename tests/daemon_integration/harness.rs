@@ -40,6 +40,9 @@ pub(crate) use relay_witness::{
     publish_addressed_chat, sign_builder_into_group, wait_for_exact_relay_groups,
     wait_for_relay_group_parent,
 };
+#[path = "harness/terminal.rs"]
+mod terminal;
+pub(crate) use terminal::{run_cli_in_terminal, TerminalRun};
 #[path = "harness/wedge_relay.rs"]
 mod wedge_relay;
 pub(crate) use wedge_relay::WedgeRelay;

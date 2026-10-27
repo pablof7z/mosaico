@@ -7,6 +7,10 @@ fn missing_provider_is_a_cli_failure_without_live_metadata_or_session() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let home = Home::new();
     write_config(&home, false);
+    // The daemon resolves harness executables from `$HOME/.local/bin` (and
+    // other fixed install dirs) regardless of the caller's PATH, so the
+    // provider is only missing once the test home's harness shim is gone.
+    std::fs::remove_file(home.dir.path().join(".local/bin/grok")).unwrap();
     let channel = unique_session("missing-provider");
     let work_dir = home.dir.path().join(&channel);
     add_workspace_mapping(&home, &channel, &work_dir);

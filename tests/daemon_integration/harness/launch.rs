@@ -55,6 +55,9 @@ case "${1:-forever}" in
     done
     ;;
   forever) while :; do sleep 1; done ;;
+  # Harness-native flags with no preset mode (`claude --agent <name>`,
+  # `opencode --session <id>`, `-- --yolo`): run like an interactive harness.
+  -*) while :; do sleep 1; done ;;
   *) exit 2 ;;
 esac
 "#;
