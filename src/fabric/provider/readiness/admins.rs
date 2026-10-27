@@ -64,15 +64,21 @@ pub(super) async fn apply(
         .retain(|pubkey| !already_added.contains(pubkey));
     let mut changed = false;
     if !delta.additions.is_empty() {
-        published(
-            provider
-                .grant_admins_published(channel, &delta.additions, keys)
-                .await,
+        let outcome = provider
+            .grant_admins_published(channel, &delta.additions, keys)
+            .await;
+        confirmed_or_published(
+            provider,
+            channel,
+            &delta.additions,
+            "admin",
+            outcome,
             format!(
                 "one admin grant for {} users in {channel}",
                 delta.additions.len()
             ),
-        )?;
+        )
+        .await?;
         changed = true;
     }
     if !delta.removals.is_empty() {
@@ -90,6 +96,50 @@ pub(super) async fn apply(
     Ok(Applied {
         changed,
         removed: delta.removals,
+    })
+}
+
+/// A role grant computed from a stale view can ask the relay for a change it
+/// already holds, and a relay refuses such an ineffective put-user. Before
+/// failing, confirm against the relay's own group records: if every target
+/// already holds `role`, the desired state is in place.
+pub(super) async fn confirmed_or_published(
+    provider: &Nip29Provider,
+    channel: &str,
+    pubkeys: &[String],
+    role: &str,
+    outcome: GroupMutationOutcome,
+    action: String,
+) -> Result<(), ChannelReadinessError> {
+    if outcome.is_published() {
+        return Ok(());
+    }
+    match provider.relay_group_snapshot(channel).await {
+        Ok(snapshot) if holds_role(&snapshot, channel, pubkeys, role) => {
+            tracing::debug!(
+                channel,
+                role,
+                "relay already holds the requested role grant"
+            );
+            Ok(())
+        }
+        _ => published(outcome, action),
+    }
+}
+
+pub(super) fn holds_role(
+    snapshot: &crate::group_snapshot::GroupSnapshot,
+    channel: &str,
+    pubkeys: &[String],
+    role: &str,
+) -> bool {
+    let snapshots = [snapshot.clone()];
+    let members =
+        crate::group_projection::GroupProjection::new(&snapshots).list_channel_members(channel);
+    pubkeys.iter().all(|pubkey| {
+        members
+            .iter()
+            .any(|member| &member.pubkey == pubkey && member.role == role)
     })
 }
 

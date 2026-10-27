@@ -9,7 +9,7 @@ use nostr::prelude::{ClientMessage, Event, RelayMessage};
 use tungstenite::{accept, Error, Message};
 
 #[derive(Clone)]
-pub(super) enum AckMode {
+pub(crate) enum AckMode {
     Accept,
     Reject(String),
     Silent,
@@ -18,12 +18,12 @@ pub(super) enum AckMode {
 
 /// One subscription frame the relay received, in arrival order.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum SubscriptionFrame {
+pub(crate) enum SubscriptionFrame {
     Req(String),
     Close(String),
 }
 
-pub(super) struct TestRelay {
+pub(crate) struct TestRelay {
     address: std::net::SocketAddr,
     stop: Arc<AtomicBool>,
     connections: Arc<AtomicUsize>,
@@ -33,7 +33,7 @@ pub(super) struct TestRelay {
 }
 
 impl TestRelay {
-    pub(super) fn new(mode: AckMode, events: impl IntoIterator<Item = Event>) -> Self {
+    pub(crate) fn new(mode: AckMode, events: impl IntoIterator<Item = Event>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test relay");
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -78,15 +78,15 @@ impl TestRelay {
         }
     }
 
-    pub(super) fn url(&self) -> String {
+    pub(crate) fn url(&self) -> String {
         format!("ws://{}", self.address)
     }
 
-    pub(super) fn connections(&self) -> usize {
+    pub(crate) fn connections(&self) -> usize {
         self.connections.load(Ordering::Acquire)
     }
 
-    pub(super) fn subscription_frames(&self) -> Vec<SubscriptionFrame> {
+    pub(crate) fn subscription_frames(&self) -> Vec<SubscriptionFrame> {
         self.subscriptions.lock().unwrap().clone()
     }
 }

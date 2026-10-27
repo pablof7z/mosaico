@@ -9,12 +9,12 @@ use nostr::prelude::{
 use super::{database_capacity, NostrRuntime, PublishError};
 
 #[path = "tests/relay.rs"]
-mod relay;
+pub(crate) mod relay;
 #[path = "tests/subscriptions.rs"]
 mod subscriptions;
 use relay::{AckMode, TestRelay};
 
-async fn runtime(relay: &TestRelay, timeout: Duration) -> Arc<NostrRuntime> {
+pub(crate) async fn runtime(relay: &TestRelay, timeout: Duration) -> Arc<NostrRuntime> {
     let runtime = Arc::new(NostrRuntime::with_send_timeout(&relay.url(), timeout).unwrap());
     runtime.start().await.unwrap();
     tokio::time::timeout(Duration::from_secs(2), async {

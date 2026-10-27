@@ -184,4 +184,4 @@ impl NostrRuntime {
 
 #[cfg(test)]
 #[path = "nostr_runtime/tests.rs"]
-mod tests;
+pub(crate) mod tests;
