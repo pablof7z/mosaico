@@ -116,9 +116,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pablof7z/croissant
-          # Head of pablof7z/croissant#12 (graceful SIGTERM shutdown, #856);
-          # re-pin to its merge commit once that PR lands.
-          ref: d8c74f3dea73438e3e5b3e19b1ed886885d15e02
+          # Merge of pablof7z/croissant#12 (graceful SIGTERM shutdown, #856).
+          ref: c91d9004bc069b05642666355c304c200cdd2626
           path: croissant-fixture
 
       - name: Install Rust toolchain (stable)
@@ -142,7 +141,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-d8c74f3d
+          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-c91d9004
 
       - name: Pin nak
         run: go install github.com/fiatjaf/nak@v0.20.0
@@ -170,9 +169,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: pablof7z/croissant
-          # Head of pablof7z/croissant#12 (graceful SIGTERM shutdown, #856);
-          # re-pin to its merge commit once that PR lands.
-          ref: d8c74f3dea73438e3e5b3e19b1ed886885d15e02
+          # Merge of pablof7z/croissant#12 (graceful SIGTERM shutdown, #856).
+          ref: c91d9004bc069b05642666355c304c200cdd2626
           path: croissant-fixture
 
       - name: Install Rust toolchain (stable)
@@ -196,7 +194,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-d8c74f3d
+          key: go-${{ runner.os }}-1.25.12-nak-v0.20.0-croissant-c91d9004
 
       - name: Pin nak
         run: go install github.com/fiatjaf/nak@v0.20.0
