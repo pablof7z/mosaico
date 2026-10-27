@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
 mod allocation;
@@ -41,11 +42,8 @@ impl Store {
     pub(crate) fn handle_for_pubkey(&self, pubkey: &str) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT handle FROM handle_leases WHERE pubkey=?1",
-                [pubkey],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT handle FROM handle_leases WHERE pubkey=?1")?
+            .query_row([pubkey], |row| row.get(0))
             .optional()?)
     }
 
@@ -76,19 +74,51 @@ impl Store {
         let Some(session) = self.get_session(pubkey)? else {
             return Ok(None);
         };
-        let durable = !self.is_derived_session_pubkey(pubkey)?;
-        let handle = match (durable, self.handle_for_pubkey(pubkey)?) {
-            (true, _) => session.agent_slug.clone(),
-            (false, Some(handle)) => handle,
-            (false, None) => anyhow::bail!("derived session {pubkey} has no handle lease"),
-        };
-        Ok(Some(crate::identity::SessionIdentity::new(
-            pubkey.to_string(),
-            session.agent_slug,
-            handle,
-            durable,
-        )))
+        let derived = self.is_derived_session_pubkey(pubkey)?;
+        identity(pubkey, session.agent_slug, derived, self.handle_for_pubkey(pubkey)?)
+            .map(Some)
+            .ok_or_else(|| anyhow::anyhow!("derived session {pubkey} has no handle lease"))
     }
+
+    /// Every session's identity from one query, keyed by pubkey. A derived
+    /// session whose handle lease was reclaimed has no identity and is absent.
+    pub(crate) fn session_identities(
+        &self,
+    ) -> Result<BTreeMap<String, crate::identity::SessionIdentity>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT session.pubkey, session.agent_slug, signer.pubkey IS NOT NULL, lease.handle
+               FROM sessions AS session
+               LEFT JOIN session_signers AS signer ON signer.pubkey=session.pubkey
+               LEFT JOIN handle_leases AS lease ON lease.pubkey=session.pubkey",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?;
+        let mut identities = BTreeMap::new();
+        for row in rows {
+            let (pubkey, agent_slug, derived, handle) = row?;
+            if let Some(identity) = identity(&pubkey, agent_slug, derived, handle) {
+                identities.insert(pubkey, identity);
+            }
+        }
+        Ok(identities)
+    }
+}
+
+/// A durable agent's handle is its slug; a derived session's is its lease.
+fn identity(
+    pubkey: &str,
+    agent_slug: String,
+    derived: bool,
+    handle: Option<String>,
+) -> Option<crate::identity::SessionIdentity> {
+    let handle = if derived { handle? } else { agent_slug.clone() };
+    Some(crate::identity::SessionIdentity::new(
+        pubkey.to_string(),
+        agent_slug,
+        handle,
+        !derived,
+    ))
 }
 
 pub(super) fn custom_handle(agent_slug: &str, name: &str) -> Result<String> {

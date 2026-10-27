@@ -281,9 +281,11 @@ fn route_fence(store: &Store, pubkey: &str, channel_h: &str) -> (u64, u64) {
 
 fn insert_chat(store: &Store, id: &str, channel_h: &str, created_at: u64) -> RelayEvent {
     let mut events = store
-        .relay_events()
-        .into_iter()
+        .view()
+        .events()
+        .iter()
         .filter(|event| event.kind == crate::fabric::nip29::wire::KIND_CHAT as u32)
+        .cloned()
         .collect::<Vec<_>>();
     events.retain(|event| event.id != id);
     let event = RelayEvent {

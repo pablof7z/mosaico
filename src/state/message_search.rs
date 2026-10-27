@@ -48,10 +48,11 @@ impl Store {
         );
 
         let backend_pubkeys = self
-            .current_profiles()
-            .into_iter()
+            .view()
+            .profiles()
+            .iter()
             .filter(|profile| profile.is_backend)
-            .map(|profile| profile.pubkey)
+            .map(|profile| profile.pubkey.clone())
             .chain(
                 query
                     .backend_pubkey
@@ -125,27 +126,29 @@ impl Store {
         match crate::idref::parse_ref(selector) {
             crate::idref::Ref::Agent { slug, host } => {
                 matches.extend(
-                    self.current_profiles()
-                        .into_iter()
+                    self.view()
+                        .profiles()
+                        .iter()
                         .filter(|profile| {
                             profile.host == host
                                 && (profile.name == slug
                                     || profile.slug == slug
                                     || profile.agent_slug == slug)
                         })
-                        .map(|profile| profile.pubkey),
+                        .map(|profile| profile.pubkey.clone()),
                 );
             }
             crate::idref::Ref::Token(token) => {
                 matches.extend(
-                    self.current_profiles()
-                        .into_iter()
+                    self.view()
+                        .profiles()
+                        .iter()
                         .filter(|profile| {
                             profile.name == token
                                 || profile.slug == token
                                 || profile.agent_slug == token
                         })
-                        .map(|profile| profile.pubkey),
+                        .map(|profile| profile.pubkey.clone()),
                 );
                 if let Some(pubkey) = self.pubkey_for_handle(&token)? {
                     matches.push(pubkey);

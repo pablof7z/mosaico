@@ -31,11 +31,11 @@ pub(crate) struct MemberFactIndex {
 
 impl MemberFactIndex {
     pub(crate) fn capture(store: &Store, local_backend: &str) -> Result<Self> {
-        let sessions = store.list_sessions()?;
+        let sessions = store.list_session_count_facts()?;
         let statuses = store.list_status_sessions(None, None)?;
         let mut named = sessions
             .iter()
-            .filter(|session| !session.agent_slug.trim().is_empty())
+            .filter(|session| session.named)
             .map(|session| session.pubkey.clone())
             .collect::<BTreeSet<_>>();
         named.extend(
@@ -49,7 +49,7 @@ impl MemberFactIndex {
         // sessions this daemon owns.
         let mut live = sessions
             .iter()
-            .filter(|session| session.is_running())
+            .filter(|session| session.running)
             .map(|session| session.pubkey.clone())
             .collect::<BTreeSet<_>>();
         let local_owned = sessions

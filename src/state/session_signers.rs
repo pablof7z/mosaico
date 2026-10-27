@@ -21,11 +21,8 @@ impl Store {
     pub(crate) fn session_signer_salt(&self, pubkey: &str) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row(
-                "SELECT signer_salt FROM session_signers WHERE pubkey=?1",
-                [pubkey],
-                |row| row.get(0),
-            )
+            .prepare_cached("SELECT signer_salt FROM session_signers WHERE pubkey=?1")?
+            .query_row([pubkey], |row| row.get(0))
             .optional()?)
     }
 

@@ -147,9 +147,6 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
     let backend_pubkey = state.backend_pubkey();
 
     let archived = state.with_store(|s| {
-        // One projection serves every group lookup below; each store accessor
-        // would otherwise rebuild it, once per local pubkey and channel.
-        let groups = s.group_projection_snapshot();
         let local_pubkeys = s.list_local_session_pubkeys().unwrap_or_default();
         pubkeys.extend(local_pubkeys.iter().cloned());
         pubkeys.insert(backend_pubkey.clone());
@@ -158,10 +155,18 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         // plus channels this backend manages as admin; admins are members.
         let mut owners: BTreeSet<String> = local_pubkeys.into_iter().collect();
         owners.insert(backend_pubkey.clone());
-        daemon_channels.extend(groups.channels_involving(&owners));
-        for (channel_h, roster) in groups.active_channel_rosters() {
-            group_state_channels.insert(channel_h.to_string());
-            profile_pubkeys.extend(roster.into_iter().map(str::to_string));
+        daemon_channels.extend(s.list_channels_involving(&owners));
+        for channel in s.list_channels().unwrap_or_default() {
+            if channel.is_archived() {
+                continue;
+            }
+            group_state_channels.insert(channel.channel_h.clone());
+            profile_pubkeys.extend(
+                s.list_channel_members(&channel.channel_h)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|member| member.pubkey),
+            );
         }
         // Channels each live session listens to (active + passively joined).
         for sess in s.list_running_sessions().unwrap_or_default() {
@@ -178,10 +183,9 @@ fn build_coverage_snapshot(state: &Arc<DaemonState>) -> CoverageSnapshot {
         for chans in sessions.values() {
             candidates.extend(chans.iter().cloned());
         }
-        let archived_ids = groups.archived_channel_ids();
         candidates
             .into_iter()
-            .filter(|channel| archived_ids.contains(channel))
+            .filter(|channel| s.is_archived_channel(channel).unwrap_or(false))
             .collect::<BTreeSet<String>>()
     });
 

@@ -12,12 +12,17 @@ const GROUP_READ_DEMAND: &str = "mosaico-group-read";
 
 impl Nip29Provider {
     pub(crate) fn current_group_snapshot(&self, group: &str) -> Option<GroupSnapshot> {
-        self.view.group_snapshots().into_iter().find(|snapshot| {
-            snapshot.id == group
-                && (snapshot.metadata.is_some()
-                    || !snapshot.admins.is_empty()
-                    || !snapshot.members.is_empty())
-        })
+        self.view
+            .current()
+            .group_snapshots()
+            .iter()
+            .find(|snapshot| {
+                snapshot.id == group
+                    && (snapshot.metadata.is_some()
+                        || !snapshot.admins.is_empty()
+                        || !snapshot.members.is_empty())
+            })
+            .cloned()
     }
 
     pub(crate) async fn try_fetch_group_parent(&self, group: &str) -> Result<Option<String>> {

@@ -41,12 +41,12 @@ pub(super) fn spawn_demux(state: Arc<DaemonState>) {
 }
 
 async fn apply_current(state: &Arc<DaemonState>) {
-    let events = state.nip29_view().content_events();
+    let view = state.nip29_view().current();
     let hosted = locally_hosted_pubkeys(state);
     let mut current_statuses = BTreeSet::new();
 
-    for event in events {
-        apply_current_status(state, &event, &hosted, &mut current_statuses);
+    for event in view.content() {
+        apply_current_status(state, event, &hosted, &mut current_statuses);
         let first_arrival = arrival::record_before_dispatch(state, &event.id.to_hex()).await;
         inbound_dispatch::dispatch(state, &event, first_arrival);
     }

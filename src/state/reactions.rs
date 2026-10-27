@@ -1,31 +1,23 @@
 //! NIP-25 reaction reads derived from the current Nostr runtime subscription level.
 
-use super::relay_decode::{decode_reaction, MessageProjection, ReactionProjection};
+use super::relay_decode::{MessageProjection, ReactionProjection};
 use super::*;
-use crate::fabric::nip29::wire::KIND_REACTION;
 use std::collections::BTreeMap;
 
 impl Store {
-    /// All retained kind:7 reaction rows decoded from the current Nostr runtime level.
-    fn reaction_projections(&self) -> Vec<ReactionProjection> {
-        self.relay_events()
-            .into_iter()
-            .filter(|event| event.kind == KIND_REACTION as u32)
-            .filter_map(decode_reaction)
-            .collect()
-    }
     pub fn reactions_on_authored_after(
         &self,
         author_pubkey: &str,
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.message_projections());
-        let mut reactions = self
-            .reaction_projections()
-            .into_iter()
+        let view = self.view();
+        let messages = messages_by_id(view.messages());
+        let mut reactions = view
+            .reactions()
+            .iter()
             .filter_map(|reaction| {
-                let message = messages.get(&reaction.target_message_id)?;
+                let message = messages.get(reaction.target_message_id.as_str())?;
                 (message.author_pubkey == author_pubkey
                     && reaction.created_at > since
                     && reaction.reactor_pubkey != author_pubkey)
@@ -45,13 +37,14 @@ impl Store {
         since: u64,
         limit: u32,
     ) -> Result<Vec<ReactionRow>> {
-        let messages = messages_by_id(&self.message_projections());
-        let mut reactions = self
-            .reaction_projections()
-            .into_iter()
+        let view = self.view();
+        let messages = messages_by_id(view.messages());
+        let mut reactions = view
+            .reactions()
+            .iter()
             .filter(|reaction| reaction.channel_h == channel_h && reaction.created_at > since)
             .filter_map(|reaction| {
-                let body = messages.get(&reaction.target_message_id)?.body.clone();
+                let body = messages.get(reaction.target_message_id.as_str())?.body.clone();
                 Some(row(reaction, body))
             })
             .collect::<Vec<_>>();
@@ -67,27 +60,27 @@ impl Store {
         target_message_id: &str,
         reactor_pubkey: &str,
     ) -> Result<bool> {
-        Ok(self.reaction_projections().into_iter().any(|reaction| {
+        Ok(self.view().reactions().iter().any(|reaction| {
             reaction.target_message_id == target_message_id
                 && reaction.reactor_pubkey == reactor_pubkey
         }))
     }
 }
 
-fn messages_by_id(messages: &[MessageProjection]) -> BTreeMap<String, Message> {
+fn messages_by_id(messages: &[MessageProjection]) -> BTreeMap<&str, &Message> {
     messages
         .iter()
-        .map(|row| (row.message.message_id.clone(), row.message.clone()))
+        .map(|row| (row.message.message_id.as_str(), &row.message))
         .collect()
 }
 
-fn row(reaction: ReactionProjection, target_body: String) -> ReactionRow {
+fn row(reaction: &ReactionProjection, target_body: String) -> ReactionRow {
     ReactionRow {
-        reaction_id: reaction.reaction_id,
-        target_message_id: reaction.target_message_id,
-        channel_h: reaction.channel_h,
-        reactor_pubkey: reaction.reactor_pubkey,
-        emoji: reaction.emoji,
+        reaction_id: reaction.reaction_id.clone(),
+        target_message_id: reaction.target_message_id.clone(),
+        channel_h: reaction.channel_h.clone(),
+        reactor_pubkey: reaction.reactor_pubkey.clone(),
+        emoji: reaction.emoji.clone(),
         created_at: reaction.created_at,
         target_body,
     }

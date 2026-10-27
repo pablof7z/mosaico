@@ -12,25 +12,25 @@ use crate::fabric::nip29::wire::{KIND_CHAT, KIND_REACTION};
 use crate::state::{Message, MessageRecipient, RelayEvent};
 
 #[derive(Clone)]
-pub(super) struct MessageProjection {
-    pub(super) message: Message,
-    pub(super) recipients: Vec<MessageRecipient>,
-    pub(super) reply_target: Option<String>,
+pub(crate) struct MessageProjection {
+    pub(crate) message: Message,
+    pub(crate) recipients: Vec<MessageRecipient>,
+    pub(crate) reply_target: Option<String>,
 }
 
 #[derive(Clone)]
-pub(super) struct ReactionProjection {
-    pub(super) reaction_id: String,
-    pub(super) target_message_id: String,
-    pub(super) channel_h: String,
-    pub(super) reactor_pubkey: String,
-    pub(super) emoji: String,
-    pub(super) created_at: u64,
+pub(crate) struct ReactionProjection {
+    pub(crate) reaction_id: String,
+    pub(crate) target_message_id: String,
+    pub(crate) channel_h: String,
+    pub(crate) reactor_pubkey: String,
+    pub(crate) emoji: String,
+    pub(crate) created_at: u64,
 }
 
 /// Project one kind:9 chat row. Rows with no channel or the wrong kind are
 /// skipped, matching the old mirror's `messages()` filter.
-pub(super) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
+pub(crate) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
     if event.kind != KIND_CHAT as u32 || event.channel_h.is_empty() {
         return None;
     }
@@ -60,7 +60,7 @@ pub(super) fn decode_message(event: RelayEvent) -> Option<MessageProjection> {
 
 /// Project one kind:7 reaction row. Malformed emoji or a missing `e` target
 /// drops the row, matching the old mirror's `reactions()` filter.
-pub(super) fn decode_reaction(event: RelayEvent) -> Option<ReactionProjection> {
+pub(crate) fn decode_reaction(event: RelayEvent) -> Option<ReactionProjection> {
     if event.kind != KIND_REACTION as u32 {
         return None;
     }
@@ -77,11 +77,11 @@ pub(super) fn decode_reaction(event: RelayEvent) -> Option<ReactionProjection> {
     })
 }
 
-pub(super) fn tags(tags_json: &str) -> Vec<Vec<String>> {
+pub(crate) fn tags(tags_json: &str) -> Vec<Vec<String>> {
     serde_json::from_str(tags_json).unwrap_or_default()
 }
 
-pub(super) fn tag_values(tags: &[Vec<String>], name: &str) -> Vec<String> {
+pub(crate) fn tag_values(tags: &[Vec<String>], name: &str) -> Vec<String> {
     tags.iter()
         .filter(|tag| tag.first().map(String::as_str) == Some(name))
         .filter_map(|tag| tag.get(1).filter(|value| !value.is_empty()).cloned())

@@ -1,18 +1,38 @@
+use std::sync::Arc;
+
 use super::{Profile, RelayEvent, Status, Store};
+use crate::fabric::nip29::view::Nip29View;
 
 pub(crate) use crate::group_projection::{TestGroup, TestGroupDelivery};
 
 #[derive(Clone, Default)]
 pub(crate) struct TestRelayDelivery {
-    pub(super) profiles: Vec<Profile>,
-    pub(super) statuses: Vec<Status>,
-    pub(super) events: Vec<RelayEvent>,
+    profiles: Vec<Profile>,
+    statuses: Vec<Status>,
+    events: Vec<RelayEvent>,
 }
 
 #[derive(Default)]
 pub(super) struct TestSnapshots {
-    pub(super) groups: Option<TestGroupDelivery>,
-    pub(super) relay: Option<TestRelayDelivery>,
+    groups: Option<TestGroupDelivery>,
+    relay: Option<TestRelayDelivery>,
+    /// The level assembled from both deliveries, rebuilt on each install.
+    pub(super) view: Option<Arc<Nip29View>>,
+}
+
+impl TestSnapshots {
+    fn assemble(&mut self) {
+        let relay = self.relay.clone().unwrap_or_default();
+        self.view = Some(Arc::new(Nip29View::from_parts(
+            self.groups
+                .as_ref()
+                .map(TestGroupDelivery::projection)
+                .unwrap_or_default(),
+            relay.profiles,
+            relay.statuses,
+            relay.events,
+        )));
+    }
 }
 
 impl TestRelayDelivery {
@@ -42,10 +62,9 @@ impl TestRelayDelivery {
 
 impl Store {
     pub(crate) fn install_test_group_delivery(&self, delivery: TestGroupDelivery) {
-        self.test_snapshots
-            .write()
-            .expect("test snapshots poisoned")
-            .groups = Some(delivery);
+        let mut snapshots = self.test_snapshots.write().expect("test snapshots poisoned");
+        snapshots.groups = Some(delivery);
+        snapshots.assemble();
     }
 
     pub(crate) fn install_test_relay_delivery(&self, delivery: TestRelayDelivery) {
@@ -53,9 +72,8 @@ impl Store {
             self.record_event_arrival(event_id)
                 .expect("recording test event arrival");
         }
-        self.test_snapshots
-            .write()
-            .expect("test snapshots poisoned")
-            .relay = Some(delivery);
+        let mut snapshots = self.test_snapshots.write().expect("test snapshots poisoned");
+        snapshots.relay = Some(delivery);
+        snapshots.assemble();
     }
 }

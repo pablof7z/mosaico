@@ -34,7 +34,7 @@ impl Store {
     /// are unique; root and unnamed channels deliberately do not share this
     /// namespace. `None` when no channel by that name exists under `parent`.
     pub fn channel_id_for_name(&self, parent: &str, name: &str) -> Result<Option<String>> {
-        Ok(self.group_projection().channel_id_for_name(parent, name))
+        Ok(self.view().groups().channel_id_for_name(parent, name))
     }
 
     /// A local reservation for a channel name whose relay-authored kind:39000 has
@@ -86,12 +86,12 @@ impl Store {
 
     /// Fetch one channel's metadata.
     pub fn get_channel(&self, channel_h: &str) -> Result<Option<Channel>> {
-        Ok(self.group_projection().get_channel(channel_h))
+        Ok(self.view().groups().get_channel(channel_h))
     }
 
     /// All known channels, newest metadata first.
     pub fn list_channels(&self) -> Result<Vec<Channel>> {
-        Ok(self.group_projection().list_channels())
+        Ok(self.view().groups().list_channels())
     }
 
     pub fn is_archived_channel(&self, channel_h: &str) -> Result<bool> {
@@ -103,7 +103,7 @@ impl Store {
 
     /// Root channels as read-model rows, ordered by stable channel id.
     pub fn list_root_channels(&self) -> Result<Vec<Channel>> {
-        Ok(self.group_projection().list_root_channels())
+        Ok(self.view().groups().list_root_channels())
     }
 
     /// Read-model metadata for a workspace/channel.
@@ -114,31 +114,31 @@ impl Store {
     /// The `parent` h-tag of a channel (`""` for a top-level root channel),
     /// or `None` if the channel is unknown.
     pub fn channel_parent(&self, channel_h: &str) -> Result<Option<String>> {
-        Ok(self.group_projection().channel_parent(channel_h))
+        Ok(self.view().groups().channel_parent(channel_h))
     }
 
     /// Walk a known channel's `parent` links to its top-level root channel.
     /// Returns `None` when the channel or any ancestor is unknown; callers that
     /// use rootness for routing/admission must not silently treat that as root.
     pub fn root_channel_of(&self, channel_h: &str) -> Result<Option<String>> {
-        self.group_projection().root_channel_of(channel_h)
+        self.view().groups().root_channel_of(channel_h)
     }
 
     /// True when the channel is a known top-level root channel (`parent`
     /// empty). Unknown channels are not root.
     pub fn is_root_channel(&self, channel_h: &str) -> Result<bool> {
-        self.group_projection().is_root_channel(channel_h)
+        self.view().groups().is_root_channel(channel_h)
     }
 
     /// True when the channel is known and belongs under a different top-level
     /// channel root. Unknown ancestry is not treated as a sub-channel.
     pub fn is_subchannel(&self, channel_h: &str) -> Result<bool> {
-        self.group_projection().is_subchannel(channel_h)
+        self.view().groups().is_subchannel(channel_h)
     }
 
     /// Direct children of `parent` (one hop), ordered by stable id.
     pub fn list_child_channels(&self, parent: &str) -> Result<Vec<Channel>> {
-        Ok(self.group_projection().list_child_channels(parent))
+        Ok(self.view().groups().list_child_channels(parent))
     }
 
     /// Drop host-local bindings for a channel after a confirmed kind:9008 delete.

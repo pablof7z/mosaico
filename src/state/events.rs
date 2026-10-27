@@ -4,15 +4,16 @@ use super::*;
 
 impl Store {
     pub fn get_event(&self, id: &str) -> Result<Option<RelayEvent>> {
-        Ok(self.relay_events().into_iter().find(|event| event.id == id))
+        Ok(self.view().events().iter().find(|event| event.id == id).cloned())
     }
 
     pub fn get_event_by_prefix(&self, prefix: &str) -> Result<Option<RelayEvent>> {
-        let mut matches = self
-            .relay_events()
-            .into_iter()
+        let view = self.view();
+        let mut matches = view
+            .events()
+            .iter()
             .filter(|event| event.id.starts_with(prefix));
-        let first = matches.next();
+        let first = matches.next().cloned();
         if matches.next().is_some() {
             anyhow::bail!("ambiguous id prefix {prefix:?}: matches more than one event");
         }
@@ -20,7 +21,7 @@ impl Store {
     }
 
     pub fn has_event(&self, id: &str) -> Result<bool> {
-        Ok(self.relay_events().into_iter().any(|event| event.id == id))
+        Ok(self.view().events().iter().any(|event| event.id == id))
     }
 
     pub fn chat_for_channel(
@@ -30,9 +31,11 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<RelayEvent>> {
         let mut events = self
-            .relay_events()
-            .into_iter()
+            .view()
+            .events()
+            .iter()
             .filter(|event| event.channel_h == channel_h && event.created_at >= since)
+            .cloned()
             .collect::<Vec<_>>();
         events.sort_by(|left, right| {
             (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id))
@@ -46,15 +49,16 @@ impl Store {
         channel_h: &str,
     ) -> Result<std::collections::HashMap<String, u64>> {
         Ok(self
-            .relay_events()
-            .into_iter()
+            .view()
+            .events()
+            .iter()
             .filter(|event| {
                 event.channel_h == channel_h
                     && event.kind == crate::fabric::nip29::wire::KIND_CHAT as u32
             })
             .fold(std::collections::HashMap::new(), |mut latest, event| {
                 latest
-                    .entry(event.pubkey)
+                    .entry(event.pubkey.clone())
                     .and_modify(|current| *current = (*current).max(event.created_at))
                     .or_insert(event.created_at);
                 latest
@@ -81,8 +85,9 @@ impl Store {
         };
         let mut events = Vec::new();
         for event in self
-            .relay_events()
-            .into_iter()
+            .view()
+            .events()
+            .iter()
             .filter(|event| event.channel_h == channel_h)
         {
             if event.kind != crate::fabric::nip29::wire::KIND_CHAT as u32 {
@@ -92,7 +97,7 @@ impl Store {
                 .event_arrival_sequence(&event.id)?
                 .is_some_and(|sequence| sequence <= joined_sequence)
             {
-                events.push(event);
+                events.push(event.clone());
             }
         }
         events.sort_by(|left, right| {
@@ -105,9 +110,11 @@ impl Store {
     pub fn events_by_kind(&self, kind: u32, limit: u32) -> Result<Vec<RelayEvent>> {
         let kind = u16::try_from(kind).context("Nostr kind exceeds u16")?;
         let mut events = self
-            .relay_events()
-            .into_iter()
+            .view()
+            .events()
+            .iter()
             .filter(|event| event.kind == kind as u32)
+            .cloned()
             .collect::<Vec<_>>();
         events.sort_by(|left, right| {
             (&right.created_at, &right.id).cmp(&(&left.created_at, &left.id))

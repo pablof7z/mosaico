@@ -194,7 +194,7 @@ async fn deletion_markers_retract_content_without_becoming_product_content() {
     let view = crate::fabric::nip29::view::Nip29ViewStore::default();
     view.replace(runtime.snapshot().await.unwrap().events);
 
-    assert!(view.content_events().is_empty());
+    assert!(view.current().content().is_empty());
 }
 
 #[tokio::test]

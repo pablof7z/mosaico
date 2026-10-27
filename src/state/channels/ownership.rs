@@ -35,7 +35,8 @@ impl Store {
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<BTreeSet<_>>>()?;
         Ok(self
-            .group_projection()
+            .view()
+            .groups()
             .list_channels()
             .into_iter()
             .filter(|channel| managed.contains(&channel.channel_h))

@@ -4,42 +4,49 @@
 //! persisted or optimistically changed in Mosaico's SQLite store.
 
 use super::*;
+use std::collections::BTreeSet;
 
 impl Store {
     /// Can this pubkey manage the channel? (role='admin')
     pub fn is_channel_admin(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
-        Ok(self.group_projection().is_channel_admin(channel_h, pubkey))
+        Ok(self.view().groups().is_channel_admin(channel_h, pubkey))
     }
 
     /// Is this pubkey a member of the channel? (admin OR member)
     pub fn is_channel_member(&self, channel_h: &str, pubkey: &str) -> Result<bool> {
-        Ok(self.group_projection().is_channel_member(channel_h, pubkey))
+        Ok(self.view().groups().is_channel_member(channel_h, pubkey))
     }
 
     /// Has Nostr runtime supplied usable aggregate group state for this channel?
     pub fn group_state_available(&self, channel_h: &str) -> Result<bool> {
-        Ok(self.group_projection().group_state_available(channel_h))
+        Ok(self.view().groups().group_state_available(channel_h))
     }
 
     /// All members (admins and members) of a channel.
     pub fn list_channel_members(&self, channel_h: &str) -> Result<Vec<ChannelMember>> {
-        Ok(self.group_projection().list_channel_members(channel_h))
+        Ok(self.view().groups().list_channel_members(channel_h))
     }
 
     /// Channels this pubkey belongs to in ANY role (admin or member). Used by the
     /// subscription planner to cover every channel a local/ordinal pubkey is in.
     pub fn list_channels_where_member(&self, pubkey: &str) -> Result<Vec<String>> {
-        Ok(self.group_projection().list_channels_where_member(pubkey))
+        Ok(self.view().groups().list_channels_where_member(pubkey))
+    }
+
+    /// Channels any of `pubkeys` belongs to in any role, in one pass over the
+    /// groups. Used by the subscription planner for every local identity.
+    pub fn list_channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
+        self.view().groups().channels_involving(pubkeys)
     }
 
     /// Channels this pubkey can manage (every channel where it is an admin).
     pub fn list_channels_where_admin(&self, pubkey: &str) -> Result<Vec<String>> {
-        Ok(self.group_projection().list_channels_where_admin(pubkey))
+        Ok(self.view().groups().list_channels_where_admin(pubkey))
     }
 
     /// Number of members (admins + members) in a channel.
     pub fn count_channel_members(&self, channel_h: &str) -> Result<u64> {
-        Ok(self.group_projection().count_channel_members(channel_h))
+        Ok(self.view().groups().count_channel_members(channel_h))
     }
 }
 

@@ -15,11 +15,11 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<(u64, Message)>> {
         let mut rows = Vec::new();
-        for row in self.message_projections() {
+        for row in self.view().messages() {
             let Some(sequence) = self.event_arrival_sequence(&row.message.message_id)? else {
                 continue;
             };
-            rows.push((sequence, row.message));
+            rows.push((sequence, row.message.clone()));
         }
         rows.retain(|(sequence, _)| *sequence > after_sequence);
         rows.sort_by_key(|(cursor, _)| *cursor);

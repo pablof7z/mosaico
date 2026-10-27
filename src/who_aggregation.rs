@@ -105,38 +105,43 @@ impl WhoAggregation {
                 .iter()
                 .map(|profile| profile.pubkey.clone()),
         );
-        let running = local_sessions
+        // Session facts come from two bulk reads, not queries per pubkey: the
+        // referenced set includes every stopped session that still holds
+        // channel standing.
+        let mut all_identities = store
+            .session_identities()
+            .context("who aggregation: failed to read session identities")?;
+        // A stopped session whose handle was reclaimed for reuse has no lease
+        // by design and is shown from its profile; a running one must have it.
+        if let Some(session) = local_sessions
             .iter()
-            .map(|session| session.pubkey.clone())
-            .collect::<BTreeSet<_>>();
-        let mut all_profiles = store.profiles_by_pubkey();
+            .find(|session| !all_identities.contains_key(&session.pubkey))
+        {
+            anyhow::bail!(
+                "who aggregation: running derived session {} has no handle lease",
+                session.pubkey
+            );
+        }
+        let mut all_sessions = store
+            .list_sessions()
+            .context("who aggregation: failed to list sessions")?
+            .into_iter()
+            .map(|session| (session.pubkey.clone(), session))
+            .collect::<BTreeMap<_, _>>();
         let mut profiles = BTreeMap::new();
         let mut identities = BTreeMap::new();
         let mut sessions_by_pubkey = BTreeMap::new();
         for pubkey in referenced_pubkeys {
-            if let Some(profile) = all_profiles.remove(&pubkey) {
+            if let Some(profile) = store
+                .get_profile(&pubkey)
+                .with_context(|| format!("who aggregation: failed to read profile {pubkey}"))?
+            {
                 profiles.insert(pubkey.clone(), profile);
             }
-            match store.session_identity(&pubkey) {
-                Ok(Some(identity)) => {
-                    identities.insert(pubkey.clone(), identity);
-                }
-                Ok(None) => {}
-                // A stopped session whose handle was reclaimed for reuse has no
-                // lease by design; it is shown from its profile instead.
-                Err(_)
-                    if !running.contains(&pubkey)
-                        && store.handle_for_pubkey(&pubkey)?.is_none() => {}
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("who aggregation: failed to read session identity {pubkey}")
-                    });
-                }
+            if let Some(identity) = all_identities.remove(&pubkey) {
+                identities.insert(pubkey.clone(), identity);
             }
-            if let Some(session) = store
-                .get_session(&pubkey)
-                .with_context(|| format!("who aggregation: failed to read session {pubkey}"))?
-            {
+            if let Some(session) = all_sessions.remove(&pubkey) {
                 sessions_by_pubkey.insert(pubkey, session);
             }
         }

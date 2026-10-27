@@ -1,6 +1,6 @@
 //! Stateless product projection of one complete Nostr runtime group subscription level.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 
@@ -9,8 +9,10 @@ use crate::state::{Channel, ChannelMember};
 
 const MAX_CHANNEL_PARENT_DEPTH: usize = 16;
 
+/// Groups keyed by id, so per-channel reads are lookups.
+#[derive(Default)]
 pub(crate) struct GroupProjection {
-    groups: Vec<ProjectedGroup>,
+    groups: BTreeMap<String, ProjectedGroup>,
 }
 
 #[derive(Clone)]
@@ -24,7 +26,10 @@ struct ProjectedGroup {
 impl GroupProjection {
     pub(crate) fn new(snapshots: &[GroupSnapshot]) -> Self {
         Self {
-            groups: snapshots.iter().map(ProjectedGroup::from).collect(),
+            groups: snapshots
+                .iter()
+                .map(|snapshot| (snapshot.id.clone(), ProjectedGroup::from(snapshot)))
+                .collect(),
         }
     }
 
@@ -35,7 +40,7 @@ impl GroupProjection {
 
     pub(crate) fn list_channels(&self) -> Vec<Channel> {
         self.groups
-            .iter()
+            .values()
             .filter_map(|group| group.channel.clone())
             .collect()
     }
@@ -132,7 +137,7 @@ impl GroupProjection {
 
     pub(crate) fn list_channels_where_admin(&self, pubkey: &str) -> Vec<String> {
         self.groups
-            .iter()
+            .values()
             .filter(|group| group.admins.contains(pubkey))
             .map(|group| group.id.clone())
             .collect()
@@ -140,7 +145,7 @@ impl GroupProjection {
 
     pub(crate) fn list_channels_where_member(&self, pubkey: &str) -> Vec<String> {
         self.groups
-            .iter()
+            .values()
             .filter(|group| group.admins.contains(pubkey) || group.members.contains(pubkey))
             .map(|group| group.id.clone())
             .collect()
@@ -149,36 +154,10 @@ impl GroupProjection {
     /// Every group any of `pubkeys` is an admin or member of, in one scan.
     pub(crate) fn channels_involving(&self, pubkeys: &BTreeSet<String>) -> BTreeSet<String> {
         self.groups
-            .iter()
+            .values()
             .filter(|group| {
                 !group.admins.is_disjoint(pubkeys) || !group.members.is_disjoint(pubkeys)
             })
-            .map(|group| group.id.clone())
-            .collect()
-    }
-
-    /// Non-archived channels with their member pubkeys (admins included), in
-    /// one scan. Groups without metadata are not channels yet.
-    pub(crate) fn active_channel_rosters(&self) -> impl Iterator<Item = (&str, BTreeSet<&str>)> {
-        self.groups.iter().filter_map(|group| {
-            let channel = group.channel.as_ref()?;
-            if channel.is_archived() {
-                return None;
-            }
-            let roster = group
-                .admins
-                .iter()
-                .chain(group.members.iter())
-                .map(String::as_str)
-                .collect();
-            Some((group.id.as_str(), roster))
-        })
-    }
-
-    pub(crate) fn archived_channel_ids(&self) -> BTreeSet<String> {
-        self.groups
-            .iter()
-            .filter(|group| group.channel.as_ref().is_some_and(Channel::is_archived))
             .map(|group| group.id.clone())
             .collect()
     }
@@ -192,7 +171,7 @@ impl GroupProjection {
     }
 
     fn group(&self, id: &str) -> Option<&ProjectedGroup> {
-        self.groups.iter().find(|group| group.id == id)
+        self.groups.get(id)
     }
 }
 
@@ -244,7 +223,7 @@ fn member(channel_h: &str, pubkey: &str, role: &str) -> ChannelMember {
 #[cfg(test)]
 #[derive(Clone, Default)]
 pub(crate) struct TestGroupDelivery {
-    groups: Vec<ProjectedGroup>,
+    groups: BTreeMap<String, ProjectedGroup>,
 }
 
 #[cfg(test)]
@@ -255,12 +234,12 @@ pub(crate) struct TestGroup {
 #[cfg(test)]
 impl TestGroupDelivery {
     pub(crate) fn new(groups: impl IntoIterator<Item = TestGroup>) -> Self {
-        let mut groups = groups
-            .into_iter()
-            .map(|group| group.projected)
-            .collect::<Vec<_>>();
-        groups.sort_by(|left, right| left.id.cmp(&right.id));
-        Self { groups }
+        Self {
+            groups: groups
+                .into_iter()
+                .map(|group| (group.projected.id.clone(), group.projected))
+                .collect(),
+        }
     }
 
     pub(crate) fn projection(&self) -> GroupProjection {
