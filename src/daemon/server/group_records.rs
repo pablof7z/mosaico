@@ -142,7 +142,9 @@ async fn drain(
     mut known_ids: BTreeSet<String>,
 ) {
     let view = state.nip29_view();
-    let mut changes = view.subscribe_changes();
+    // A workspace binding added after its root exists is repaired at the next
+    // group change, not the next wake.
+    let mut changes = view.subscribe_group_changes();
     let mut renamed: BTreeSet<String> = BTreeSet::new();
     // One level for the initial pass, released before waiting for changes.
     let mut advertised = {

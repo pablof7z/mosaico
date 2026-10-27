@@ -28,6 +28,54 @@ fn complete_replacement_retracts_demand_excluded_content() {
 }
 
 #[test]
+fn content_only_replacement_does_not_wake_group_consumers() {
+    let view = Nip29ViewStore::default();
+    let keys = Keys::generate();
+    let changes = view.subscribe_group_changes();
+
+    view.replace(vec![event(&keys, "alpha", "first")]);
+
+    assert!(!changes.has_changed().unwrap());
+}
+
+#[test]
+fn group_change_wakes_group_consumers() {
+    let view = Nip29ViewStore::default();
+    let relay = Keys::generate();
+    let metadata = EventBuilder::new(Kind::Custom(39_000), "")
+        .tags([Tag::custom("d", ["alpha"]), Tag::custom("name", ["Alpha"])])
+        .finalize(&relay)
+        .unwrap();
+    view.replace_group_scope(BTreeSet::from(["alpha".to_string()]), BTreeSet::new());
+    let changes = view.subscribe_group_changes();
+
+    view.replace(vec![metadata]);
+
+    assert!(changes.has_changed().unwrap());
+}
+
+#[test]
+fn replacement_with_identical_groups_does_not_wake_group_consumers() {
+    let view = Nip29ViewStore::default();
+    let relay = Keys::generate();
+    let metadata = EventBuilder::new(Kind::Custom(39_000), "")
+        .tags([Tag::custom("d", ["alpha"]), Tag::custom("name", ["Alpha"])])
+        .finalize(&relay)
+        .unwrap();
+    view.replace_group_scope(BTreeSet::from(["alpha".to_string()]), BTreeSet::new());
+    view.replace(vec![metadata.clone()]);
+    let mut changes = view.subscribe_group_changes();
+    let mut all_changes = view.subscribe_changes();
+    changes.mark_unchanged();
+    all_changes.mark_unchanged();
+
+    view.replace(vec![metadata, event(&relay, "alpha", "new message")]);
+
+    assert!(all_changes.has_changed().unwrap());
+    assert!(!changes.has_changed().unwrap());
+}
+
+#[test]
 fn group_projection_obeys_exact_current_scope() {
     let view = Nip29ViewStore::default();
     let relay = Keys::generate();
