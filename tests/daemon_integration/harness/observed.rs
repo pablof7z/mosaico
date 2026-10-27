@@ -52,14 +52,17 @@ pub(crate) fn observed_chat(event_id: &str) -> Option<serde_json::Value> {
         .next()
 }
 
-pub(crate) fn wait_for_who_session_projection(
-    pubkey: &str,
+/// Wait until `who` lists this host's session with public `handle` in exactly
+/// `expected_channels`, returning the channels its rows last showed. `who`
+/// rows identify a session by its public handle; they carry no pubkey.
+pub(crate) fn wait_for_who_session_channels(
+    handle: &str,
     workspace: &str,
     expected_channels: &std::collections::BTreeSet<String>,
-) -> Option<(String, std::collections::BTreeSet<String>)> {
-    let mut projection = None;
+) -> Option<std::collections::BTreeSet<String>> {
+    let mut channels = None;
     wait_until(std::time::Duration::from_secs(25), || {
-        projection = rt().block_on(async {
+        channels = rt().block_on(async {
             let mut client = mosaico::daemon::client::Client::connect_or_spawn()
                 .await
                 .ok()?;
@@ -67,23 +70,16 @@ pub(crate) fn wait_for_who_session_projection(
                 .call("who", serde_json::json!({ "workspace": workspace }))
                 .await
                 .ok()?;
-            let rows = value["rows"].as_array()?;
-            let ours = rows
+            value["rows"]
+                .as_array()?
                 .iter()
-                .filter(|row| row["pubkey"].as_str() == Some(pubkey))
-                .collect::<Vec<_>>();
-            let slug = ours.first()?.get("slug")?.as_str()?.to_string();
-            let channels = ours
-                .iter()
+                .filter(|row| row["source"] == "Local" && row["slug"] == handle)
                 .map(|row| row["channel"].as_str().map(str::to_string))
-                .collect::<Option<std::collections::BTreeSet<_>>>()?;
-            Some((slug, channels))
+                .collect::<Option<std::collections::BTreeSet<_>>>()
         });
-        projection
-            .as_ref()
-            .is_some_and(|(_, channels)| channels == expected_channels)
+        channels.as_ref() == Some(expected_channels)
     })
-    .then_some(projection)
+    .then_some(channels)
     .flatten()
 }
 

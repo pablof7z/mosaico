@@ -157,10 +157,8 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         Duration::from_secs(25),
     );
 
-    let (before_slug, before_channels) =
-        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
-            .expect("who row for session before restart");
-    assert_eq!(before_slug, handle);
+    let before_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
+        .expect("who row for session before restart");
     assert_eq!(before_channels, expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
@@ -182,9 +180,8 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     );
     // The bounded SDK memory database starts empty after restart. Session adoption and
     // relay-backed group rehydration are independent, so await the public level.
-    let (after_slug, after_channels) =
-        wait_for_who_session_projection(&session.pubkey, &root, &expected_paths)
-            .expect("restarted daemon did not rehydrate the session's exact public routes");
+    let after_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
+        .expect("restarted daemon did not rehydrate the session's exact public routes");
     assert!(
         exact_state_is_current(
             &home,
@@ -194,7 +191,6 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
         ),
         "the reconciled session lost identity, generation, routes, or standing"
     );
-    assert_eq!(after_slug, handle);
     assert_eq!(after_channels, expected_paths);
     cleanup.assert_exact_processes_live();
 

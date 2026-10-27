@@ -26,7 +26,7 @@ pub(crate) use observed::{
     observed_channel_h, observed_channel_has_role, observed_channel_members, observed_chat,
     only_session_route, pubkey_for_harness_session, read_channel_messages,
     session_for_harness_session, session_identity_pubkey, session_routes,
-    wait_for_who_session_projection,
+    wait_for_who_session_channels,
 };
 #[path = "harness/pty_guard.rs"]
 mod pty_guard;
