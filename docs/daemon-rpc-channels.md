@@ -138,8 +138,12 @@ counts or activity are omitted rather than fabricated.
 params: {"channel": "#root/child", "session": "npub1…"|"hex"|"handle"|null}
 join result: {"channel": "#root/child",
               "history_notice": "…"|null}
-leave result: {"channel": "#root/child", "left": true|false}
+leave result: {"channel": "#root/child", "left": true|false,
+               "reason": "superseded_by_join"}  // reason only when a join
+                                                // re-admitted it mid-leave
 ```
+
+`left: false` without a reason means the session had not joined the channel.
 
 All three require an existing full path. Join is additive and never creates.
 Leave is explicit and may leave the joined set empty. Archive updates metadata

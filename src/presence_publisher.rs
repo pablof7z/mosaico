@@ -201,6 +201,12 @@ impl PresencePublisher {
         .await;
     }
 
+    /// Hold the publication lane, so awaited publications block (tests only).
+    #[cfg(test)]
+    pub(crate) async fn hold_lane_for_test(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.lane.lock().await
+    }
+
     fn submit(
         &self,
         outcome: StatusOutcome,

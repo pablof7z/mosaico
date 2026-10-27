@@ -36,4 +36,14 @@ fn a_channel_with_incomplete_ancestry_is_skipped_not_fatal() {
         .collect::<Vec<_>>();
     assert!(channels.contains(&"proj"), "rows: {channels:?}");
     assert!(!channels.contains(&"child"), "rows: {channels:?}");
+    // Leaving the channel out is visible, not silent.
+    assert_eq!(snapshot.unresolved_channels, ["child"]);
+    let value = serde_json::to_value(&snapshot).unwrap();
+    assert_eq!(
+        super::super::unresolved_note(&value).as_deref(),
+        Some(
+            "note: 1 channel(s) not shown: their parent channels have not \
+             been delivered by the relay yet"
+        )
+    );
 }

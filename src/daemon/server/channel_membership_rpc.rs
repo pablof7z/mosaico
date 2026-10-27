@@ -174,7 +174,11 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
             None,
         )
         .await;
-        return Ok(serde_json::json!({ "channel": channel_ref, "left": false }));
+        return Ok(serde_json::json!({
+            "channel": channel_ref,
+            "left": false,
+            "reason": "superseded_by_join",
+        }));
     }
     // Standing cleanup may already have completed the removal (only before
     // this leave began, or after a crash; never while it runs).
@@ -234,6 +238,10 @@ fn is_member(store: &crate::state::Store, pubkey: &str, channel: &str) -> Result
         .get_session_standing(pubkey, channel)?
         .is_some_and(|standing| standing.state == crate::state::StandingState::Member))
 }
+
+#[cfg(test)]
+#[path = "channel_membership_rpc/leave_tests.rs"]
+mod leave_tests;
 
 #[cfg(test)]
 mod tests {
