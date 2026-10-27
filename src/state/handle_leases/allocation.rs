@@ -42,20 +42,6 @@ impl Store {
         self.reserve_handle_for_pubkey(pubkey, agent_slug, Some(name), now)
     }
 
-    #[cfg(test)]
-    pub(crate) fn allocate_handle_with_hint(
-        &self,
-        pubkey: &str,
-        agent_slug: &str,
-        hint: Option<&str>,
-        now: u64,
-    ) -> Result<HandleAllocation> {
-        let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        let allocation = allocate_handle_in_with_hint(&tx, pubkey, agent_slug, hint, now)?;
-        tx.commit()?;
-        Ok(allocation)
-    }
-
     pub(crate) fn reserve_derived_identity<T>(
         &self,
         agent_slug: &str,
@@ -245,9 +231,9 @@ fn claim_free_custom_handle(
 
 /// Auto-derive a codename, preferring a caller-supplied hint (e.g. a launcher's
 /// own name for this session) when it is present, valid under Mosaico's handle
-/// rules, not live, and not inside another session's lease grace window. Unlike an explicit `session_name`, a hint never
-/// fails registration: any rejection just falls through to the ordinary
-/// codename sequence.
+/// rules, not live, and not inside another session's lease grace window.
+/// Unlike an explicit `session_name`, a hint never fails registration: any
+/// rejection just falls through to the ordinary codename sequence.
 fn allocate_handle_in_with_hint(
     tx: &Transaction<'_>,
     pubkey: &str,

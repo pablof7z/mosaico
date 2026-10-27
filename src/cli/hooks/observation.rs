@@ -35,20 +35,48 @@ pub(super) async fn report_observation(
     watch_pid: Option<i32>,
     profile: Option<String>,
 ) -> Result<String> {
-    let pty_session = std::env::var("MOSAICO_PTY_SESSION")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let pubkey = std::env::var("MOSAICO_PUBKEY")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let session_name = std::env::var("MOSAICO_SESSION_NAME")
-        .ok()
-        .filter(|s| !s.is_empty());
+    let params = session_start_params(
+        |key| std::env::var(key).ok(),
+        host,
+        observed_harness,
+        agent_slug,
+        cwd,
+        harness_session_id,
+        resume_id,
+        watch_pid,
+        profile,
+    );
+    let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {
+        render_init_progress(&item);
+    })
+    .await?;
+    let pubkey = v["pubkey"]
+        .as_str()
+        .context("daemon returned no pubkey")?
+        .to_string();
+    Ok(pubkey)
+}
+
+/// Build `session_start` params, reading hook environment through `env`.
+#[allow(clippy::too_many_arguments)]
+fn session_start_params(
+    env: impl Fn(&str) -> Option<String>,
+    host: &HostDef,
+    observed_harness: &str,
+    agent_slug: &str,
+    cwd: &Path,
+    harness_session_id: Option<String>,
+    resume_id: Option<String>,
+    watch_pid: Option<i32>,
+    profile: Option<String>,
+) -> serde_json::Value {
+    let var = |key: &str| env(key).filter(|s| !s.is_empty());
+    let pty_session = var("MOSAICO_PTY_SESSION");
+    let pubkey = var("MOSAICO_PUBKEY");
+    let session_name = var("MOSAICO_SESSION_NAME");
     // Sent unconditionally: the server ignores the hint once a pubkey is located.
-    let session_name_hint = std::env::var("AGENT_SESSION_NAME")
-        .ok()
-        .filter(|s| !s.is_empty());
-    let params = serde_json::json!({
+    let session_name_hint = var("AGENT_SESSION_NAME");
+    serde_json::json!({
         "agent": agent_slug,
         "claimed_harness": host.name,
         "observed_harness": observed_harness,
@@ -66,16 +94,7 @@ pub(super) async fn report_observation(
         // A direct `claude --agent <profile>` observation seeds only the
         // agent-owned profile selection. Launch argv remains driver/preset-owned.
         "profile": profile,
-    });
-    let v = super::super::daemon_call_hook_async_with_items("session_start", params, |item| {
-        render_init_progress(&item);
     })
-    .await?;
-    let pubkey = v["pubkey"]
-        .as_str()
-        .context("daemon returned no pubkey")?
-        .to_string();
-    Ok(pubkey)
 }
 
 pub(super) fn render_init_progress(item: &serde_json::Value) {

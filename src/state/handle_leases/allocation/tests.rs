@@ -1,5 +1,18 @@
 use super::*;
 
+/// Reserve a fresh derived identity named only by `hint`, as session start does.
+fn reserve_with_hint(
+    store: &Store,
+    pubkey: &str,
+    hint: Option<&str>,
+    now: u64,
+) -> HandleAllocation {
+    store
+        .reserve_derived_identity("codex", None, hint, now, |_| Ok(((), pubkey.to_string())))
+        .unwrap()
+        .2
+}
+
 #[test]
 fn handle_conflict_rolls_back_signer() {
     let store = Store::open_memory().unwrap();
@@ -23,9 +36,7 @@ fn handle_conflict_rolls_back_signer() {
 #[test]
 fn hint_normalizes_free_text_into_a_handle() {
     let store = Store::open_memory().unwrap();
-    let allocation = store
-        .allocate_handle_with_hint("pk", "codex", Some("My Cool Agent!"), 10)
-        .unwrap();
+    let allocation = reserve_with_hint(&store, "pk", Some("My Cool Agent!"), 10);
     assert_eq!(allocation.handle, "my-cool-agent-codex");
 }
 
@@ -36,9 +47,7 @@ fn hint_falls_back_to_codename_on_live_collision() {
         .allocate_custom_handle("owner", "codex", "taken", 1)
         .unwrap();
 
-    let allocation = store
-        .allocate_handle_with_hint("new", "codex", Some("taken"), 2)
-        .unwrap();
+    let allocation = reserve_with_hint(&store, "new", Some("taken"), 2);
 
     assert_ne!(allocation.handle, "taken-codex");
     assert_eq!(
@@ -49,11 +58,9 @@ fn hint_falls_back_to_codename_on_live_collision() {
 
 #[test]
 fn blank_hint_behaves_like_no_hint() {
-    let store = Store::open_memory().unwrap();
-    let allocation = store
-        .allocate_handle_with_hint("pk", "codex", Some("   "), 10)
-        .unwrap();
-    assert_eq!(allocation.handle.split('-').count(), 2);
+    let without_hint = reserve_with_hint(&Store::open_memory().unwrap(), "pk", None, 10);
+    let blank_hint = reserve_with_hint(&Store::open_memory().unwrap(), "pk", Some("   "), 10);
+    assert_eq!(blank_hint, without_hint);
 }
 
 #[test]
@@ -67,14 +74,12 @@ fn hint_respects_a_stopped_sessions_grace_window() {
         .execute("UPDATE handle_leases SET live=0 WHERE pubkey='stopped'", [])
         .unwrap();
 
-    let inside = store
-        .allocate_handle_with_hint(
-            "early",
-            "codex",
-            Some("research"),
-            100 + HANDLE_LEASE_GRACE_SECS - 1,
-        )
-        .unwrap();
+    let inside = reserve_with_hint(
+        &store,
+        "early",
+        Some("research"),
+        100 + HANDLE_LEASE_GRACE_SECS - 1,
+    );
     assert_ne!(inside.handle, "research-codex");
     assert_eq!(
         store
@@ -84,14 +89,12 @@ fn hint_respects_a_stopped_sessions_grace_window() {
         Some("stopped")
     );
 
-    let after = store
-        .allocate_handle_with_hint(
-            "late",
-            "codex",
-            Some("research"),
-            100 + HANDLE_LEASE_GRACE_SECS,
-        )
-        .unwrap();
+    let after = reserve_with_hint(
+        &store,
+        "late",
+        Some("research"),
+        100 + HANDLE_LEASE_GRACE_SECS,
+    );
     assert_eq!(after.handle, "research-codex");
     assert_eq!(after.reclaimed_pubkey.as_deref(), Some("stopped"));
     assert_eq!(
