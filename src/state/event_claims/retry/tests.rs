@@ -148,9 +148,10 @@ fn the_timer_wakes_for_driven_claims_and_offline_mentions_only() {
             .unwrap());
     }
     // An abandoned processing lease is due once the lease expires.
-    store
-        .complete_offline_mention("mention", "agent", 11)
-        .unwrap();
+    // A pending (charged) claim completes regardless of generation.
+    assert!(store
+        .complete_offline_mention_run("mention", "agent", 0, 11)
+        .unwrap());
     let lease_due = 5 + PROCESSING_LEASE_SECS + 1;
     assert_eq!(
         store.next_claim_due_excluding(&BTreeSet::new()).unwrap(),

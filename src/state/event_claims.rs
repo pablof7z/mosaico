@@ -189,7 +189,9 @@ impl Store {
         now: u64,
     ) -> Result<bool> {
         // One statement: the ownership check, the completion, and the compact
-        // tombstone (see `complete_offline_mention`) land together.
+        // tombstone land together. Nostr observations may replay an event long
+        // after the local message cache is pruned, so this process-spawning side
+        // effect keeps a compact tombstone instead of its payload.
         Ok(self.conn.execute(
             "UPDATE event_claims
              SET state='completed', from_pubkey='', channel_h='', body='', updated_at=?4
@@ -202,24 +204,6 @@ impl Store {
                 now
             ],
         )? > 0)
-    }
-
-    pub fn complete_offline_mention(
-        &self,
-        event_id: &str,
-        mentioned_pubkey: &str,
-        now: u64,
-    ) -> Result<()> {
-        // Nostr observations may replay an event long after the local message
-        // cache is pruned. Keep a compact tombstone for this process-spawning
-        // side effect instead of applying the generic completed-ledger TTL.
-        self.conn.execute(
-            "UPDATE event_claims
-             SET state='completed', from_pubkey='', channel_h='', body='', updated_at=?3
-             WHERE event_id=?1 AND claim_key=?2",
-            params![event_id, offline_mention_claim(mentioned_pubkey), now],
-        )?;
-        Ok(())
     }
 
     /// Return a claimed offline mention to the retryable state. Recovery owns

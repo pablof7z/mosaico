@@ -40,7 +40,7 @@ impl Store {
     }
 
     /// Renew a run's lease on its current target and on every target it still
-    /// holds queued behind it, in one store call. Returns whether the run
+    /// holds queued behind it, in one transaction. Returns whether the run
     /// still owns the current target (first in `held`); a queued target it no
     /// longer owns is skipped when its turn comes.
     pub(crate) fn renew_held_claims(
@@ -49,6 +49,12 @@ impl Store {
         held: &[(&str, u32)],
         now: u64,
     ) -> Result<bool> {
+        // An error rolls the whole renewal back (the transaction drops); the
+        // caller then skips the side effect.
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         let mut owns_current = false;
         for (position, (claim_key, generation)) in held.iter().enumerate() {
             let renewed = self.renew_claim(event_id, claim_key, *generation, now)?;
@@ -56,6 +62,7 @@ impl Store {
                 owns_current = renewed;
             }
         }
+        tx.commit()?;
         Ok(owns_current)
     }
 
