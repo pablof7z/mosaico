@@ -30,6 +30,14 @@ therefore reads `<codename>-<profile>-pi`, e.g. `@willow-vale-071-architect-pi`
 under `~/.pi/architect`. Sessions Mosaico launched keep the launch-owned
 slug from `MOSAICO_AGENT`.
 
+An external launcher (for example a subagent orchestrator) can set
+`AGENT_SESSION_NAME` on a Pi it spawns. For an unhosted Pi the extension sends
+it as a soft `session_name_hint`: a brand-new session takes that name as its
+handle (`<name>-<agent>`) when the name is valid, not live, and not inside a
+stopped session's 7-day handle grace window; otherwise it gets an ordinary
+codename. The hint never fails registration and is ignored when the session
+already has an identity. A Mosaico-hosted Pi never sends it.
+
 ## Interactive Pi surfaces
 
 `/mosaico` shows this Pi session's agent name, public status, and exact active

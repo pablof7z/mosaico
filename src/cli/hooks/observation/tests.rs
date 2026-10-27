@@ -71,3 +71,27 @@ fn extract_agent_flag_dangling_flag_at_end_yields_none() {
     let a = argv(&["claude", "--agent"]);
     assert_eq!(extract_agent_flag(&a), None);
 }
+
+#[test]
+fn session_start_params_forward_agent_session_name_as_a_soft_hint() {
+    let host = crate::cli::hooks::find_hook_host("codex").expect("codex hook host");
+    let env = |key: &str| match key {
+        "AGENT_SESSION_NAME" => Some("orchestrator-child-7".to_string()),
+        "MOSAICO_SESSION_NAME" => Some(String::new()),
+        _ => None,
+    };
+    let params = super::session_start_params(
+        env,
+        host,
+        "codex",
+        "codex",
+        std::path::Path::new("/tmp"),
+        None,
+        None,
+        None,
+        None,
+    );
+
+    assert_eq!(params["session_name_hint"], "orchestrator-child-7");
+    assert!(params["session_name"].is_null());
+}

@@ -46,6 +46,7 @@ impl Store {
         &self,
         agent_slug: &str,
         session_name: Option<&str>,
+        session_name_hint: Option<&str>,
         now: u64,
         derive: impl FnOnce(&str) -> Result<(T, String)>,
     ) -> Result<(T, String, HandleAllocation)> {
@@ -66,7 +67,7 @@ impl Store {
         }
         let allocation = match session_name {
             Some(name) => allocate_custom_handle_in(&tx, &pubkey, agent_slug, name, now)?,
-            None => allocate_handle_in(&tx, &pubkey, agent_slug, now)?,
+            None => allocate_handle_in_with_hint(&tx, &pubkey, agent_slug, session_name_hint, now)?,
         };
         tx.commit()?;
         Ok((value, pubkey, allocation))
@@ -155,6 +156,32 @@ fn allocate_custom_handle_in(
             reclaimed_pubkey: None,
         });
     }
+    claim_free_custom_handle(tx, pubkey, agent_slug, &handle, now, Reclaim::AnyDead)?
+        .ok_or_else(|| anyhow::anyhow!("session name {name:?} is already in use as {handle:?}"))
+}
+
+/// Which non-live leases a named claim may take over.
+#[derive(Clone, Copy)]
+enum Reclaim {
+    /// An explicit `session_name` takes over any lease that is not live.
+    AnyDead,
+    /// A soft hint, like auto-naming, leaves a non-live lease alone until
+    /// `HANDLE_LEASE_GRACE_SECS` after its last activity.
+    AfterGrace,
+}
+
+/// Try to lease `handle` for `pubkey`. `None` means the handle is live
+/// elsewhere, or (for `Reclaim::AfterGrace`) still inside its grace window;
+/// the caller decides whether that is a hard failure (an explicit name) or
+/// grounds to fall back to another name (a soft hint).
+fn claim_free_custom_handle(
+    tx: &Transaction<'_>,
+    pubkey: &str,
+    agent_slug: &str,
+    handle: &str,
+    now: u64,
+    reclaim: Reclaim,
+) -> Result<Option<HandleAllocation>> {
     let occupied = tx
         .query_row(
             "SELECT lease.pubkey,
@@ -162,33 +189,72 @@ fn allocate_custom_handle_in(
                         SELECT 1 FROM sessions AS session
                         WHERE session.pubkey=lease.pubkey
                           AND session.runtime_state='running'
-                    ))
+                    )),
+                    lease.last_active_at
              FROM handle_leases AS lease WHERE lease.handle=?1",
-            [&handle],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?)),
+            [handle],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, u64>(2)?,
+                ))
+            },
         )
         .optional()?;
-    let reclaimed_pubkey = occupied.as_ref().map(|(owner, _)| owner.clone());
-    match occupied {
-        Some((_owner, true)) => {
-            anyhow::bail!("session name {name:?} is already in use as {handle:?}")
+    let reclaimed_pubkey = match occupied {
+        None => None,
+        Some((_owner, true, _)) => return Ok(None),
+        Some((_owner, false, last_active))
+            if matches!(reclaim, Reclaim::AfterGrace)
+                && now.saturating_sub(last_active) < HANDLE_LEASE_GRACE_SECS =>
+        {
+            return Ok(None);
         }
-        Some((owner, false)) => {
-            tx.execute("DELETE FROM handle_leases WHERE handle=?1", [&handle])?;
+        Some((owner, false, _)) => {
+            tx.execute("DELETE FROM handle_leases WHERE handle=?1", [handle])?;
             tracing::debug!(pubkey = %owner, %handle, "reclaiming dead custom handle lease");
+            Some(owner)
         }
-        None => {}
-    }
+    };
     tx.execute(
         "INSERT INTO handle_leases
             (handle, pubkey, agent_slug, leased_at, last_active_at, live)
          VALUES (?1, ?2, ?3, ?4, ?4, 1)",
         params![handle, pubkey, agent_slug, now],
     )?;
-    Ok(HandleAllocation {
-        handle,
+    Ok(Some(HandleAllocation {
+        handle: handle.to_string(),
         reclaimed_pubkey,
-    })
+    }))
+}
+
+/// Auto-derive a codename, preferring a caller-supplied hint (e.g. a launcher's
+/// own name for this session) when it is present, valid under Mosaico's handle
+/// rules, not live, and not inside another session's lease grace window.
+/// Unlike an explicit `session_name`, a hint never fails registration: any
+/// rejection just falls through to the ordinary codename sequence.
+fn allocate_handle_in_with_hint(
+    tx: &Transaction<'_>,
+    pubkey: &str,
+    agent_slug: &str,
+    hint: Option<&str>,
+    now: u64,
+) -> Result<HandleAllocation> {
+    if lease_for_pubkey(tx, pubkey)?.is_none() {
+        let hinted_handle = hint
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .and_then(|name| custom_handle(agent_slug, &crate::slug::slugify(name)).ok());
+        if let Some(handle) = hinted_handle {
+            if let Some(allocation) =
+                claim_free_custom_handle(tx, pubkey, agent_slug, &handle, now, Reclaim::AfterGrace)?
+            {
+                return Ok(allocation);
+            }
+        }
+    }
+    allocate_handle_in(tx, pubkey, agent_slug, now)
 }
 
 fn lease_for_pubkey(tx: &Transaction<'_>, pubkey: &str) -> Result<Option<String>> {
@@ -202,26 +268,5 @@ fn lease_for_pubkey(tx: &Transaction<'_>, pubkey: &str) -> Result<Option<String>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn handle_conflict_rolls_back_signer() {
-        let store = Store::open_memory().unwrap();
-        store
-            .allocate_custom_handle("owner", "codex", "named", 1)
-            .unwrap();
-        let error = store
-            .reserve_derived_identity("codex", Some("named"), 2, |_| {
-                Ok(((), "new-pk".to_string()))
-            })
-            .unwrap_err();
-
-        assert!(error.to_string().contains("already in use"));
-        assert!(store.session_signer_salt("new-pk").unwrap().is_none());
-        assert_eq!(
-            store.pubkey_for_handle("named-codex").unwrap().as_deref(),
-            Some("owner")
-        );
-    }
-}
+#[path = "allocation/tests.rs"]
+mod tests;

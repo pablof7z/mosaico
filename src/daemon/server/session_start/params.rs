@@ -22,6 +22,11 @@ pub(super) struct SessionStartParams {
     pub(super) endpoint_kind: Option<crate::session_host::transport::TransportKind>,
     #[serde(default)]
     pub(super) session_name: Option<String>,
+    /// Soft, launcher-supplied preferred name for a brand-new per-session
+    /// identity (e.g. a hosting orchestrator's own id for this child).
+    /// Ignored once a session already has a locator or handle.
+    #[serde(default)]
+    pub(super) session_name_hint: Option<String>,
     #[serde(default)]
     pub(super) resume_id: Option<String>,
     /// Hook adapter's asserted host. Diagnostic only.
