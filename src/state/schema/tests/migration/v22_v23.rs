@@ -63,5 +63,5 @@ fn schema_twenty_two_admits_pi_rpc_without_losing_runtime_rows() {
     drop(store);
 
     let conn = Connection::open(path).unwrap();
-    assert_eq!(version(&conn), 26);
+    assert_eq!(version(&conn), 27);
 }

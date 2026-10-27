@@ -261,6 +261,7 @@ pub(crate) use reader::StoreReader;
 pub mod receipts;
 mod retention;
 pub use retention::{RetentionPruneReport, COMPLETED_LEDGER_RETENTION_SECS};
+mod profile_retirements;
 mod session_context;
 mod session_cursor;
 mod session_lifecycle;

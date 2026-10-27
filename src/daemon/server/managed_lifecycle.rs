@@ -18,6 +18,16 @@ pub(super) async fn reconcile_stopping(state: &Arc<DaemonState>) {
 const RECONCILE_INTERVAL: Duration = Duration::from_secs(5);
 
 pub(super) fn spawn(state: Arc<DaemonState>) {
+    // Relay publication can block for its whole send timeout, so durable
+    // retirements retry on their own cadence, never stalling lifecycle work.
+    let retirements = state.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(RECONCILE_INTERVAL);
+        loop {
+            tick.tick().await;
+            super::profile_retirement::retry_due(&retirements).await;
+        }
+    });
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(RECONCILE_INTERVAL);
         loop {

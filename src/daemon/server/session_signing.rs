@@ -169,45 +169,6 @@ pub(crate) fn load_session_identity(
     })
 }
 
-/// Republish a reclaimed handle's previous owner under its retired profile.
-///
-/// Session start serves hooks, which must return within their latency budget
-/// even when the relay is wedged, so the relay publication runs in the
-/// background; only the local signer and profile construction are inline.
-pub(in crate::daemon::server) fn retire_reclaimed_profile(
-    state: &Arc<DaemonState>,
-    reclaimed_pubkey: Option<&str>,
-) -> Result<()> {
-    let Some(pubkey) = reclaimed_pubkey else {
-        return Ok(());
-    };
-    let Some(session) = state.with_store(|store| store.get_session(pubkey))? else {
-        tracing::warn!(pubkey, "reclaimed handle had no local runtime projection");
-        return Ok(());
-    };
-    let keys = state.session_signing_keys(pubkey)?;
-    let npub = crate::idref::npub(pubkey).unwrap_or_else(|| pubkey.to_string());
-    let profile = crate::domain::Profile::agent(
-        crate::domain::AgentRef::new(pubkey.to_string(), npub.clone()),
-        session.agent_slug.clone(),
-        state.host().clone(),
-        state.owners().clone(),
-    );
-    let domain = crate::domain::DomainEvent::Profile(profile);
-    let state = state.clone();
-    let pubkey = pubkey.to_string();
-    tokio::spawn(async move {
-        if let Err(error) = state.provider().enqueue(&domain, &keys).await {
-            tracing::warn!(
-                pubkey,
-                error = %format!("{error:#}"),
-                "reclaimed handle retirement profile was not published"
-            );
-        }
-    });
-    Ok(())
-}
-
 #[cfg(test)]
 #[path = "session_signing/tests.rs"]
 mod tests;

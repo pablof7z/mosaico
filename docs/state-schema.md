@@ -17,7 +17,13 @@ start from production-shaped deployed schemas and verify preservation through
 the complete chain to current. A malformed source schema fails before its
 version or tables are changed.
 
-## Current schema: 26
+## Current schema: 27
+
+Schema 27 adds `profile_retirements`. Each row is a reclaimed handle's
+previous owner whose retirement profile (its kind:0 without the handle) the
+relay has not yet acknowledged. Session start records the row and attempts the
+publication off the hook path. The lifecycle loop retries due rows until
+acknowledged, across reconnects and restarts.
 
 Schema 26 renames `session_coaching` to `session_notice`. The rename is a
 one-way migration with no runtime alias or dual read.
@@ -54,7 +60,7 @@ The remaining tables are product-local authority:
 
 | Class | Tables |
 |---|---|
-| Sessions and local identity | `sessions`, `session_notice`, `session_locators`, `session_signers`, `handle_leases`, `mcp_actor_aliases` |
+| Sessions and local identity | `sessions`, `session_notice`, `session_locators`, `session_signers`, `handle_leases`, `profile_retirements`, `mcp_actor_aliases` |
 | Routes and reconciliation | `session_channels`, `session_standing`, `workspace_roots`, `channel_resolution_intents` |
 | Delivery and execution | `inbox`, `event_claims`, `native_turn_attempts` |
 | Operational evidence | `channel_readiness_attempts`, `receipts` |
@@ -94,6 +100,7 @@ preset configuration to rediscover a live runtime's transport.
 These entries describe the source shape of older deployments. They are not
 current read contracts.
 
+- **Schema 27** added `profile_retirements`.
 - **Schema 26** renamed `session_coaching` to `session_notice`.
 - **Schema 21** added `session_coaching`, a generation-scoped ledger of
   progressive notice claims already emitted.

@@ -22,7 +22,7 @@ fn schema_twenty_four_renames_the_arrival_ledger_without_losing_its_cursor() {
     drop(store);
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(version(&conn), 26);
+    assert_eq!(version(&conn), 27);
     assert!(table_exists(&conn, "event_arrivals"));
     assert!(!table_exists(&conn, "deployed_arrival_ledger"));
 }

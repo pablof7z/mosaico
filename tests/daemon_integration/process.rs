@@ -8,6 +8,8 @@ mod blocking_cli;
 mod cross_project_guard;
 #[path = "process/hooks.rs"]
 mod hooks;
+#[path = "process/profile_retirement.rs"]
+mod profile_retirement;
 #[path = "process/version_skew.rs"]
 mod version_skew;
 #[path = "process/who.rs"]

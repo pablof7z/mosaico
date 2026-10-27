@@ -165,6 +165,7 @@ mod diagnostics;
 mod engine_lifecycle;
 mod lifecycle;
 mod mcp_actor;
+mod profile_retirement;
 mod profile_rpc;
 mod resolution;
 mod session_end;
@@ -194,11 +195,11 @@ use engine_lifecycle::{cancel_session, engine_params_for, reconcile_sessions, sp
 pub use lifecycle::run;
 use lifecycle::{write_json, ClientGuard, InitProgress};
 use my_session::{rpc_my_session, rpc_my_session_status};
+use profile_retirement::retire_reclaimed_profile;
 use profile_rpc::{resolve_backend_pubkey, resolve_channel_member_pubkey_hex, resolve_pubkey_hex};
 use resolution::{resolve_session, resolve_session_inner, CallerAnchor, ResolveScope};
 use session_end::{rpc_session_end, rpc_session_kill};
 use session_pty_wrap::rpc_session_pty_wrap;
-use session_signing::retire_reclaimed_profile;
 pub(crate) use session_signing::{
     load_session_identity, prepare_session_identity, PreparedIdentity,
 };

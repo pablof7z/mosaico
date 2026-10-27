@@ -64,6 +64,13 @@ CREATE TABLE IF NOT EXISTS session_notice (
     PRIMARY KEY (pubkey, runtime_generation, code)
 );
 
+-- A reclaimed handle's previous owner whose retirement profile (kind:0
+-- without the handle) has not yet been acknowledged by the relay.
+CREATE TABLE IF NOT EXISTS profile_retirements (
+    pubkey TEXT PRIMARY KEY CHECK (pubkey <> ''),
+    due_at INTEGER NOT NULL
+);
+
 -- Keyed, non-raw correlation aliases for remote MCP conversation actors.
 CREATE TABLE IF NOT EXISTS mcp_actor_aliases (
     actor_key  TEXT PRIMARY KEY,
