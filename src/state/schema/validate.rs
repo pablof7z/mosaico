@@ -75,6 +75,13 @@ fn validate_identity_and_delivery(conn: &Connection, path: Option<&Path>) -> Res
     )?;
     ensure_columns(
         conn,
+        "profile_retirements",
+        &["pubkey", "due_at", "attempts"],
+        &[],
+        path,
+    )?;
+    ensure_columns(
+        conn,
         "session_notice",
         &["pubkey", "runtime_generation", "code", "shown_at"],
         &[],

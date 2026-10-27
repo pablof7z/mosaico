@@ -19,6 +19,17 @@ fn relay_profile_name(relay: &str, pubkey: &str) -> Option<String> {
         })
 }
 
+fn retirement_attempts(home: &Home, pubkey: &str) -> i64 {
+    rusqlite::Connection::open(home.store_path())
+        .expect("open state.db")
+        .query_row(
+            "SELECT attempts FROM profile_retirements WHERE pubkey=?1",
+            [pubkey],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+}
+
 fn due_retirements(home: &Home) -> Vec<String> {
     let conn = rusqlite::Connection::open(home.store_path()).expect("open state.db");
     let mut statement = conn
@@ -83,6 +94,15 @@ fn reclaimed_profile_retirement_lands_after_the_relay_recovers() {
         due_retirements(&home),
         std::slice::from_ref(&old_pubkey),
         "the retirement must be durable while the relay is wedged"
+    );
+
+    // The retry loop really attempted it against the wedged relay (and backed
+    // off); recovery below must not wait out that backoff.
+    assert!(
+        wait_until(std::time::Duration::from_secs(25), || {
+            retirement_attempts(&home, &old_pubkey) >= 1
+        }),
+        "no retirement attempt failed against the wedged relay"
     );
 
     // The relay recovers: point the daemon's configuration at a live relay.

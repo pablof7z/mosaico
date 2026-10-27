@@ -39,17 +39,42 @@ impl Store {
     /// Record a failed attempt and back the next one off. Returns how many
     /// attempts have now failed.
     pub(crate) fn record_profile_retirement_failure(&self, pubkey: &str, now: u64) -> Result<u32> {
-        let failures: u32 = self.conn.query_row(
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let failures: u32 = transaction.query_row(
             "UPDATE profile_retirements SET attempts=attempts+1 WHERE pubkey=?1
              RETURNING attempts",
             [pubkey],
             |row| row.get(0),
         )?;
-        self.conn.execute(
+        transaction.execute(
             "UPDATE profile_retirements SET due_at=?2 WHERE pubkey=?1",
             params![pubkey, now.saturating_add(retry_delay_secs(failures))],
         )?;
+        transaction.commit()?;
         Ok(failures)
+    }
+
+    /// Make every retirement due now with a fresh backoff: the relay changed,
+    /// so earlier failures say nothing about the next attempt.
+    pub(crate) fn reset_profile_retirement_backoff(&self) -> Result<()> {
+        self.conn
+            .execute("UPDATE profile_retirements SET due_at=0, attempts=0", [])?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn profile_retirement_attempts(&self, pubkey: &str) -> Result<Option<u32>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT attempts FROM profile_retirements WHERE pubkey=?1",
+                [pubkey],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     pub(crate) fn complete_profile_retirement(&self, pubkey: &str) -> Result<()> {
@@ -85,6 +110,10 @@ mod tests {
 
         let delays = (1..=10).map(retry_delay_secs).collect::<Vec<_>>();
         assert_eq!(delays, [5, 10, 20, 40, 80, 160, 320, 600, 600, 600]);
+
+        store.reset_profile_retirement_backoff().unwrap();
+        assert_eq!(store.list_due_profile_retirements(0).unwrap(), ["pk"]);
+        assert_eq!(store.profile_retirement_attempts("pk").unwrap(), Some(0));
 
         store.complete_profile_retirement("pk").unwrap();
         assert!(store

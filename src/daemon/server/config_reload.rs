@@ -69,6 +69,10 @@ async fn reload(state: &Arc<DaemonState>) -> Result<bool> {
 
     if runtime_changed(&previous, &next) {
         reload_nostr_runtime(state, &next, next_backend_keys).await?;
+        // Backoff earned against the previous relay must not delay the new one.
+        if let Err(error) = state.with_store(|store| store.reset_profile_retirement_backoff()) {
+            tracing::warn!(%error, "profile retirement backoff was not reset");
+        }
     } else {
         let provider = provider_for(
             state.nostr(),

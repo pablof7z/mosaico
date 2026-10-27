@@ -42,25 +42,24 @@ pub(in crate::daemon::server) async fn retry_due(state: &Arc<DaemonState>) {
 }
 
 async fn attempt(state: &Arc<DaemonState>, pubkey: &str) {
+    match publish(state, pubkey).await {
+        Ok(()) => complete(state, pubkey),
+        Err(error) => record_failure(state, pubkey, &error),
+    }
+}
+
+/// Publish one retirement. Any failure, local (read, signer) or relay, takes
+/// the same backoff: a missing signer can be permanent.
+async fn publish(state: &Arc<DaemonState>, pubkey: &str) -> std::result::Result<(), String> {
     let session = match state.with_store(|store| store.get_session(pubkey)) {
         Ok(Some(session)) => session,
-        Ok(None) => {
-            // Nothing local signs for this pubkey any more.
-            complete(state, pubkey);
-            return;
-        }
-        Err(error) => {
-            tracing::warn!(pubkey, %error, "profile retirement read failed");
-            return;
-        }
+        // Nothing local signs for this pubkey any more.
+        Ok(None) => return Ok(()),
+        Err(error) => return Err(format!("profile retirement read failed: {error:#}")),
     };
-    let keys = match state.session_signing_keys(pubkey) {
-        Ok(keys) => keys,
-        Err(error) => {
-            tracing::warn!(pubkey, %error, "profile retirement signer unavailable");
-            return;
-        }
-    };
+    let keys = state
+        .session_signing_keys(pubkey)
+        .map_err(|error| format!("profile retirement signer unavailable: {error:#}"))?;
     let npub = crate::idref::npub(pubkey).unwrap_or_else(|| pubkey.to_string());
     let profile = crate::domain::Profile::agent(
         crate::domain::AgentRef::new(pubkey.to_string(), npub),
@@ -68,23 +67,22 @@ async fn attempt(state: &Arc<DaemonState>, pubkey: &str) {
         state.host().clone(),
         state.owners().clone(),
     );
-    match state
+    state
         .provider()
         .enqueue(&crate::domain::DomainEvent::Profile(profile), &keys)
         .await
-    {
-        Ok(_) => complete(state, pubkey),
-        Err(error) => {
-            let failures = state
-                .with_store(|store| store.record_profile_retirement_failure(pubkey, now_secs()))
-                .unwrap_or(0);
-            let error = format!("{error:#}");
-            if warns_on_failure(failures) {
-                tracing::warn!(pubkey, %error, "reclaimed handle retirement profile remains due");
-            } else {
-                tracing::debug!(pubkey, failures, %error, "retirement retry failed");
-            }
-        }
+        .map(|_| ())
+        .map_err(|error| format!("{error:#}"))
+}
+
+fn record_failure(state: &Arc<DaemonState>, pubkey: &str, error: &str) {
+    let failures = state
+        .with_store(|store| store.record_profile_retirement_failure(pubkey, now_secs()))
+        .unwrap_or(0);
+    if warns_on_failure(failures) {
+        tracing::warn!(pubkey, %error, "reclaimed handle retirement profile remains due");
+    } else {
+        tracing::debug!(pubkey, failures, %error, "retirement retry failed");
     }
 }
 
@@ -102,9 +100,54 @@ fn complete(state: &Arc<DaemonState>, pubkey: &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A retirement that cannot even be signed (here: no signer bound) still
+    /// backs off like a relay failure instead of retrying every tick forever.
+    #[tokio::test]
+    async fn a_local_retirement_failure_backs_off_too() {
+        let state = DaemonState::new_for_test().await;
+        state.with_store(|store| {
+            store
+                .reserve_session_with_facts(
+                    &crate::state::RegisterSession {
+                        pubkey: "unsignable".into(),
+                        observed_harness: "codex".into(),
+                        agent_slug: "codex".into(),
+                        launch_channel_h: "room".into(),
+                        work_root: "room".into(),
+                        child_pid: None,
+                        now: 1,
+                    },
+                    &crate::state::AdmittedRuntimeFacts {
+                        observed_harness: "codex".into(),
+                        claimed_harness: String::new(),
+                        preset: String::new(),
+                        transport: "pty".into(),
+                        endpoint_provenance: "launch".into(),
+                    },
+                )
+                .unwrap();
+            store.schedule_profile_retirement("unsignable", 1).unwrap();
+        });
+
+        retry_due(&state).await;
+
+        state.with_store(|store| {
+            assert_eq!(
+                store.profile_retirement_attempts("unsignable").unwrap(),
+                Some(1)
+            );
+            assert!(store
+                .list_due_profile_retirements(now_secs())
+                .unwrap()
+                .is_empty());
+        });
+    }
+
     #[test]
     fn only_the_first_failure_of_a_retirement_warns() {
-        assert!(super::warns_on_failure(1));
-        assert!((2..=50).all(|failures| !super::warns_on_failure(failures)));
+        assert!(warns_on_failure(1));
+        assert!((2..=50).all(|failures| !warns_on_failure(failures)));
     }
 }
