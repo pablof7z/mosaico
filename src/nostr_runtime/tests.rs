@@ -10,7 +10,7 @@ use super::{database_capacity, NostrRuntime, PublishError};
 
 #[path = "tests/relay.rs"]
 mod relay;
-use relay::{AckMode, TestRelay};
+use relay::{AckMode, SubscriptionFrame, TestRelay};
 
 async fn runtime(relay: &TestRelay, timeout: Duration) -> Arc<NostrRuntime> {
     let runtime = Arc::new(NostrRuntime::with_send_timeout(&relay.url(), timeout).unwrap());
@@ -114,6 +114,39 @@ async fn active_demands_define_the_complete_raw_level() {
 
     runtime.close_demand("content").await.unwrap();
     wait_for_ids(&runtime, BTreeSet::new()).await;
+}
+
+/// A relay may apply one connection's frames out of order, so a replacement
+/// REQ must never reuse a subscription id a CLOSE can still target.
+#[tokio::test]
+async fn replacing_a_demand_opens_a_fresh_subscription_before_closing_the_old_one() {
+    let relay = TestRelay::new(AckMode::Accept, []);
+    let runtime = runtime(&relay, Duration::from_millis(100)).await;
+    let filter = || vec![Filter::new().kind(Kind::TextNote).limit(8)];
+    runtime.replace_demand("content", filter()).await.unwrap();
+    runtime.replace_demand("content", filter()).await.unwrap();
+    runtime.close_demand("content").await.unwrap();
+
+    let mut frames = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            frames = relay.subscription_frames();
+            if frames.len() >= 4 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("relay saw only {frames:?}"));
+    let [SubscriptionFrame::Req(first), SubscriptionFrame::Req(second), SubscriptionFrame::Close(closed_first), SubscriptionFrame::Close(closed_second)] =
+        frames.as_slice()
+    else {
+        panic!("unexpected subscription frames: {frames:?}");
+    };
+    assert_ne!(first, second, "a replacement must use a fresh id");
+    assert_eq!(closed_first, first);
+    assert_eq!(closed_second, second);
 }
 
 #[tokio::test]

@@ -16,10 +16,18 @@ pub(super) enum AckMode {
     Disconnect,
 }
 
+/// One subscription frame the relay received, in arrival order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SubscriptionFrame {
+    Req(String),
+    Close(String),
+}
+
 pub(super) struct TestRelay {
     address: std::net::SocketAddr,
     stop: Arc<AtomicBool>,
     connections: Arc<AtomicUsize>,
+    subscriptions: Arc<Mutex<Vec<SubscriptionFrame>>>,
     server: Option<JoinHandle<()>>,
     clients: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
@@ -32,11 +40,13 @@ impl TestRelay {
         let stop = Arc::new(AtomicBool::new(false));
         let connections = Arc::new(AtomicUsize::new(0));
         let clients = Arc::new(Mutex::new(Vec::new()));
+        let subscriptions = Arc::new(Mutex::new(Vec::new()));
         let events = Arc::new(events.into_iter().collect::<Vec<_>>());
         let server = {
             let stop = stop.clone();
             let connections = connections.clone();
             let clients = clients.clone();
+            let subscriptions = subscriptions.clone();
             std::thread::spawn(move || {
                 while !stop.load(Ordering::Acquire) {
                     match listener.accept() {
@@ -45,8 +55,9 @@ impl TestRelay {
                             let events = events.clone();
                             let stop = stop.clone();
                             let connections = connections.clone();
+                            let subscriptions = subscriptions.clone();
                             clients.lock().unwrap().push(std::thread::spawn(move || {
-                                serve(stream, mode, events, stop, connections)
+                                serve(stream, mode, events, stop, connections, subscriptions)
                             }));
                         }
                         Err(error) if error.kind() == ErrorKind::WouldBlock => {
@@ -61,6 +72,7 @@ impl TestRelay {
             address,
             stop,
             connections,
+            subscriptions,
             server: Some(server),
             clients,
         }
@@ -72,6 +84,10 @@ impl TestRelay {
 
     pub(super) fn connections(&self) -> usize {
         self.connections.load(Ordering::Acquire)
+    }
+
+    pub(super) fn subscription_frames(&self) -> Vec<SubscriptionFrame> {
+        self.subscriptions.lock().unwrap().clone()
     }
 }
 
@@ -94,6 +110,7 @@ fn serve(
     events: Arc<Vec<Event>>,
     stop: Arc<AtomicBool>,
     connections: Arc<AtomicUsize>,
+    subscriptions: Arc<Mutex<Vec<SubscriptionFrame>>>,
 ) {
     stream
         .set_read_timeout(Some(Duration::from_millis(40)))
@@ -125,6 +142,10 @@ fn serve(
                 filters,
             } => {
                 let id = subscription_id.into_owned();
+                subscriptions
+                    .lock()
+                    .unwrap()
+                    .push(SubscriptionFrame::Req(id.to_string()));
                 let filters = filters
                     .into_iter()
                     .map(|f| f.into_owned())
@@ -147,8 +168,11 @@ fn serve(
                 AckMode::Silent => {}
                 AckMode::Disconnect => break,
             },
-            ClientMessage::Close(_)
-            | ClientMessage::Auth(_)
+            ClientMessage::Close(id) => subscriptions
+                .lock()
+                .unwrap()
+                .push(SubscriptionFrame::Close(id.to_string())),
+            ClientMessage::Auth(_)
             | ClientMessage::NegOpen { .. }
             | ClientMessage::NegMsg { .. }
             | ClientMessage::NegClose { .. }

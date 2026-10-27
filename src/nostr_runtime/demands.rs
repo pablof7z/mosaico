@@ -7,16 +7,20 @@ impl NostrRuntime {
         product_id: &str,
         filters: Vec<Filter>,
     ) -> Result<()> {
-        self.close_demand(product_id).await?;
         if filters.is_empty() {
-            return Ok(());
+            return self.close_demand(product_id).await;
         }
-        let id = SubscriptionId::new(product_id);
-        self.completed
-            .lock()
-            .expect("completion state poisoned")
-            .remove(&id);
-        let output = self
+        // Relays may handle one connection's messages concurrently (khatru
+        // runs each frame in its own goroutine), so a CLOSE followed by a REQ
+        // reusing the same subscription id can be applied in reverse and
+        // silently drop the new live subscription. Every REQ therefore gets a
+        // fresh id, and the replaced subscription is closed only after its
+        // successor is open: a late CLOSE can only ever reach the old id.
+        let sequence = self
+            .subscription_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = SubscriptionId::new(format!("{product_id}:{sequence}"));
+        let output = match self
             .client
             .subscribe(nostr_sdk::client::ReqTarget::single(
                 self.relay.clone(),
@@ -24,14 +28,25 @@ impl NostrRuntime {
             ))
             .with_id(id.clone())
             .await
-            .with_context(|| format!("opening Nostr demand {product_id}"))?;
+        {
+            Ok(output) => output,
+            Err(error) => {
+                self.close_demand(product_id).await?;
+                return Err(error).with_context(|| format!("opening Nostr demand {product_id}"));
+            }
+        };
         if !output.failed.is_empty() || !output.success.contains_key(&self.relay) {
+            self.close_demand(product_id).await?;
             anyhow::bail!("configured relay did not accept Nostr demand {product_id}")
         }
-        self.demands
+        let prior = self
+            .demands
             .lock()
             .expect("demands poisoned")
             .insert(product_id.to_string(), Demand { id, filters });
+        if let Some(prior) = prior {
+            self.close_subscription(product_id, &prior.id).await?;
+        }
         self.wake();
         Ok(())
     }
@@ -75,19 +90,24 @@ impl NostrRuntime {
             .expect("demands poisoned")
             .remove(product_id);
         if let Some(prior) = prior {
-            self.completed
-                .lock()
-                .expect("completion state poisoned")
-                .remove(&prior.id);
-            let output = self
-                .client
-                .unsubscribe(&prior.id)
-                .await
-                .with_context(|| format!("closing Nostr demand {product_id}"))?;
-            if !output.failed.is_empty() {
-                anyhow::bail!("configured relay did not close Nostr demand {product_id}")
-            }
+            self.close_subscription(product_id, &prior.id).await?;
             self.wake();
+        }
+        Ok(())
+    }
+
+    async fn close_subscription(&self, product_id: &str, id: &SubscriptionId) -> Result<()> {
+        self.completed
+            .lock()
+            .expect("completion state poisoned")
+            .remove(id);
+        let output = self
+            .client
+            .unsubscribe(id)
+            .await
+            .with_context(|| format!("closing Nostr demand {product_id}"))?;
+        if !output.failed.is_empty() {
+            anyhow::bail!("configured relay did not close Nostr demand {product_id}")
         }
         Ok(())
     }

@@ -53,6 +53,9 @@ pub(crate) struct NostrRuntime {
     relay: RelayUrl,
     demands: Mutex<BTreeMap<String, Demand>>,
     completed: Mutex<BTreeSet<SubscriptionId>>,
+    /// Source of per-REQ subscription ids. A replaced demand never reuses the
+    /// id of the subscription it replaces; see `replace_demand`.
+    subscription_sequence: std::sync::atomic::AtomicU64,
     reference_read: tokio::sync::Mutex<()>,
     changed: watch::Sender<u64>,
     send_timeout: Duration,
@@ -77,6 +80,7 @@ impl NostrRuntime {
             relay,
             demands: Mutex::new(BTreeMap::new()),
             completed: Mutex::new(BTreeSet::new()),
+            subscription_sequence: std::sync::atomic::AtomicU64::new(0),
             reference_read: tokio::sync::Mutex::new(()),
             changed,
             send_timeout,
