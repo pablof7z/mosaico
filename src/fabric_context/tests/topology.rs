@@ -3,6 +3,7 @@ use crate::reconcile::HookContextState;
 
 mod hook_cache;
 mod member_deltas;
+mod presence_deltas;
 
 #[test]
 fn every_channel_shows_only_last_accepted_activity() {
