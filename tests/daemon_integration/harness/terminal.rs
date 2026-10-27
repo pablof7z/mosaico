@@ -11,18 +11,18 @@ const HANDOFF_MARKERS: [&str; 3] = ["Launched ", "Adopted and resumed @", "Attac
 pub(crate) struct TerminalRun {
     /// Combined stdout/stderr as rendered on the terminal.
     pub(crate) output: String,
-    /// Whether the CLI reached its terminal hand-off before it was detached.
+    /// Whether the CLI reached its terminal hand-off and did not then fail.
     pub(crate) handed_off: bool,
-    /// The CLI's own exit status when it ended by itself; `None` when the test
-    /// detached it after the hand-off, like closing the terminal window.
-    pub(crate) exit: Option<portable_pty::ExitStatus>,
+    /// How the CLI ended: by itself, or by the test's hang-up after the
+    /// hand-off (like closing the terminal window).
+    pub(crate) exit: portable_pty::ExitStatus,
 }
 
 impl TerminalRun {
     /// The CLI refused or failed the launch: it exited unsuccessfully before
     /// handing off a terminal.
     pub(crate) fn failed(&self) -> bool {
-        !self.handed_off && self.exit.as_ref().is_some_and(|status| !status.success())
+        !self.handed_off && !self.exit.success()
     }
 }
 
@@ -90,7 +90,7 @@ pub(crate) fn run_cli_in_terminal(
     };
     let rendered = || output.lock().unwrap().clone();
 
-    let mut handed_off = false;
+    let mut marked = false;
     let mut exit = None;
     assert!(
         wait_until(Duration::from_secs(60), || {
@@ -98,15 +98,16 @@ pub(crate) fn run_cli_in_terminal(
                 exit = Some(status);
                 return true;
             }
-            handed_off = HANDOFF_MARKERS
+            marked = HANDOFF_MARKERS
                 .iter()
                 .any(|marker| rendered().contains(marker));
-            handed_off
+            marked
         }),
         "CLI neither exited nor handed off its terminal: {:?}",
         rendered()
     );
-    if exit.is_none() {
+    let detached = exit.is_none();
+    if detached {
         let pid = child.process_id().expect("CLI pid");
         nix::sys::signal::kill(
             nix::unistd::Pid::from_raw(i32::try_from(pid).expect("CLI pid")),
@@ -114,14 +115,22 @@ pub(crate) fn run_cli_in_terminal(
         )
         .expect("detach CLI from its terminal");
         assert!(
-            wait_until(Duration::from_secs(10), || child
-                .try_wait()
-                .expect("poll CLI")
-                .is_some()),
+            wait_until(Duration::from_secs(10), || {
+                exit = child.try_wait().expect("poll CLI");
+                exit.is_some()
+            }),
             "CLI ignored terminal hang-up: {:?}",
             rendered()
         );
     }
+    let exit = exit.expect("CLI exit status");
+    // A hand-off is the marker plus a CLI that did not then fail on its own:
+    // after the hang-up it ends by that signal or cleanly, never with an error
+    // status of its own.
+    let handed_off = HANDOFF_MARKERS
+        .iter()
+        .any(|marker| rendered().contains(marker))
+        && (exit.success() || (detached && exit.signal().is_some()));
     drop(pair.master);
     pump.join().expect("terminal output pump");
     TerminalRun {

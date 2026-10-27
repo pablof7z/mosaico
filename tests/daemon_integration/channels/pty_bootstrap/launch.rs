@@ -55,6 +55,11 @@ fn launch_command_resolves_discovered_claude_profile_without_agent_json() {
         &work_dir,
     );
     assert!(
+        out.handed_off,
+        "native Claude launch failed: {}",
+        out.output
+    );
+    assert!(
         out.output.contains("Launched "),
         "launch did not report its public handle: {}",
         out.output
