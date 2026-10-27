@@ -117,17 +117,18 @@ pub(super) async fn close_generation(
     );
 }
 
-/// Withdraw this generation's presence from `channel` ahead of leaving it,
-/// and wait for the relay's answer.
+/// Reconcile one generation's presence from the store and wait for the
+/// relay's answer.
 ///
-/// A NIP-29 relay refuses a non-member's write to a closed group, so the
-/// expiring (or narrowed) status must land while the session is still a
-/// member; once the removal is confirmed no status can reach that channel.
-pub(super) async fn withdraw_before_leave(
+/// Explicit leave calls this after removing the route but before removing
+/// relay membership: a NIP-29 relay refuses a non-member's write to a closed
+/// group, so the expiring (or narrowed) status must land while the session is
+/// still a member. Because the route is already gone from the store, every
+/// concurrent reconcile derives the same channel-less projection.
+pub(super) async fn publish_generation_now(
     state: &Arc<DaemonState>,
     pubkey: &str,
     generation: u64,
-    channel: &str,
     trigger: &'static str,
 ) {
     let session = match state.with_store(|store| store.get_session(pubkey)) {
@@ -136,19 +137,18 @@ pub(super) async fn withdraw_before_leave(
         }
         Ok(_) => return,
         Err(error) => {
-            tracing::warn!(pubkey, generation, trigger, %error, "presence withdrawal read failed");
+            tracing::warn!(pubkey, generation, trigger, %error, "presence publication read failed");
             return;
         }
     };
     let extension_delivery_live = super::session_delivery::extension_delivery_live(state, &session);
-    let mut projection = state.with_store(|store| {
+    let projection = state.with_store(|store| {
         crate::session_presence::publication_with_extension(
             store,
             &session,
             extension_delivery_live,
         )
     });
-    projection.channels.remove(channel);
     let keys = match state.session_signing_keys(pubkey) {
         Ok(keys) => keys,
         Err(error) => {

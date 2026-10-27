@@ -139,25 +139,49 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
     let channel = resolve_target_channel(state, &p.channel)?;
     let channel_ref =
         state.with_store(|store| super::channel_resolve::channel_reference_for(store, &channel))?;
-    let was_joined =
-        state.with_store(|s| s.has_session_route(&rec.pubkey, &channel).unwrap_or(false));
-    let left = if was_joined {
+    // Phase one: drop the route but keep the relay-confirmed standing. From
+    // here every presence reconcile excludes the channel, and the pair is the
+    // durable "relay removal is due" state standing cleanup retries.
+    let leaving = {
         let _lane = state.standing_sync.lock().await;
-        super::presence::withdraw_before_leave(
+        state.with_store(|store| {
+            let member = is_member(store, &rec.pubkey, &channel)?;
+            Ok::<_, anyhow::Error>(
+                store
+                    .begin_route_leave(&rec.pubkey, &channel)?
+                    .map(|route| (route, member)),
+            )
+        })?
+    };
+    let left = if let Some((route, was_member)) = leaving {
+        // Not under the standing lane: a wedged relay must not stall every
+        // other admission for the publisher's whole retry budget.
+        super::presence::publish_generation_now(
             state,
             &rec.pubkey,
             rec.runtime_generation,
-            &channel,
             "channel_leave",
         )
         .await;
-        let removed = state
-            .provider()
-            .remove_member_published(&channel, &rec.pubkey, &state.backend_keys())
-            .await;
+        let _lane = state.standing_sync.lock().await;
+        // Standing cleanup may already have completed the removal.
+        let compensated =
+            was_member && !state.with_store(|store| is_member(store, &rec.pubkey, &channel))?;
+        let removed = if !compensated {
+            state
+                .provider()
+                .remove_member_published(&channel, &rec.pubkey, &state.backend_keys())
+                .await
+        } else {
+            crate::fabric::group_management::GroupMutationOutcome::Published
+        };
         if !removed.is_published() {
-            // The session is still a member: restore the presence the
-            // withdrawal narrowed from the store's unchanged routes.
+            state.with_store(|store| {
+                store.restore_route_after_failed_leave(&rec.pubkey, &channel, &route)
+            })?;
+            drop(_lane);
+            // The session is still a member: republish the presence the
+            // leave withdrew.
             super::presence::reconcile_generation(
                 state,
                 &rec.pubkey,
@@ -171,10 +195,8 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
             "leaving agent {} from channel {}",
             rec.agent_slug, channel_ref
         ))?;
-        state.with_store(|s| {
-            s.revoke_route_and_mark_absent(&rec.pubkey, &channel, now_secs())
-                .unwrap_or(false)
-        })
+        state.with_store(|store| store.finish_route_leave(&rec.pubkey, &channel, now_secs()))?;
+        true
     } else {
         false
     };
@@ -196,6 +218,12 @@ pub(in crate::daemon::server) async fn rpc_channel_leave(
         subscriptions::reconcile_subs_logged(state, "channel_leave").await;
     }
     Ok(serde_json::json!({ "channel": channel_ref, "left": left }))
+}
+
+fn is_member(store: &crate::state::Store, pubkey: &str, channel: &str) -> Result<bool> {
+    Ok(store
+        .get_session_standing(pubkey, channel)?
+        .is_some_and(|standing| standing.state == crate::state::StandingState::Member))
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use super::*;
-fn running(store: &Store) -> (u64, Session) {
+pub(super) fn running(store: &Store) -> (u64, Session) {
     let registration = RegisterSession {
         pubkey: "pk".into(),
         observed_harness: "grok".into(),

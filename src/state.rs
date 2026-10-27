@@ -270,7 +270,7 @@ mod session_recovery;
 pub use session_lifecycle::HEADLESS_IDLE_TIMEOUT_SECS;
 mod session_resume;
 mod session_routes;
-pub use session_routes::ConfirmedAdmissionCommit;
+pub use session_routes::{ConfirmedAdmissionCommit, LeavingRoute};
 mod session_standing;
 pub use session_standing::{SessionStanding, StandingState};
 mod session_title;

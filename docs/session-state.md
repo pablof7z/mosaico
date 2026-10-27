@@ -55,7 +55,12 @@ recovery authority, and per-channel fabric standing:
   standing for every recorded route.
 - Fabric standing and the recorded channel routes represent the same durable
   membership intent at different layers. Only an explicit leave, revoke/forget,
-  archive removal, or failed-admission cleanup removes a route. When a native
+  archive removal, or failed-admission cleanup removes a route. An explicit
+  leave removes the route first, keeping `member` standing as durable
+  relay-removal work. It then publishes the session's narrowed or expiring
+  status while the session is still a relay member, since a NIP-29 relay
+  refuses a non-member's write. Finally it removes relay membership; a failed
+  removal restores the route. When a native
   locator exists, recovery also resumes that harness conversation; without one
   it starts a fresh harness conversation under the same durable identity.
 - Explicit forget or revoke is the destructive boundary. It removes recovery
