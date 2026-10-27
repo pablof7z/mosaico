@@ -2,11 +2,14 @@
 
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub struct TestRelay {
     child: Child,
+    /// Lifetime pipe of a watched relay: closing it (explicitly, or because
+    /// the test process exited for any reason) stops the relay.
+    lifetime: Option<ChildStdin>,
     pub url: String,
     /// Relay data or diagnostic scratch directory removed on drop.
     cleanup_dir: Option<PathBuf>,
@@ -132,6 +135,7 @@ impl TestRelay {
             .env("PORT", port.to_string())
             .env("HOST", "127.0.0.1")
             .env("DATAPATH", &data)
+            .stdin(Stdio::null())
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))
             .spawn()
@@ -178,6 +182,7 @@ impl TestRelay {
 
         TestRelay {
             child,
+            lifetime: None,
             url: format!("ws://127.0.0.1:{port}"),
             cleanup_dir: Some(data),
         }
@@ -218,15 +223,36 @@ impl TestRelay {
         let stderr_path = scratch.join("relay.stderr.log");
         let stdout = std::fs::File::create(&stdout_path).expect("create nak relay stdout log");
         let stderr = std::fs::File::create(&stderr_path).expect("create nak relay stderr log");
-        let mut child = Command::new(&bin)
+        // `nak serve` loads events from stdin before it listens whenever stdin
+        // is not a terminal, so an inherited open pipe (a CI runner, a piped
+        // shell) keeps it from ever binding. Give it /dev/null instead.
+        //
+        // Shared relays live in process-lifetime statics whose destructors
+        // never run. A watcher stops the relay when its lifetime pipe closes,
+        // which also happens when the test process dies, so no relay
+        // outlives the run that started it.
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(
+                // An asynchronous list's stdin is /dev/null in a non-interactive
+                // shell, so the watcher reads the lifetime pipe through fd 3.
+                r#"exec 3<&0
+"$0" "$@" </dev/null 3<&- & relay=$!
+( read -r _ <&3; kill "$relay" 2>/dev/null ) &
+exec 3<&-
+wait "$relay""#,
+            )
+            .arg(&bin)
             .arg("serve")
             .arg("--port")
             .arg(port.to_string())
             .arg("--quiet")
+            .stdin(Stdio::piped())
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))
             .spawn()
             .expect("spawn `nak serve` (is nak installed?)");
+        let lifetime = child.stdin.take();
 
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -237,6 +263,7 @@ impl TestRelay {
                 let _ = std::fs::remove_dir_all(&scratch);
                 return Ok(TestRelay {
                     child,
+                    lifetime,
                     url: format!("ws://127.0.0.1:{port}"),
                     cleanup_dir: None,
                 });
@@ -255,7 +282,7 @@ impl TestRelay {
                 return Err(message);
             }
             if Instant::now() > deadline {
-                let _ = child.kill();
+                drop(lifetime);
                 let status = child
                     .wait()
                     .map(|status| status.to_string())
@@ -279,7 +306,11 @@ impl TestRelay {
 
 impl Drop for TestRelay {
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        // A watched relay stops when its lifetime pipe closes; killing the
+        // watcher shell instead would orphan the relay.
+        if self.lifetime.take().is_none() {
+            let _ = self.child.kill();
+        }
         let _ = self.child.wait();
         if let Some(dir) = &self.cleanup_dir {
             let _ = std::fs::remove_dir_all(dir);
