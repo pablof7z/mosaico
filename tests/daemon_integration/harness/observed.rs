@@ -53,34 +53,41 @@ pub(crate) fn observed_chat(event_id: &str) -> Option<serde_json::Value> {
 }
 
 /// Wait until `who` lists this host's session with public `handle` in exactly
-/// `expected_channels`, returning the channels its rows last showed. `who`
-/// rows identify a session by its public handle; they carry no pubkey.
+/// `expected_channels`. `who` rows identify a session by its public handle;
+/// they carry no pubkey. On timeout the error is the last `who` reply.
 pub(crate) fn wait_for_who_session_channels(
     handle: &str,
     workspace: &str,
     expected_channels: &std::collections::BTreeSet<String>,
-) -> Option<std::collections::BTreeSet<String>> {
+) -> Result<std::collections::BTreeSet<String>, String> {
+    let mut last = String::from("<no who reply>");
     let mut channels = None;
-    wait_until(std::time::Duration::from_secs(25), || {
-        channels = rt().block_on(async {
+    let matched = wait_until(std::time::Duration::from_secs(25), || {
+        let reply = rt().block_on(async {
             let mut client = mosaico::daemon::client::Client::connect_or_spawn()
                 .await
                 .ok()?;
-            let value = client
+            client
                 .call("who", serde_json::json!({ "workspace": workspace }))
                 .await
-                .ok()?;
-            value["rows"]
-                .as_array()?
-                .iter()
+                .ok()
+        });
+        let Some(reply) = reply else {
+            return false;
+        };
+        last = reply["rows"].to_string();
+        channels = reply["rows"].as_array().and_then(|rows| {
+            rows.iter()
                 .filter(|row| row["source"] == "Local" && row["slug"] == handle)
                 .map(|row| row["channel"].as_str().map(str::to_string))
                 .collect::<Option<std::collections::BTreeSet<_>>>()
         });
         channels.as_ref() == Some(expected_channels)
-    })
-    .then_some(channels)
-    .flatten()
+    });
+    match channels {
+        Some(channels) if matched => Ok(channels),
+        _ => Err(last),
+    }
 }
 
 pub(crate) fn session_identity_pubkey(

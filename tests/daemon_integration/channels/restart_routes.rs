@@ -158,7 +158,7 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     );
 
     let before_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
-        .expect("who row for session before restart");
+        .unwrap_or_else(|rows| panic!("who row for session before restart; last rows: {rows}"));
     assert_eq!(before_channels, expected_paths);
 
     let log_boundary = daemon_log_boundary(&home);
@@ -181,7 +181,13 @@ fn daemon_restart_preserves_exact_multiroute_identity_and_relay_standing() {
     // The bounded SDK memory database starts empty after restart. Session adoption and
     // relay-backed group rehydration are independent, so await the public level.
     let after_channels = wait_for_who_session_channels(&handle, &root, &expected_paths)
-        .expect("restarted daemon did not rehydrate the session's exact public routes");
+        .unwrap_or_else(|rows| {
+            panic!(
+                "restarted daemon did not rehydrate the session's exact public routes; \
+                 last rows: {rows}; daemon_log={}",
+                std::fs::read_to_string(home.dir.path().join("daemon.log")).unwrap_or_default()
+            )
+        });
     assert!(
         exact_state_is_current(
             &home,
