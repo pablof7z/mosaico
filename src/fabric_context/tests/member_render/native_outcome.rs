@@ -78,6 +78,12 @@ fn native_failure_delta_does_not_overwrite_presence_state() {
             finished_at: 150,
         })
         .unwrap();
+    // The running peer's presence publisher keeps its heartbeat current.
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
+    );
 
     let text = render_fabric_context(&store, input(Some(&rec), "root", 100, 160, true))
         .expect("native failure delta should render");

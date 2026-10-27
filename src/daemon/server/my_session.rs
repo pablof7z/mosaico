@@ -54,6 +54,39 @@ mod tests {
     use crate::state::RegisterSession;
     use std::collections::BTreeSet;
 
+    fn briefing_profile() -> crate::state::Profile {
+        crate::state::Profile {
+            pubkey: "pk".into(),
+            name: "codex".into(),
+            slug: "codex".into(),
+            agent_slug: String::new(),
+            host: "test-host".into(),
+            is_backend: false,
+            agents: Vec::new(),
+            workspaces: Vec::new(),
+            updated_at: 1,
+        }
+    }
+
+    /// The session's own heartbeat in a joined channel, as its presence
+    /// publisher would have delivered it.
+    fn heartbeat(channel: &str) -> crate::state::Status {
+        crate::state::Status {
+            pubkey: "pk".into(),
+            channel_h: channel.into(),
+            slug: "codex".into(),
+            title: String::new(),
+            activity: String::new(),
+            workspace: "alpha".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Idle,
+            state_since: 10,
+            last_seen: 10,
+            updated_at: 10,
+            expiration: 1_000,
+        }
+    }
+
     #[tokio::test]
     async fn briefing_is_read_only_and_expands_only_the_exact_sessions_workspaces() {
         let state = DaemonState::new_for_test().await;
@@ -68,36 +101,10 @@ mod tests {
                     .admins(Vec::new())
                     .members(vec!["pk".into()]),
             ]));
-            // The session's own heartbeat in each joined channel, as its
-            // presence publisher would have delivered it.
-            let heartbeat = |channel: &str| crate::state::Status {
-                pubkey: "pk".into(),
-                channel_h: channel.into(),
-                slug: "codex".into(),
-                title: String::new(),
-                activity: String::new(),
-                workspace: "alpha".into(),
-                branch: String::new(),
-                state: crate::session_state::SessionState::Idle,
-                state_since: 10,
-                last_seen: 10,
-                updated_at: 10,
-                expiration: 1_000,
-            };
             s.install_test_relay_delivery(
                 crate::state::TestRelayDelivery::new()
-                    .profiles([crate::state::Profile {
-                        pubkey: "pk".into(),
-                        name: "codex".into(),
-                        slug: "codex".into(),
-                        agent_slug: String::new(),
-                        host: "test-host".into(),
-                        is_backend: false,
-                        agents: Vec::new(),
-                        workspaces: Vec::new(),
-                        updated_at: 1,
-                    }])
-                    .statuses([heartbeat("alpha"), heartbeat("beta")]),
+                    .profiles([briefing_profile()])
+                    .statuses([heartbeat("alpha")]),
             );
             let generation = s
                 .reserve_session_with_facts(
@@ -151,11 +158,19 @@ mod tests {
             "{first}"
         );
         assert!(
-            first.contains("<channel name=\"#beta\" about=\"Beta\" agents=\"1\" />"),
+            first.contains("<channel name=\"#beta\" about=\"Beta\" agents=\"0\" />"),
             "{first}"
         );
 
         state.with_store(|s| s.grant_session_route(&pubkey, "beta", 20).unwrap());
+        // Joining beta makes the presence publisher heartbeat there too.
+        state.with_store(|s| {
+            s.install_test_relay_delivery(
+                crate::state::TestRelayDelivery::new()
+                    .profiles([briefing_profile()])
+                    .statuses([heartbeat("alpha"), heartbeat("beta")]),
+            )
+        });
         let second = rpc_my_session(
             &state,
             &serde_json::json!({

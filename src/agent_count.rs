@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -36,10 +36,11 @@ impl MemberFacts {
 #[derive(Default)]
 pub(crate) struct MemberFactIndex {
     named: BTreeSet<String>,
-    /// `(pubkey, channel)` pairs with an active heartbeat: a live-state status
-    /// for that channel in the current view. The runtime drops NIP-40-expired
-    /// events before the view is built, so a present status is unexpired.
-    heartbeats: BTreeSet<(String, String)>,
+    /// Per channel, the pubkeys with an active heartbeat: a live-state status
+    /// for that channel carrying a NIP-40 expiration. The runtime drops expired
+    /// events before the view is built, so a present heartbeat is unexpired; a
+    /// status without an expiration is not a heartbeat because it never lapses.
+    heartbeats: BTreeMap<String, BTreeSet<String>>,
     backend: BTreeSet<String>,
 }
 
@@ -56,11 +57,16 @@ impl MemberFactIndex {
                 .filter(|status| !status.slug.trim().is_empty())
                 .map(|status| status.pubkey.clone()),
         );
-        let heartbeats = statuses
+        let mut heartbeats: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for status in statuses
             .iter()
-            .filter(|status| status.state.is_live())
-            .map(|status| (status.pubkey.clone(), status.channel_h.clone()))
-            .collect();
+            .filter(|status| status.state.is_live() && status.expiration != 0)
+        {
+            heartbeats
+                .entry(status.channel_h.clone())
+                .or_default()
+                .insert(status.pubkey.clone());
+        }
         let mut backend = store
             .list_backend_profiles()?
             .into_iter()
@@ -89,7 +95,8 @@ impl MemberFactIndex {
                     .is_some_and(|profile| !profile.agent_slug.trim().is_empty()),
             is_live: self
                 .heartbeats
-                .contains(&(member.pubkey.clone(), member.channel_h.clone())),
+                .get(&member.channel_h)
+                .is_some_and(|pubkeys| pubkeys.contains(&member.pubkey)),
         })
     }
 }

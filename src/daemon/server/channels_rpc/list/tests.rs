@@ -133,7 +133,7 @@ fn counts_named_agents_from_the_retained_group_level() {
                 state_since: 1,
                 last_seen: 1,
                 updated_at: 1,
-                expiration: 0,
+                expiration: 2_000,
             }])
             .profiles([
                 Profile {

@@ -248,3 +248,30 @@ fn a_dormant_member_leaving_the_roster_is_not_announced() {
         .unwrap_or_default();
     assert!(!text.contains("reviewer"), "{text}");
 }
+
+/// A heartbeat that lapses without a closing status (a crash) drops out of
+/// the view; the member is announced as going offline, not silently dropped
+/// and not as a departure, since its membership is unchanged.
+#[test]
+fn a_lapsed_heartbeat_is_announced_as_offline() {
+    let store = seed_store();
+    let rec = session(&store);
+    store.install_test_relay_delivery(
+        TestRelayDelivery::new()
+            .profiles(seed_profiles())
+            .statuses([idle_status(OTHER_PK, "reviewer", "Reviewing")]),
+    );
+    let mut hook = HookContextState::default();
+    let before = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    hook.render_context(&rec.pubkey, "turn_start", 200, 300, before);
+
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()));
+    let after = capture_inputs(&store, &input(Some(&rec), "root", 200, 300, false)).unwrap();
+    let delta = hook
+        .render_context(&rec.pubkey, "turn_start", 200, 300, after)
+        .text
+        .expect("a lapsed heartbeat is a delta");
+    assert!(delta.contains("@reviewer"), "{delta}");
+    assert!(delta.contains("offline"), "{delta}");
+    assert!(!delta.contains("left."), "{delta}");
+}

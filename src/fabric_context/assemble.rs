@@ -14,7 +14,7 @@ mod presence;
 mod topology;
 
 pub(in crate::fabric_context) use presence::{
-    presence_rows, presence_snapshot_row, projected_presence,
+    presence_rows, presence_snapshot_row, projected_presence, reportable,
 };
 
 pub(super) use members::member_row;

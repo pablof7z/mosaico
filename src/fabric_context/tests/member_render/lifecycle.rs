@@ -97,3 +97,44 @@ fn suspended_and_working_deltas_follow_the_current_row() {
         working
     );
 }
+
+/// Local lifecycle relabels a present member, but never manufactures presence:
+/// a running local session whose published heartbeat says offline emits no
+/// live presence row, even in a cursor delta where local lifecycle would
+/// otherwise relabel it.
+#[test]
+fn a_running_local_session_with_an_offline_heartbeat_emits_no_live_presence_row() {
+    let store = seed_store();
+    let rec = session(&store);
+    store
+        .reserve_hook_session_for_test(&RegisterSession {
+            pubkey: OTHER_PK.into(),
+            observed_harness: "codex".into(),
+            agent_slug: "reviewer".into(),
+            launch_channel_h: "root".into(),
+            work_root: "root".into(),
+            child_pid: None,
+            now: 95,
+        })
+        .unwrap();
+    store.install_test_relay_delivery(TestRelayDelivery::new().profiles(seed_profiles()).statuses(
+        [Status {
+            pubkey: OTHER_PK.into(),
+            channel_h: "root".into(),
+            slug: "reviewer".into(),
+            title: "Recovered session".into(),
+            activity: String::new(),
+            workspace: "root".into(),
+            branch: String::new(),
+            state: crate::session_state::SessionState::Offline,
+            state_since: 100,
+            last_seen: 100,
+            updated_at: 100,
+            expiration: 100,
+        }],
+    ));
+
+    let text =
+        render_fabric_context(&store, input(Some(&rec), "root", 90, 101, true)).unwrap_or_default();
+    assert!(!text.contains("state=\"suspended\""), "got: {text}");
+}

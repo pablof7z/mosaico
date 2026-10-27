@@ -28,7 +28,7 @@ fn live_status(pubkey: &str) -> crate::state::Status {
         state_since: 1,
         last_seen: 1,
         updated_at: 1,
-        expiration: 0,
+        expiration: 2_000,
     }
 }
 
@@ -214,4 +214,23 @@ fn a_heartbeat_places_an_agent_only_in_its_own_channel() {
 
     assert_eq!(count("room"), Some(1));
     assert_eq!(count("other-room"), Some(0));
+}
+
+#[test]
+fn a_status_without_an_expiration_is_not_a_heartbeat() {
+    let store = Store::open_memory().unwrap();
+    store.install_test_relay_delivery(TestRelayDelivery::new().statuses([crate::state::Status {
+        expiration: 0,
+        ..live_status("peer")
+    }]));
+    let index = MemberFactIndex::capture(&store, "backend").unwrap();
+    let member = ChannelMember {
+        channel_h: "room".into(),
+        pubkey: "peer".into(),
+        role: "member".into(),
+    };
+    assert_eq!(
+        count_agents(true, [index.normalize(&store, &member).unwrap()]),
+        Some(0)
+    );
 }

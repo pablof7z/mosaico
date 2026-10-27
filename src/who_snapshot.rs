@@ -164,7 +164,9 @@ pub(crate) fn build_who_snapshot(
                 .unwrap_or(true);
             if in_scope {
                 rows.push(peer_row(aggregation, st, &local_host, now)?);
-            } else if is_root_channel(aggregation, ch) {
+            } else if st.state.is_live() && is_root_channel(aggregation, ch) {
+                // The summary counts agents present elsewhere: a live
+                // heartbeat, not a closing offline status.
                 let slug = peer_slug(aggregation, st);
                 other_agents.entry(ch.clone()).or_default().insert(slug);
             }

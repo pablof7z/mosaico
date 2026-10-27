@@ -155,6 +155,16 @@ fn session_start_replaces_prior_session_for_same_host_pid() {
             .collect::<Vec<_>>();
         assert_eq!(local.len(), 1, "only the replacement is present: {rows:?}");
         assert_ne!(local[0]["state"], "offline", "{rows:?}");
+        let replacement = Store::open(&home.store_path())
+            .unwrap()
+            .session_identity(&new_pubkey)
+            .unwrap()
+            .expect("replacement identity");
+        assert_eq!(
+            local[0]["slug"],
+            replacement.display_slug(),
+            "the one row is the replacement: {rows:?}"
+        );
     });
 
     stop_daemon(&home);

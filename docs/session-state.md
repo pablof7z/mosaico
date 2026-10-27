@@ -72,9 +72,14 @@ renewed every `PRESENCE_LEASE_RENEWAL_SECS`, is replaced by an expiring status
 on close, and drops out of the view when it expires. Local lifecycle decides
 only what this daemon publishes, never what it counts, so a new session
 appears once its first heartbeat lands and a crashed one disappears at TTL
-expiry. Agent counts (`channel list`, fabric context `agents=`) and fabric
-member lists (`<members>`, including the human render in `who`) use that fact;
-the viewer's own row is always shown. The `who` snapshot rows are this host's
+expiry. A status without an expiration is not a heartbeat. Agent counts
+(`channel list`, fabric context `agents=`), fabric member lists (`<members>`,
+including the human render in `who`), presence rows, and `who`'s
+other-workspaces summary all use that fact; the viewer's own row is always
+shown. Local lifecycle may relabel a present member's state but never makes
+it present. A heartbeat that lapses without a closing status is announced as
+going offline, like a graceful close; membership is unchanged, so it is not a
+departure. The `who` snapshot rows are this host's
 running sessions plus other current relay statuses; a stopped local session
 gets no row. Dormant members keep membership and exact p-tag resume; they are
 simply not reported. `who --expired` lists stopped local sessions that have a
