@@ -1,4 +1,5 @@
 use super::*;
+use std::time::Duration;
 
 #[test]
 fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
@@ -37,8 +38,14 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
         )
         .await
         .expect("start reviewer in the other workspace");
-        let v = c
-            .call(
+    });
+
+    // Presence is a live heartbeat: the reviewer is listed once its first
+    // status comes back through the relay, not when its session starts.
+    let who = || {
+        rt().block_on(async {
+            let mut c = Client::connect_or_spawn().await.expect("connect");
+            c.call(
                 "who",
                 serde_json::json!({
                     "workspace": &channel,
@@ -46,19 +53,26 @@ fn who_without_agent_anchor_returns_human_fabric_view_with_other_roots() {
                 }),
             )
             .await
-            .expect("human who should render");
-
-        let human = v["fabric_human"]
+            .expect("human who should render")
+        })
+    };
+    let mut v = serde_json::Value::Null;
+    let listed = wait_until(Duration::from_secs(10), || {
+        v = who();
+        v["fabric_human"]
             .as_str()
-            .expect("human who should include fabric_human");
-        assert!(human.contains(&format!("#{channel}")), "got: {human}");
-        assert!(human.contains("Other workspaces"), "got: {human}");
-        assert!(human.contains(&other_root), "got: {human}");
-        assert!(human.contains("reviewer"), "got: {human}");
-        assert!(human.contains("1 agent"), "got: {human}");
-        assert!(!human.contains("<mosaico>"), "got: {human}");
-        assert!(v.get("fabric").is_none(), "who must not expose agent XML");
+            .is_some_and(|human| human.contains("reviewer"))
     });
+    let human = v["fabric_human"]
+        .as_str()
+        .expect("human who should include fabric_human");
+    assert!(listed, "reviewer heartbeat never listed; got: {human}");
+    assert!(human.contains(&format!("#{channel}")), "got: {human}");
+    assert!(human.contains("Other workspaces"), "got: {human}");
+    assert!(human.contains(&other_root), "got: {human}");
+    assert!(human.contains("1 agent"), "got: {human}");
+    assert!(!human.contains("<mosaico>"), "got: {human}");
+    assert!(v.get("fabric").is_none(), "who must not expose agent XML");
 
     stop_daemon(&home);
 }

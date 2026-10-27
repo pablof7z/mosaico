@@ -157,16 +157,18 @@ fn launch_command_bootstraps_session_without_child_session_start_hook() {
     launch_no_hook(&home, agent, &channel, "forever");
 
     let rec = wait_for_alive(&home, agent, &channel);
-    let pty_id = Store::open(&home.store_path())
-        .unwrap()
-        .locators_for_pubkey(&rec.pubkey)
-        .unwrap()
-        .into_iter()
-        .find(|locator| locator.locator_kind == "pty")
-        .map(|locator| locator.locator_value)
-        .expect("launch must register its PTY locator before returning");
+    // A CLI caller without a terminal takes the harness's daemon-managed
+    // transport (ACP for opencode); launch registers that endpoint itself.
+    assert_eq!(rec.admitted_transport, "acp");
+    assert!(
+        Store::open(&home.store_path())
+            .unwrap()
+            .runtime_locator_for_session(&rec.pubkey, rec.runtime_generation, "acp")
+            .unwrap()
+            .is_some(),
+        "launch must register its runtime endpoint before returning"
+    );
 
-    let _ = mosaico::pty::kill(&pty_id);
     stop_daemon(&home);
 }
 
