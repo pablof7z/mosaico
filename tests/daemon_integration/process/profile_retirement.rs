@@ -56,7 +56,7 @@ fn reclaimed_profile_retirement_lands_after_the_relay_recovers() {
     });
     assert_eq!(
         due_retirements(&home),
-        [old_pubkey.clone()],
+        std::slice::from_ref(&old_pubkey),
         "the retirement must be durable while the relay is wedged"
     );
 
