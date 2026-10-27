@@ -189,7 +189,6 @@ fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>
 /// The newest kind:30315 presence status `pubkey` has on the relay, read
 /// independently of the daemon.
 pub(crate) struct RelayStatus {
-    pub(crate) id: String,
     pub(crate) created_at: u64,
     /// The channels (`h` tags) the one status event covers.
     pub(crate) channels: BTreeSet<String>,
@@ -203,7 +202,6 @@ pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStat
         .filter(|event| event["pubkey"].as_str() == Some(pubkey))
         .filter_map(|event| {
             Some(RelayStatus {
-                id: event["id"].as_str()?.to_string(),
                 created_at: event["created_at"].as_u64()?,
                 channels: event["tags"]
                     .as_array()?
@@ -216,23 +214,32 @@ pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStat
         .max_by_key(|status| status.created_at)
 }
 
-/// Wait (15 s) for a status event other than `previous_id`, created no
-/// earlier than `since`, whose `h` tags cover exactly `channels`. Status
-/// timestamps have one-second resolution, so the new event may share
-/// `since`'s second; the distinct event id is what proves it is new.
+/// The second after which every new status from `pubkey` is distinguishable
+/// from what the relay holds now: status timestamps have one-second
+/// resolution, and a republished status with identical content in the same
+/// second is the identical event. Waits until the clock has passed the
+/// newest current status's second.
+pub(crate) fn status_epoch_after_current(relay: &str, pubkey: &str) -> u64 {
+    let current = latest_relay_status(relay, pubkey).map_or(0, |status| status.created_at);
+    assert!(
+        super::wait_until(Duration::from_secs(3), || mosaico::util::now_secs()
+            > current),
+        "clock did not pass the current status second"
+    );
+    current
+}
+
+/// Wait (15 s) for a status created strictly after `after` whose `h` tags
+/// cover exactly `channels`.
 pub(crate) fn new_relay_status_covers(
     relay: &str,
     pubkey: &str,
-    previous_id: Option<&str>,
-    since: u64,
+    after: u64,
     channels: &BTreeSet<String>,
 ) -> bool {
     super::wait_until(Duration::from_secs(15), || {
-        latest_relay_status(relay, pubkey).is_some_and(|status| {
-            Some(status.id.as_str()) != previous_id
-                && status.created_at >= since
-                && &status.channels == channels
-        })
+        latest_relay_status(relay, pubkey)
+            .is_some_and(|status| status.created_at > after && &status.channels == channels)
     })
 }
 
