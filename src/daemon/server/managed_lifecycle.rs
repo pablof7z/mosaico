@@ -23,6 +23,8 @@ pub(super) fn spawn(state: Arc<DaemonState>) {
     let retirements = state.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(RECONCILE_INTERVAL);
+        // A slow attempt must delay the next tick, never trigger a burst.
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
             super::profile_retirement::retry_due(&retirements).await;

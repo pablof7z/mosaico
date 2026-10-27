@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS session_notice (
 -- without the handle) has not yet been acknowledged by the relay.
 CREATE TABLE IF NOT EXISTS profile_retirements (
     pubkey TEXT PRIMARY KEY CHECK (pubkey <> ''),
-    due_at INTEGER NOT NULL
+    due_at INTEGER NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0
 );
 
 -- Keyed, non-raw correlation aliases for remote MCP conversation actors.

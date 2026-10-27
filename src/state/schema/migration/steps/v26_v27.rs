@@ -13,7 +13,8 @@ pub(in crate::state::schema::migration) fn migrate(
         r#"
         CREATE TABLE IF NOT EXISTS profile_retirements (
             pubkey TEXT PRIMARY KEY CHECK (pubkey <> ''),
-            due_at INTEGER NOT NULL
+            due_at INTEGER NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0
         );
         PRAGMA user_version = 27;
         "#,

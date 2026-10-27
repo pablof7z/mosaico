@@ -21,9 +21,11 @@ version or tables are changed.
 
 Schema 27 adds `profile_retirements`. Each row is a reclaimed handle's
 previous owner whose retirement profile (its kind:0 without the handle) the
-relay has not yet acknowledged. Session start records the row and attempts the
-publication off the hook path. The lifecycle loop retries due rows until
-acknowledged, across reconnects and restarts.
+relay has not yet acknowledged. Session start only records the row. A
+dedicated loop publishes rows whose `due_at` has passed. Each failure
+increments `attempts` and backs `due_at` off: 5 s, doubling, capped at 10
+minutes. Rows clear only on acknowledgement, so the work survives reconnects
+and restarts.
 
 Schema 26 renames `session_coaching` to `session_notice`. The rename is a
 one-way migration with no runtime alias or dual read.

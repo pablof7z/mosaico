@@ -1,14 +1,15 @@
 //! Durable retirement of a reclaimed handle's previous owner.
 //!
 //! A reclaimed handle's previous owner keeps advertising the handle in its
-//! kind:0 until a retirement profile reaches the relay. Session start records
-//! that work durably and attempts it in the background, so the hook path
-//! stays fail-open on a wedged relay; the lifecycle loop retries due work
-//! until the relay acknowledges it, across reconnects and restarts.
+//! kind:0 until a retirement profile reaches the relay. Session start only
+//! records that work durably, so the hook path stays fail-open on a wedged
+//! relay. A dedicated loop publishes due work, backing a failing retirement
+//! off exponentially (5 s doubling to 10 min) until the relay acknowledges it,
+//! across reconnects and restarts.
 
 use super::*;
 
-/// Record the retirement and attempt it off the hook path.
+/// Record the retirement; the retirement loop publishes it.
 pub(in crate::daemon::server) fn retire_reclaimed_profile(
     state: &Arc<DaemonState>,
     reclaimed_pubkey: Option<&str>,
@@ -24,18 +25,13 @@ pub(in crate::daemon::server) fn retire_reclaimed_profile(
         return Ok(());
     }
     state.with_store(|store| store.schedule_profile_retirement(pubkey, now_secs()))?;
-    let state = state.clone();
-    let pubkey = pubkey.to_string();
-    tokio::spawn(async move {
-        attempt(&state, &pubkey).await;
-    });
     Ok(())
 }
 
 /// Retry every retirement the relay has not yet acknowledged.
 pub(in crate::daemon::server) async fn retry_due(state: &Arc<DaemonState>) {
     let due = state
-        .with_store(|store| store.list_due_profile_retirements())
+        .with_store(|store| store.list_due_profile_retirements(now_secs()))
         .unwrap_or_else(|error| {
             tracing::error!(%error, "profile retirement scan failed");
             Vec::new()
@@ -78,16 +74,37 @@ async fn attempt(state: &Arc<DaemonState>, pubkey: &str) {
         .await
     {
         Ok(_) => complete(state, pubkey),
-        Err(error) => tracing::warn!(
-            pubkey,
-            error = %format!("{error:#}"),
-            "reclaimed handle retirement profile remains due"
-        ),
+        Err(error) => {
+            let failures = state
+                .with_store(|store| store.record_profile_retirement_failure(pubkey, now_secs()))
+                .unwrap_or(0);
+            let error = format!("{error:#}");
+            if warns_on_failure(failures) {
+                tracing::warn!(pubkey, %error, "reclaimed handle retirement profile remains due");
+            } else {
+                tracing::debug!(pubkey, failures, %error, "retirement retry failed");
+            }
+        }
     }
+}
+
+/// Only the first failure of a retirement is a warning; its retries, which
+/// can continue for as long as a relay stays unreachable, log at debug.
+fn warns_on_failure(failures: u32) -> bool {
+    failures <= 1
 }
 
 fn complete(state: &Arc<DaemonState>, pubkey: &str) {
     if let Err(error) = state.with_store(|store| store.complete_profile_retirement(pubkey)) {
         tracing::error!(pubkey, %error, "profile retirement completion was not recorded");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn only_the_first_failure_of_a_retirement_warns() {
+        assert!(super::warns_on_failure(1));
+        assert!((2..=50).all(|failures| !super::warns_on_failure(failures)));
     }
 }
