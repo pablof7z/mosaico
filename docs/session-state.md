@@ -76,7 +76,8 @@ expiry. A status without an expiration is not a heartbeat. Agent counts
 (`channel list`, fabric context `agents=`), fabric member lists (`<members>`,
 including the human render in `who`), presence rows, and `who`'s
 other-workspaces summary all use that fact; the viewer's own row is always
-shown. Local lifecycle may relabel a present member's state but never makes
+shown. The rule governs agents; a member with no agent identity (a human)
+is listed whenever it is on the roster. Local lifecycle may relabel a present member's state but never makes
 it present. In turn deltas, a heartbeat that lapses without a closing status
 is announced as going offline, like a graceful close; membership is
 unchanged, so it is not a departure. The `who` snapshot rows are this host's

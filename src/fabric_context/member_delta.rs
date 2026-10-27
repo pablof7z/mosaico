@@ -133,6 +133,8 @@ fn inject_presence_changes(
         {
             continue;
         }
+        // A remote heartbeat lapsed at its expiration; a local status cap
+        // carries none, so its lapse is dated when it is observed.
         let lapsed_at = status.expiration.unwrap_or(now).min(now);
         let lapsed = StatusCap {
             state: crate::session_state::SessionState::Offline,

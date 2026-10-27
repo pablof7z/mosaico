@@ -64,3 +64,22 @@ fn a_local_session_elsewhere_is_counted_only_with_a_heartbeat() {
     install_peers(&store, [(profile, in_other(status))]);
     assert_eq!(other_agents(&store).len(), 1);
 }
+
+#[test]
+fn a_status_without_an_expiration_elsewhere_is_not_counted() {
+    let store = Store::open_memory().unwrap();
+    two_roots(&store);
+    let (profile, status) = peer("pk-stuck", "stuck-peer", "laptop", "Working", true, 90);
+    install_peers(
+        &store,
+        [(
+            profile,
+            in_other(Status {
+                expiration: 0,
+                ..status
+            }),
+        )],
+    );
+
+    assert!(other_agents(&store).is_empty());
+}
