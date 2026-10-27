@@ -1,9 +1,9 @@
 //! `nak serve`: the plain in-memory relay most tests share.
 
-use super::{free_port, relay_failure_message, TestRelay};
+use super::{free_port, graceful_stop, relay_failure_message, TestRelay};
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 pub(crate) fn nak_bin() -> PathBuf {
@@ -60,23 +60,11 @@ impl TestRelay {
         // never run. A watcher stops the relay when its lifetime pipe closes,
         // which also happens when the test process dies, so no relay
         // outlives the run that started it.
-        let mut child = Command::new("/bin/sh")
-            .arg("-c")
-            .arg(
-                // An asynchronous list's stdin is /dev/null in a non-interactive
-                // shell, so the watcher reads the lifetime pipe through fd 3.
-                r#"exec 3<&0
-"$0" "$@" </dev/null 3<&- & relay=$!
-( read -r _ <&3; kill "$relay" 2>/dev/null ) &
-exec 3<&-
-wait "$relay""#,
-            )
-            .arg(&bin)
+        let mut child = graceful_stop::watched_command(&bin)
             .arg("serve")
             .arg("--port")
             .arg(port.to_string())
             .arg("--quiet")
-            .stdin(Stdio::piped())
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))
             .spawn()
@@ -95,6 +83,7 @@ wait "$relay""#,
                     lifetime,
                     url: format!("ws://127.0.0.1:{port}"),
                     cleanup_dir: None,
+                    croissant: false,
                 });
             }
             if let Some(status) = child.try_wait().expect("poll nak relay") {
