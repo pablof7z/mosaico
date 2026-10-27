@@ -78,14 +78,20 @@ demands:
 - one bounded group-record demand;
 - one exact-author profile demand.
 
-Changing coverage replaces the affected SDK subscription by stable id. One
-view-rebuild task queries all active filters and atomically swaps the decoded
+Each product demand keeps a stable id, but every REQ for it gets a fresh SDK
+subscription id (`<demand>:<sequence>`). Changing coverage opens the
+replacement first and only then closes the old subscription. Relays may apply
+one connection's frames concurrently, so reusing an id would let a late CLOSE
+drop the new subscription. Completion (EOSE) state is pruned to live and
+opening subscriptions whenever one closes. If a replacement is refused, the
+old subscription keeps serving the demand. One view-rebuild task queries all active filters and atomically swaps the decoded
 level. Demux, read/search RPCs, channel readiness, presence, and profile
 resolution reread that level after wakes.
 
 No application retained-handle abstraction exists. A few serialized one-shot
-reads use stable temporary demand ids for an exact profile, group, or reference
-question, then close them.
+reads open a stable temporary demand for an exact profile, group, or reference
+question, then close it; like every demand, each read's REQ uses a fresh SDK
+subscription id.
 
 ## Inbound delivery
 

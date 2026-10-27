@@ -116,6 +116,37 @@ async fn active_demands_define_the_complete_raw_level() {
     wait_for_ids(&runtime, BTreeSet::new()).await;
 }
 
+/// Fresh per-REQ ids must not let completion state grow without bound: a
+/// late EOSE for an already closed id is pruned at the next close.
+#[tokio::test]
+async fn closing_a_subscription_prunes_completion_for_ids_no_longer_open() {
+    let relay = TestRelay::new(AckMode::Accept, []);
+    let runtime = runtime(&relay, Duration::from_millis(100)).await;
+    let filter = || vec![Filter::new().kind(Kind::TextNote).limit(8)];
+    runtime.replace_demand("content", filter()).await.unwrap();
+    runtime
+        .wait_for_eose("content", Duration::from_secs(2))
+        .await
+        .unwrap();
+    let completed = |runtime: &NostrRuntime| runtime.completed.lock().unwrap().clone();
+    runtime
+        .completed
+        .lock()
+        .unwrap()
+        .insert(nostr::prelude::SubscriptionId::new("content:late"));
+
+    runtime.replace_demand("content", filter()).await.unwrap();
+    runtime
+        .wait_for_eose("content", Duration::from_secs(2))
+        .await
+        .unwrap();
+    let live = runtime.demands.lock().unwrap()["content"].id.clone();
+    assert_eq!(completed(&runtime), BTreeSet::from([live]));
+
+    runtime.close_demand("content").await.unwrap();
+    assert!(completed(&runtime).is_empty());
+}
+
 /// A relay may apply one connection's frames out of order, so a replacement
 /// REQ must never reuse a subscription id a CLOSE can still target.
 #[tokio::test]
