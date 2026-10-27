@@ -237,6 +237,7 @@ fn who_snapshot_hides_archived_channel_presence() {
 }
 
 mod dormant;
+mod partial_view;
 mod projection;
 mod summary;
 

@@ -87,7 +87,9 @@ it present. In turn deltas, a heartbeat that lapses without a closing status
 is announced as going offline, like a graceful close; membership is
 unchanged, so it is not a departure. The `who` snapshot rows are this host's
 running sessions plus other current relay statuses; a stopped local session
-gets no row. Dormant members keep membership and exact p-tag resume; they are
+gets no row. A channel whose ancestry the group view has not yet delivered (as
+while a restarted daemon rehydrates) is not yet known: `who` omits it rather
+than failing. Dormant members keep membership and exact p-tag resume; they are
 simply not reported. `who --expired` lists stopped local sessions that have a
 native resume locator.
 

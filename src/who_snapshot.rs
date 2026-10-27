@@ -124,11 +124,14 @@ pub(crate) fn build_who_snapshot(
             if is_archived_channel(aggregation, &scope) {
                 continue;
             }
-            if current_root
-                .map(|p| scope_contains_channel(aggregation, p, &scope))
-                .transpose()?
-                .unwrap_or(true)
-            {
+            let in_scope = match current_root {
+                Some(root) => match scope_contains_channel(aggregation, root, &scope) {
+                    Some(in_scope) => in_scope,
+                    None => continue,
+                },
+                None => true,
+            };
+            if in_scope {
                 rows.push(local_row(aggregation, s, &scope, &local_host, now)?);
             } else if aggregation.has_heartbeat(&s.pubkey, &scope)
                 && is_root_channel(aggregation, &scope)
@@ -162,10 +165,17 @@ pub(crate) fn build_who_snapshot(
             if my_pubkeys.contains(&st.pubkey) {
                 continue;
             }
-            let in_scope = current_root
-                .map(|p| scope_contains_channel(aggregation, p, ch))
-                .transpose()?
-                .unwrap_or(true);
+            let in_scope = match current_root {
+                Some(root) => match scope_contains_channel(aggregation, root, ch) {
+                    Some(in_scope) => in_scope,
+                    None => continue,
+                },
+                None => true,
+            };
+            if in_scope && aggregation.root_for_channel(ch).is_err() {
+                // A peer row names its work root; not yet known, so skip.
+                continue;
+            }
             if in_scope {
                 rows.push(peer_row(aggregation, st, &local_host, now)?);
             } else if st.is_heartbeat() && is_root_channel(aggregation, ch) {

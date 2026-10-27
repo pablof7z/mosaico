@@ -186,16 +186,34 @@ fn relay_groups_for_member(relay: &str, pubkey: &str) -> Result<BTreeSet<String>
     Ok(groups)
 }
 
-/// The newest kind:30315 presence status `pubkey` has on the relay, as its
-/// `created_at`, read independently of the daemon.
-pub(crate) fn latest_relay_status_at(relay: &str, pubkey: &str) -> Option<u64> {
+/// The newest kind:30315 presence status `pubkey` has on the relay, read
+/// independently of the daemon.
+pub(crate) struct RelayStatus {
+    pub(crate) id: String,
+    pub(crate) created_at: u64,
+    /// The channels (`h` tags) the one status event covers.
+    pub(crate) channels: BTreeSet<String>,
+}
+
+pub(crate) fn latest_relay_status(relay: &str, pubkey: &str) -> Option<RelayStatus> {
     let stdout = run_nak_req_bounded(relay, &["-k", "30315", "-a", pubkey, "-l", "20"]).ok()?;
     stdout
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
         .filter(|event| event["pubkey"].as_str() == Some(pubkey))
-        .filter_map(|event| event["created_at"].as_u64())
-        .max()
+        .filter_map(|event| {
+            Some(RelayStatus {
+                id: event["id"].as_str()?.to_string(),
+                created_at: event["created_at"].as_u64()?,
+                channels: event["tags"]
+                    .as_array()?
+                    .iter()
+                    .filter(|tag| tag[0] == "h")
+                    .filter_map(|tag| tag[1].as_str().map(str::to_string))
+                    .collect(),
+            })
+        })
+        .max_by_key(|status| status.created_at)
 }
 
 fn run_nak_req_bounded(relay: &str, filters: &[&str]) -> Result<String> {

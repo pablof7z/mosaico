@@ -83,10 +83,11 @@ subscription id (`<demand>:<sequence>`). Changing coverage opens the
 replacement first and only then closes the old subscription. Relays may apply
 one connection's frames concurrently, so reusing an id would let a late CLOSE
 drop the new subscription. Completion (EOSE) state is pruned to live and
-opening subscriptions whenever one closes. If a replacement is refused, the
-old subscription keeps serving the demand. One view-rebuild task queries all active filters and atomically swaps the decoded
-level. Demux, read/search RPCs, channel readiness, presence, and profile
-resolution reread that level after wakes.
+opening subscriptions whenever one closes. If a replacement is refused, the old
+subscription keeps serving the demand. One view-rebuild task queries all active
+filters and atomically swaps the decoded level. Demux, read/search RPCs,
+channel readiness, presence, and profile resolution reread that level after
+wakes.
 
 No application retained-handle abstraction exists. A few serialized one-shot
 reads open a stable temporary demand for an exact profile, group, or reference

@@ -66,14 +66,18 @@ pub(crate) fn wait_for_who_session_channels(
         let reply = rt().block_on(async {
             let mut client = mosaico::daemon::client::Client::connect_or_spawn()
                 .await
-                .ok()?;
+                .map_err(|error| format!("connect: {error:#}"))?;
             client
                 .call("who", serde_json::json!({ "workspace": workspace }))
                 .await
-                .ok()
+                .map_err(|error| format!("who failed: {error:#}"))
         });
-        let Some(reply) = reply else {
-            return false;
+        let reply = match reply {
+            Ok(reply) => reply,
+            Err(error) => {
+                last = error;
+                return false;
+            }
         };
         last = reply["rows"].to_string();
         channels = reply["rows"].as_array().and_then(|rows| {
